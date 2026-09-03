@@ -1,0 +1,50 @@
+"""Fixed, non-learned resolution of card-effect sub-decisions (discard,
+trash, topdeck, react-to-attack, optional yes/no).
+
+Both BigMoneyAgent and Domibot (the MCTS/network agent) share this: neither
+searches or learns these — see mcts.py's module docstring for why. This
+keeps the strategic layer (what to play, what to buy) as the only thing
+either agent actually reasons about.
+"""
+from __future__ import annotations
+
+from domibot import Action, DecisionKind, Game
+from domibot.models import NO, NO_REVEAL, REVEAL_MOAT
+
+# Cards ranked worst-to-best to give up when forced to (Militia's discard,
+# Sentry's trash/discard, ...). No card-specific strategy behind this, just "keep the good stuff."
+_JUNK_PRIORITY = ["Curse", "Estate", "Copper"]
+
+
+def heuristic_reaction(game: Game) -> Action:
+    """Resolve whatever the current pending Decision is. Only valid to call
+    when `game.pending_decision is not None`."""
+    decision = game.pending_decision
+    actions = game.legal_actions()
+
+    if decision.kind == DecisionKind.REACT:
+        return REVEAL_MOAT if REVEAL_MOAT in actions else NO_REVEAL
+    if decision.kind == DecisionKind.YES_NO:
+        return NO if NO in actions else actions[0]
+
+    card_actions = [a for a in actions if a.card is not None]
+    if not card_actions:
+        return actions[0]  # e.g. DONE, with nothing left worth giving up
+
+    def rank(a: Action) -> int:
+        try:
+            return _JUNK_PRIORITY.index(a.card)
+        except ValueError:
+            return len(_JUNK_PRIORITY)  # an unrecognized (kingdom) card: give up last
+
+    return min(card_actions, key=rank)
+
+
+def advance_to_next_phase_action(game: Game, action: Action) -> None:
+    """Apply `action`, then keep resolving whatever forced sub-decisions
+    follow from it (via `heuristic_reaction`) until control returns to a
+    plain phase-action choice (`pending_decision is None`) or the game
+    ends. Mutates `game` in place."""
+    game.step(action)
+    while (not game.is_game_over()) and game.pending_decision is not None:
+        game.step(heuristic_reaction(game))

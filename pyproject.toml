@@ -1,0 +1,17 @@
+[project]
+name = "domibot"
+version = "0.1.0"
+description = "Dominion (base set) game engine with a step/legal_actions API suited for self-play RL agents"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
+train = ["numpy>=1.24", "torch>=2.0"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

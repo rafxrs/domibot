@@ -1,0 +1,115 @@
+"""Fixed-size numeric encodings of Game state and Action, for feeding a
+future policy/value network. Nothing in this module trains anything — it
+just defines the (observation, action) interface every learning agent will
+share, kept separate from domibot itself since it's specific to the RL
+side, not the rules engine.
+
+Two vocabularies, fixed once at import time regardless of which 10 kingdom
+cards a given game uses:
+
+- `CARD_NAMES` — all 33 base-set cards (7 basic + 26 kingdom), sorted.
+- `ACTION_VOCAB` — every (verb, card) pair that can ever be produced by any
+  card effect (see effects.py/kingdom.py), plus the verb-only actions
+  (DONE, YES, NO, END_ACTIONS, END_BUY, REVEAL_MOAT, NO_REVEAL, NONE).
+  `Game.legal_actions()` at any point is always a subset of this list.
+"""
+from __future__ import annotations
+
+import numpy as np
+
+from domibot import ALL_CARDS, Action, DecisionKind, Game, Phase
+
+CARD_NAMES: list[str] = sorted(ALL_CARDS)
+NUM_CARDS = len(CARD_NAMES)
+CARD_INDEX = {name: i for i, name in enumerate(CARD_NAMES)}
+
+_CARD_VERBS = ("PLAY", "BUY", "GAIN", "TRASH", "DISCARD", "TOPDECK")
+_VERB_ONLY_ACTIONS = (
+    Action("DONE"), Action("YES"), Action("NO"), Action("END_ACTIONS"),
+    Action("END_BUY"), Action("REVEAL_MOAT"), Action("NO_REVEAL"), Action("NONE"),
+)
+
+ACTION_VOCAB: list[Action] = [
+    Action(verb, name) for verb in _CARD_VERBS for name in CARD_NAMES
+] + list(_VERB_ONLY_ACTIONS)
+ACTION_INDEX = {a: i for i, a in enumerate(ACTION_VOCAB)}
+NUM_ACTIONS = len(ACTION_VOCAB)
+
+MAX_OPPONENTS = 3  # the base set supports up to 4 players, i.e. up to 3 opponents
+
+_DECISION_KINDS = (DecisionKind.PHASE_ACTION, DecisionKind.SELECT_CARD, DecisionKind.YES_NO, DecisionKind.REACT)
+
+# supply + trash + my hand + my total + MAX_OPPONENTS * (discard + play_area + hand_size + deck_size + active)
+# + scalars (phase(2) + my counters(3) + my_turn_number(1) + is_my_turn(1) + decision_kind(4))
+OBS_DIM = NUM_CARDS * 4 + MAX_OPPONENTS * (NUM_CARDS * 2 + 3) + 11
+
+
+def action_to_index(action: Action) -> int:
+    return ACTION_INDEX[action]
+
+
+def index_to_action(index: int) -> Action:
+    return ACTION_VOCAB[index]
+
+
+def legal_action_mask(game: Game) -> np.ndarray:
+    """Boolean mask over ACTION_VOCAB, True at indices that are legal right now."""
+    mask = np.zeros(NUM_ACTIONS, dtype=bool)
+    for a in game.legal_actions():
+        mask[ACTION_INDEX[a]] = True
+    return mask
+
+
+def _card_counts(names) -> np.ndarray:
+    """One entry per card *instance* in `names` (e.g. a hand or discard pile)."""
+    counts = np.zeros(NUM_CARDS, dtype=np.float32)
+    for name in names:
+        counts[CARD_INDEX[name]] += 1
+    return counts
+
+
+def _supply_counts(supply: dict[str, int]) -> np.ndarray:
+    counts = np.zeros(NUM_CARDS, dtype=np.float32)
+    for name, count in supply.items():
+        counts[CARD_INDEX[name]] = count
+    return counts
+
+
+def encode_observation(game: Game, player_idx: int) -> np.ndarray:
+    """Encode `game` from `player_idx`'s point of view. Respects hidden
+    information: only `player_idx`'s own hand/deck composition is fully
+    known; opponents expose only what's actually public in Dominion (their
+    discard pile and play area, plus hand/deck *sizes* — never hand or
+    deck *contents*)."""
+    me = game.players[player_idx]
+    parts = [
+        _supply_counts(game.supply),
+        _card_counts(game.trash),
+        _card_counts(me.hand),
+        _card_counts(me.all_cards()),
+    ]
+
+    opponents = game.other_players_in_order(player_idx)
+    for slot in range(MAX_OPPONENTS):
+        if slot < len(opponents):
+            opp = game.players[opponents[slot]]
+            parts.append(_card_counts(opp.discard))
+            parts.append(_card_counts(opp.play_area))
+            parts.append(np.array([len(opp.hand), opp.deck_size(), 1.0], dtype=np.float32))
+        else:
+            parts.append(np.zeros(NUM_CARDS, dtype=np.float32))
+            parts.append(np.zeros(NUM_CARDS, dtype=np.float32))
+            parts.append(np.zeros(3, dtype=np.float32))
+
+    phase_onehot = np.array([1.0 if game.phase == Phase.ACTION else 0.0,
+                              1.0 if game.phase == Phase.BUY else 0.0], dtype=np.float32)
+    my_counters = np.array([me.actions, me.buys, me.coins], dtype=np.float32)
+    my_turn_number = np.array([me.turns_taken + 1], dtype=np.float32)
+    is_my_turn = np.array([1.0 if game.current_player == player_idx else 0.0], dtype=np.float32)
+    kind = game.pending_decision.kind if game.pending_decision is not None else DecisionKind.PHASE_ACTION
+    decision_onehot = np.array([1.0 if kind == k else 0.0 for k in _DECISION_KINDS], dtype=np.float32)
+
+    parts += [phase_onehot, my_counters, my_turn_number, is_my_turn, decision_onehot]
+    obs = np.concatenate(parts)
+    assert obs.shape == (OBS_DIM,)
+    return obs
