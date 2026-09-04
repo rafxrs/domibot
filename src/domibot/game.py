@@ -154,7 +154,9 @@ class Game:
         if action not in self.legal_actions():
             raise ValueError(f"illegal action {action!r} (legal: {self.legal_actions()})")
 
-        self.action_log.append(LogEntry(self.current_turn_number, self.current_decider(), action))
+        decider = self.current_decider()
+        hand_snapshot = tuple(sorted(self.players[decider].hand))
+        self.action_log.append(LogEntry(self.current_turn_number, decider, hand_snapshot, action))
         if self.pending_gen is not None:
             self._resume_generator(action)
         else:

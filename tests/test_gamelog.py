@@ -2,6 +2,7 @@ import json
 import random
 
 from domibot import Game, KINGDOM_CARDS
+from domibot.gamelog import _format_hand
 from domibot.models import END_ACTIONS, END_BUY
 
 
@@ -24,9 +25,9 @@ def test_action_log_numbers_turns_per_player():
         game.step(END_ACTIONS)
         game.step(END_BUY)
 
-    assert game.action_log[0] == (1, 0, END_ACTIONS)  # P0 turn 1
-    assert game.action_log[2] == (1, 1, END_ACTIONS)  # P1 turn 1
-    assert game.action_log[4] == (2, 0, END_ACTIONS)  # P0 turn 2
+    assert (game.action_log[0].turn, game.action_log[0].player, game.action_log[0].action) == (1, 0, END_ACTIONS)
+    assert (game.action_log[2].turn, game.action_log[2].player, game.action_log[2].action) == (1, 1, END_ACTIONS)
+    assert (game.action_log[4].turn, game.action_log[4].player, game.action_log[4].action) == (2, 0, END_ACTIONS)
 
 
 def test_save_log_text(tmp_path):
@@ -38,7 +39,13 @@ def test_save_log_text(tmp_path):
     assert f"kingdom: {', '.join(sorted(game.kingdom))}" in text
     assert f"seed: {game.seed}" in text
     for entry in game.action_log:
-        assert f"turn {entry.turn:>3}  P{entry.player}  {entry.action}" in text
+        assert f"turn {entry.turn:>3}  P{entry.player}  hand={_format_hand(entry.hand)}  {entry.action}" in text
+
+
+def test_format_hand_counts_duplicates():
+    assert _format_hand(()) == "[]"
+    assert _format_hand(("Copper",)) == "[Copper]"
+    assert _format_hand(("Copper", "Copper", "Estate")) == "[Copperx2, Estate]"
 
 
 def test_save_log_json_round_trips_actions(tmp_path):
@@ -53,6 +60,7 @@ def test_save_log_json_round_trips_actions(tmp_path):
     for recorded, entry in zip(data["actions"], game.action_log):
         assert recorded["turn"] == entry.turn
         assert recorded["player"] == entry.player
+        assert recorded["hand"] == list(entry.hand)
         assert recorded["verb"] == entry.action.verb
         assert recorded["card"] == entry.action.card
 

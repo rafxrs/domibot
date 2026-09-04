@@ -5,7 +5,15 @@ Not named `logging.py` to avoid shadowing the stdlib module.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
+
+
+def _format_hand(hand: tuple[str, ...]) -> str:
+    if not hand:
+        return "[]"
+    counts = Counter(hand)
+    return "[" + ", ".join(f"{name}x{n}" if n > 1 else name for name, n in sorted(counts.items())) + "]"
 
 
 def to_text(game) -> str:
@@ -16,7 +24,7 @@ def to_text(game) -> str:
         "",
     ]
     for entry in game.action_log:
-        lines.append(f"turn {entry.turn:>3}  P{entry.player}  {entry.action}")
+        lines.append(f"turn {entry.turn:>3}  P{entry.player}  hand={_format_hand(entry.hand)}  {entry.action}")
     if game.is_game_over():
         lines.append("")
         lines.append(f"scores: {game.get_scores()}")
@@ -30,7 +38,7 @@ def to_dict(game) -> dict:
         "num_players": game.num_players,
         "seed": game.seed,
         "actions": [
-            {"turn": e.turn, "player": e.player, "verb": e.action.verb, "card": e.action.card}
+            {"turn": e.turn, "player": e.player, "hand": list(e.hand), "verb": e.action.verb, "card": e.action.card}
             for e in game.action_log
         ],
     }

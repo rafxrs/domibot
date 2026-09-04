@@ -77,6 +77,7 @@ def test_replay_buffer_respects_capacity():
 
 
 def test_train_step_updates_weights_and_reduces_joint_loss_on_repeat():
+    torch.manual_seed(0)  # DomibotNet()'s init is otherwise unseeded, making this flaky
     net = DomibotNet()
     optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
     net.eval()

@@ -66,6 +66,9 @@ def main() -> None:
     parser.add_argument("--eval-games", type=int, default=20)
     parser.add_argument("--eval-simulations", type=int, default=100, help="MCTS simulations per move during eval")
     parser.add_argument("--checkpoint", type=str, default=None, help="resume from this checkpoint file")
+    parser.add_argument("--start-iteration", type=int, default=1,
+                         help="iteration number to start counting from when resuming, so iter_N.pt snapshots "
+                              "continue a previous run's numbering instead of overwriting it from iter_5.pt again")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
@@ -81,7 +84,8 @@ def main() -> None:
 
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
-    for iteration in range(1, args.iterations + 1):
+    end_iteration = args.start_iteration + args.iterations - 1
+    for iteration in range(args.start_iteration, end_iteration + 1):
         network.eval()
         t0 = time.time()
         for _ in range(args.games_per_iter):
@@ -101,7 +105,7 @@ def main() -> None:
 
         network.save(CHECKPOINT_DIR / "latest.pt")
 
-        msg = f"iter {iteration}/{args.iterations}  buffer={len(buffer)}  self_play={self_play_time:.1f}s"
+        msg = f"iter {iteration}/{end_iteration}  buffer={len(buffer)}  self_play={self_play_time:.1f}s"
         if policy_losses:
             msg += f"  policy_loss={sum(policy_losses) / len(policy_losses):.4f}  value_loss={sum(value_losses) / len(value_losses):.4f}"
         print(msg, flush=True)

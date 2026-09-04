@@ -27,10 +27,14 @@ NO_REVEAL = Action("NO_REVEAL")
 
 
 class LogEntry(NamedTuple):
-    """One action taken during a game, for replay or saving to a log file."""
+    """One action taken during a game, for replay or saving to a log file.
+    `hand` is a snapshot of the deciding player's hand immediately *before*
+    `action` was taken, sorted for readability (hand order isn't meaningful
+    in Dominion) — it's what the decision was actually made from."""
 
     turn: int
     player: int
+    hand: tuple[str, ...]
     action: Action
 
 
