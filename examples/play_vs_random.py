@@ -86,7 +86,7 @@ def main() -> None:
 
     if input("Save game log? [y/N] ").strip().lower() == "y":
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = GAME_LOGS_DIR / f"{timestamp}_seed{seed}.log"
+        path = GAME_LOGS_DIR / "human_vs_random" / f"{timestamp}_seed{seed}.log"
         game.save_log(path)
         print(f"Saved to {path}")
 

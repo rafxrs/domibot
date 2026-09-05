@@ -80,6 +80,8 @@ def main() -> None:
     agents = load_agents(checkpoint_paths, args.simulations, args.temperature, device)
     print(f"Players: {[Path(p).name for p in checkpoint_paths]} on {device}, {args.simulations} sims/decision")
 
+    matchup_dir = GAME_LOGS_DIR / "_vs_".join(Path(p).stem for p in checkpoint_paths)
+
     rng = random.Random(args.seed)
     win_counts: Counter[int] = Counter()
     tie_games = 0
@@ -104,7 +106,7 @@ def main() -> None:
 
         if args.save_logs:
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            path = GAME_LOGS_DIR / f"{timestamp}_game{i}_seed{game_seed}.log"
+            path = matchup_dir / f"{timestamp}_game{i}_seed{game_seed}.log"
             game.save_log(path)
 
     print(f"\n=== {args.games} games complete ===")

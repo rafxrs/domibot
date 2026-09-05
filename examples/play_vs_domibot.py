@@ -116,7 +116,8 @@ def main() -> None:
 
     if input("Save game log? [y/N] ").strip().lower() == "y":
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = GAME_LOGS_DIR / f"{timestamp}_seed{seed}_vs_domibot.log"
+        matchup_dir = GAME_LOGS_DIR / f"human_vs_{Path(args.checkpoint).stem}"
+        path = matchup_dir / f"{timestamp}_seed{seed}.log"
         game.save_log(path)
         print(f"Saved to {path}")
 
