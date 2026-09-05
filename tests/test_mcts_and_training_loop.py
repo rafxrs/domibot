@@ -5,7 +5,7 @@ from domibot import Action, Game, KINGDOM_CARDS
 from domibot.models import END_ACTIONS
 from training.agents import DomibotAgent
 from training.evaluate import play_game
-from training.mcts import run_mcts, select_action, visit_distribution
+from training.mcts import run_mcts, select_action, terminal_value, visit_distribution
 from training.network import DomibotNet
 from training.self_play import Example, ReplayBuffer, play_self_play_game
 from training.train import train_step
@@ -30,6 +30,42 @@ def test_clone_independence_and_mid_resolution_guard():
         assert False, "expected RuntimeError"
     except RuntimeError:
         pass
+
+
+def test_terminal_value_is_margin_based():
+    game = Game(_tiny_kingdom(), num_players=2, seed=1)
+    for p in game.players:
+        p.hand, p.discard, p.play_area, p.set_aside = [], [], [], []
+
+    game.players[0].deck = ["Province"] * 3  # 18 VP
+    game.players[1].deck = ["Province"] * 1  # 6 VP
+    small_margin = terminal_value(game, 0)
+    assert 0 < small_margin < 1.0
+    assert terminal_value(game, 1) == -small_margin  # zero-sum in a 2p game
+
+    game.players[0].deck = ["Province"] * 6  # 36 VP -- a bigger blowout
+    big_margin = terminal_value(game, 0)
+    assert big_margin > small_margin  # a bigger win scores higher, not just "+1" either way
+
+    game.players[0].deck = ["Province"]
+    game.players[1].deck = ["Province"]
+    assert terminal_value(game, 0) == 0.0  # exact tie
+
+
+def test_action_bias_shifts_prior_toward_playing_actions():
+    game = Game(_tiny_kingdom(), num_players=2, seed=2)
+    game.players[0].hand = ["Village", "Copper", "Copper", "Copper", "Copper"]
+    net = DomibotNet()
+    net.eval()
+
+    root_unbiased = run_mcts(game, net, num_simulations=1, action_bias=0.0)
+    root_biased = run_mcts(game, net, num_simulations=1, action_bias=0.5)
+
+    play_village = Action("PLAY", "Village")
+    assert root_biased.P[play_village] > root_unbiased.P[play_village]
+    assert root_biased.P[END_ACTIONS] < root_unbiased.P[END_ACTIONS]
+    assert abs(sum(root_biased.P.values()) - 1.0) < 1e-5  # still a valid distribution
+    assert game.legal_actions() == [Action("PLAY", "Village"), END_ACTIONS]  # root_game untouched
 
 
 def test_mcts_only_visits_legal_actions_and_conserves_visit_count():
@@ -63,7 +99,7 @@ def test_self_play_game_produces_consistent_examples():
         assert ex.mask.dtype == bool
         assert abs(ex.policy_target.sum() - 1.0) < 1e-5
         assert np.all(ex.policy_target[~ex.mask] == 0.0)
-        assert ex.value_target in (-1.0, 0.0, 1.0)
+        assert -1.0 <= ex.value_target <= 1.0  # margin-based now, not just -1/0/1
 
 
 def test_replay_buffer_respects_capacity():

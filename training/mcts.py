@@ -41,11 +41,20 @@ import numpy as np
 import torch
 
 from domibot import Action, Game
+from domibot.models import END_ACTIONS
 
 from . import encoding
 from .heuristics import advance_to_next_phase_action
 
 C_PUCT = 1.5
+
+# Squashes a final-score margin (this player's score minus the average of
+# everyone else's) into (-1, 1) for use as a value target/terminal backup.
+# 20 VP is roughly "a solid, clear win" by the games seen so far (a few
+# Provinces' worth of margin) without being an extreme blowout, so it sits
+# at tanh(1) ~= 0.76 rather than saturating near +-1 immediately -- a bare
+# win and a blowout should still be distinguishable in the training signal.
+MARGIN_SCALE = 20.0
 
 
 class MCTSNode:
@@ -61,18 +70,55 @@ class MCTSNode:
         self.expanded = False
 
 
-def _terminal_value(game: Game, perspective: int) -> float:
-    winners = game.winners()
-    if len(winners) != 1:
-        return 0.0
-    return 1.0 if winners[0] == perspective else -1.0
+def terminal_value(game: Game, perspective: int) -> float:
+    """Margin-based outcome for a finished game, from `perspective`'s point
+    of view: `perspective`'s score minus the average of every other
+    player's, squashed through tanh. A 1-point nail-biter and a 40-point
+    blowout both used to train identically as "+1" under plain win/loss;
+    this keeps that distinction, which matters when the whole point is to
+    learn that some strategies (e.g. an actual engine) win *more
+    decisively* than others, not just win."""
+    scores = game.get_scores()
+    others = [s for p, s in scores.items() if p != perspective]
+    margin = scores[perspective] - (sum(others) / len(others))
+    return math.tanh(margin / MARGIN_SCALE)
 
 
-def evaluate_node(node: MCTSNode, network: torch.nn.Module, device: torch.device) -> float:
+def _apply_action_continuation_bias(node: "MCTSNode", strength: float) -> None:
+    """Self-play-only nudge: shift a fraction of END_ACTIONS' prior mass
+    onto playing another Action card, whenever the player still has actions
+    to spend and an Action card in hand to spend them on (exactly the
+    situation where `PLAY(...)` options and `END_ACTIONS` are both legal --
+    `PLAY` never appears in the Buy phase since treasures auto-play).
+
+    Without this, a multi-card 'engine' turn needs an independent lucky
+    Dirichlet-noise roll at *every* step to ever get tried, so its
+    probability collapses fast with chain length. Unlike Dirichlet noise
+    (root only), this applies at every node reached during search, so a
+    multi-step chain actually gets attempted often enough during self-play
+    for the value network to learn whether it pays off, instead of it being
+    a rare accident that never accumulates real evidence either way."""
+    play_actions = [a for a in node.legal_actions if a.verb == "PLAY"]
+    if not play_actions or END_ACTIONS not in node.P:
+        return
+    shift = node.P[END_ACTIONS] * strength
+    node.P[END_ACTIONS] -= shift
+    bonus = shift / len(play_actions)
+    for a in play_actions:
+        node.P[a] += bonus
+
+
+def evaluate_node(
+    node: MCTSNode, network: torch.nn.Module, device: torch.device, action_bias: float = 0.0
+) -> float:
     """One network forward pass on `node.game` from `node.decider`'s point
     of view: sets `node.P` (masked, normalized priors over legal actions)
     and marks the node expanded. Returns the value estimate, also from
-    `node.decider`'s perspective. Only valid on a non-terminal node."""
+    `node.decider`'s perspective. Only valid on a non-terminal node.
+
+    `action_bias` > 0 applies `_apply_action_continuation_bias`; leave at 0
+    for evaluation/play so what you're measuring is the network's own
+    judgment, not an artificially nudged one."""
     obs = encoding.encode_observation(node.game, node.decider)
     mask = encoding.legal_action_mask(node.game)
     obs_t = torch.from_numpy(obs).unsqueeze(0).to(device)
@@ -87,6 +133,8 @@ def evaluate_node(node: MCTSNode, network: torch.nn.Module, device: torch.device
     probs = probs / total
 
     node.P = {a: float(probs[encoding.ACTION_INDEX[a]]) for a in node.legal_actions}
+    if action_bias > 0:
+        _apply_action_continuation_bias(node, action_bias)
     node.expanded = True
     return float(value.item())
 
@@ -109,9 +157,11 @@ def _create_child(node: MCTSNode, action: Action) -> MCTSNode:
     return MCTSNode(clone)
 
 
-def _simulate(node: MCTSNode, network: torch.nn.Module, device: torch.device, c_puct: float) -> float:
+def _simulate(
+    node: MCTSNode, network: torch.nn.Module, device: torch.device, c_puct: float, action_bias: float = 0.0
+) -> float:
     if not node.expanded:
-        return evaluate_node(node, network, device)
+        return evaluate_node(node, network, device, action_bias)
 
     action = _puct_select(node, c_puct)
     child = node.children.get(action)
@@ -121,9 +171,13 @@ def _simulate(node: MCTSNode, network: torch.nn.Module, device: torch.device, c_
         node.children[action] = child
 
     if child.is_terminal:
-        value_for_node = _terminal_value(child.game, node.decider)
+        value_for_node = terminal_value(child.game, node.decider)
     else:
-        child_value = evaluate_node(child, network, device) if is_new_child else _simulate(child, network, device, c_puct)
+        child_value = (
+            evaluate_node(child, network, device, action_bias)
+            if is_new_child
+            else _simulate(child, network, device, c_puct, action_bias)
+        )
         value_for_node = child_value if child.decider == node.decider else -child_value
 
     node.N[action] += 1
@@ -140,6 +194,7 @@ def run_mcts(
     add_noise: bool = False,
     dirichlet_alpha: float = 0.3,
     dirichlet_epsilon: float = 0.25,
+    action_bias: float = 0.0,
     rng: Optional[np.random.Generator] = None,
 ) -> MCTSNode:
     """Runs `num_simulations` simulations from a clone of `root_game`
@@ -149,7 +204,10 @@ def run_mcts(
     (`pending_decision is None`) and not already over.
 
     `add_noise` mixes Dirichlet noise into the root priors (standard
-    AlphaZero self-play exploration) — leave off for evaluation/play."""
+    AlphaZero self-play exploration). `action_bias` (see
+    `_apply_action_continuation_bias`) nudges every node in the tree, not
+    just the root, toward continuing to play Action cards. Leave both at
+    their defaults (off) for evaluation/play."""
     if root_game.pending_decision is not None or root_game.is_game_over():
         raise ValueError("run_mcts requires a non-terminal phase-action decision point")
     if device is None:
@@ -157,14 +215,14 @@ def run_mcts(
     rng = rng or np.random.default_rng()
 
     root = MCTSNode(root_game.clone())
-    evaluate_node(root, network, device)
+    evaluate_node(root, network, device, action_bias)
     if add_noise and root.legal_actions:
         noise = rng.dirichlet([dirichlet_alpha] * len(root.legal_actions))
         for a, n in zip(root.legal_actions, noise):
             root.P[a] = (1 - dirichlet_epsilon) * root.P[a] + dirichlet_epsilon * float(n)
 
     for _ in range(num_simulations):
-        _simulate(root, network, device, c_puct)
+        _simulate(root, network, device, c_puct, action_bias)
     return root
 
 

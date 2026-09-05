@@ -58,6 +58,10 @@ def main() -> None:
     parser.add_argument("--iterations", type=int, default=50)
     parser.add_argument("--games-per-iter", type=int, default=10)
     parser.add_argument("--simulations", type=int, default=100, help="MCTS simulations per move during self-play")
+    parser.add_argument("--action-bias", type=float, default=0.2,
+                         help="self-play-only nudge toward continuing to play Action cards over ending the phase "
+                              "early, applied at every search node (see mcts._apply_action_continuation_bias). "
+                              "0 disables it.")
     parser.add_argument("--train-steps-per-iter", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--buffer-capacity", type=int, default=200_000)
@@ -89,7 +93,9 @@ def main() -> None:
         network.eval()
         t0 = time.time()
         for _ in range(args.games_per_iter):
-            examples = play_self_play_game(network, args.simulations, seed=rng.randrange(2**31))
+            examples = play_self_play_game(
+                network, args.simulations, action_bias=args.action_bias, seed=rng.randrange(2**31)
+            )
             buffer.add_game(examples)
         self_play_time = time.time() - t0
 

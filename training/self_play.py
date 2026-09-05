@@ -16,11 +16,12 @@ from domibot import Game, KINGDOM_CARDS
 
 from . import encoding
 from .heuristics import advance_to_next_phase_action
-from .mcts import run_mcts, select_action, visit_distribution
+from .mcts import run_mcts, select_action, terminal_value, visit_distribution
 
 DEFAULT_C_PUCT = 1.5
 DEFAULT_TEMPERATURE_MOVES = 15  # phase-action decisions before switching to near-greedy play
 DEFAULT_MAX_MOVES = 400  # safety cap; real games finish well under this
+DEFAULT_ACTION_BIAS = 0.2  # see mcts._apply_action_continuation_bias
 
 
 @dataclass
@@ -40,6 +41,7 @@ def play_self_play_game(
     c_puct: float = DEFAULT_C_PUCT,
     temperature_moves: int = DEFAULT_TEMPERATURE_MOVES,
     max_moves: int = DEFAULT_MAX_MOVES,
+    action_bias: float = DEFAULT_ACTION_BIAS,
     seed: int | None = None,
 ) -> list[Example]:
     py_rng = random.Random(seed)
@@ -52,7 +54,9 @@ def play_self_play_game(
     move_number = 0
     while not game.is_game_over() and move_number < max_moves:
         decider = game.current_decider()
-        root = run_mcts(game, network, num_simulations, c_puct=c_puct, add_noise=True, rng=np_rng)
+        root = run_mcts(
+            game, network, num_simulations, c_puct=c_puct, add_noise=True, action_bias=action_bias, rng=np_rng
+        )
         dist = visit_distribution(root)
 
         policy_target = np.zeros(encoding.NUM_ACTIONS, dtype=np.float32)
@@ -71,12 +75,11 @@ def play_self_play_game(
         advance_to_next_phase_action(game, action)
         move_number += 1
 
-    winners = set(game.winners()) if game.is_game_over() else set()
+    game_over = game.is_game_over()
     for ex in examples:
-        if len(winners) == 1:
-            ex.value_target = 1.0 if ex.decider in winners else -1.0
-        else:
-            ex.value_target = 0.0  # tie, or (rare) hit max_moves without a result
+        # a margin-based value from each example's own decider's perspective;
+        # 0.0 for the rare case of hitting max_moves without a real result
+        ex.value_target = terminal_value(game, ex.decider) if game_over else 0.0
     return examples
 
 
