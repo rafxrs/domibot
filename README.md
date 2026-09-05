@@ -84,7 +84,9 @@ play-or-not).
 ## Layout
 
 Repo root: `src/domibot/` (the engine, below), `tests/`, `examples/` (CLI
-scripts), `training/` (the RL layer — see its own README), `game_logs/`
+scripts), `training/` (the RL layer — see its own README), `gui/` (a
+pygame front-end, launched via `examples/play_vs_domibot.py --gui`;
+`pip install -e ".[gui]"` for the pygame dependency), `game_logs/`
 (gitignored, generated).
 
 - `enums.py` — `CardType`, `Phase`, `DecisionKind`

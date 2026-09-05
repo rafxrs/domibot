@@ -3,6 +3,7 @@
     python examples/play_vs_domibot.py
     python examples/play_vs_domibot.py --checkpoint checkpoints/iter_125.pt --simulations 400
     python examples/play_vs_domibot.py --gpu   # only if you're not also training right now
+    python examples/play_vs_domibot.py --gui   # a pygame window instead of the text prompt
 
 Runs on CPU by default so it doesn't compete with a training run that may
 still be using the GPU. Domibot "thinks" (runs MCTS) for a moment before
@@ -76,6 +77,7 @@ def main() -> None:
     parser.add_argument("--simulations", type=int, default=200, help="MCTS simulations per Domibot decision")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--gpu", action="store_true", help="use CUDA if available (avoid while also training)")
+    parser.add_argument("--gui", action="store_true", help="play in a pygame window instead of the text prompt")
     args = parser.parse_args()
 
     if not Path(args.checkpoint).exists():
@@ -93,15 +95,20 @@ def main() -> None:
     print(f"Kingdom (seed {seed}): {sorted(kingdom)}")
     game = Game(kingdom, num_players=2, seed=seed)
 
-    while not game.is_game_over():
-        decider = game.current_decider()
-        if decider == HUMAN:
-            print_state(game)
-            action = choose_action(game, game.legal_actions())
-        else:
-            action = domibot.act(game)
-            print(f"\n[Domibot] {action}")
-        game.step(action)
+    if args.gui:
+        from gui.app import DominionGUI  # deferred: only needs pygame installed if --gui is actually used
+
+        DominionGUI(game, domibot, human_seat=HUMAN).run()
+    else:
+        while not game.is_game_over():
+            decider = game.current_decider()
+            if decider == HUMAN:
+                print_state(game)
+                action = choose_action(game, game.legal_actions())
+            else:
+                action = domibot.act(game)
+                print(f"\n[Domibot] {action}")
+            game.step(action)
 
     print("\n=== Game over ===")
     scores = game.get_scores()
