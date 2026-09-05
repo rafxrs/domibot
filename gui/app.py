@@ -36,6 +36,11 @@ _SUPPLY_ROWS_HEIGHT = 3 * CARD_H + 2 * 16
 TOP_BAR = pygame.Rect(0, 0, WIDTH, 50)
 SUPPLY_AREA = pygame.Rect(20, 58, 860, _SUPPLY_ROWS_HEIGHT)
 TRASH_AREA = pygame.Rect(900, 58, 140, 110)
+# Domibot's recent moves, filling the rest of the space under the trash pile
+# down to the bottom of the supply grid.
+ACTIVITY_LOG_AREA = pygame.Rect(
+    TRASH_AREA.left, TRASH_AREA.bottom + 10, WIDTH - 20 - TRASH_AREA.left, SUPPLY_AREA.bottom - TRASH_AREA.bottom - 10
+)
 DECISION_PANEL = pygame.Rect(20, SUPPLY_AREA.bottom + 10, WIDTH - 40, 46 + CARD_H + 14)
 PLAY_AREA = pygame.Rect(20, DECISION_PANEL.bottom + 10, WIDTH - 40, CARD_H + 20)
 HAND_AREA = pygame.Rect(20, PLAY_AREA.bottom + 10, WIDTH - 40, CARD_H + 20)
@@ -160,7 +165,7 @@ class DominionGUI:
         """Basic cards get a top row, the 10 kingdom cards two rows below --
         a compact version of the usual dominion.games supply grid."""
         basics = ["Copper", "Silver", "Gold", "Estate", "Duchy", "Province", "Curse"]
-        kingdom = sorted(self.game.kingdom)
+        kingdom = sorted(self.game.kingdom, key=lambda name: (self.game.cards[name].cost, name))
         rects: dict[str, pygame.Rect] = {}
 
         xs = row_positions(len(basics), SUPPLY_AREA.left, SUPPLY_AREA.width, CARD_W)
@@ -186,6 +191,7 @@ class DominionGUI:
         self._draw_top_bar()
         self._draw_supply(mouse_pos)
         self._draw_trash()
+        self._draw_domibot_activity()
         self._draw_decision_panel(mouse_pos)
         self._draw_play_area()
         self._draw_hand(mouse_pos)
@@ -232,6 +238,27 @@ class DominionGUI:
             names = ", ".join(sorted(set(self.game.trash)))
             lines_surf = self.small_font.render(names[:30], True, colors.TEXT_LIGHT)
             self.screen.blit(lines_surf, (TRASH_AREA.left + 8, TRASH_AREA.top + 26))
+
+    def _draw_domibot_activity(self) -> None:
+        """A running feed of what Domibot has actually done -- read straight
+        off Game.action_log rather than tracked separately, so it can never
+        drift from what really happened."""
+        pygame.draw.rect(self.screen, colors.PANEL_BG, ACTIVITY_LOG_AREA, border_radius=8)
+        pygame.draw.rect(self.screen, colors.BORDER, ACTIVITY_LOG_AREA, width=1, border_radius=8)
+        title = self.small_font.render("Domibot's moves", True, colors.TEXT_LIGHT)
+        self.screen.blit(title, (ACTIVITY_LOG_AREA.left + 8, ACTIVITY_LOG_AREA.top + 6))
+
+        bot_entries = [e for e in self.game.action_log if e.player == self.bot_seat]
+        line_h = self.small_font.get_linesize()
+        max_lines = max(0, (ACTIVITY_LOG_AREA.height - 30) // line_h)
+        recent = list(reversed(bot_entries[-max_lines:])) if max_lines else []
+
+        y = ACTIVITY_LOG_AREA.top + 26
+        for entry in recent:
+            text = f"T{entry.turn}: {entry.action}"
+            surf = self.small_font.render(text, True, colors.TEXT_LIGHT)
+            self.screen.blit(surf, (ACTIVITY_LOG_AREA.left + 8, y))
+            y += line_h
 
     def _draw_decision_panel(self, mouse_pos) -> None:
         decision = self.game.pending_decision

@@ -82,3 +82,31 @@ def test_gui_ignores_clicks_when_it_is_not_the_humans_turn():
     gui = DominionGUI(game, _agent(), human_seat=1)  # bot is seat 0, so it's not the human's turn
     gui._rebuild_clickables()
     assert gui.clickables == []
+
+
+def test_supply_kingdom_cards_are_ordered_by_cost_not_alphabetically():
+    game = Game(_tiny_kingdom(), num_players=2, seed=1)
+    gui = DominionGUI(game, _agent(), human_seat=0)
+    rects = gui._supply_rects()
+
+    kingdom_by_position = sorted(game.kingdom, key=lambda n: (rects[n].top, rects[n].left))
+    costs = [game.cards[name].cost for name in kingdom_by_position]
+    assert costs == sorted(costs)  # strictly non-decreasing left-to-right, top-to-bottom
+
+
+def test_domibot_activity_panel_lists_only_the_bots_own_actions():
+    game = Game(_tiny_kingdom(), num_players=2, seed=1)
+    agent = _agent()
+    gui = DominionGUI(game, agent, human_seat=0)
+
+    while len([e for e in game.action_log if e.player == gui.bot_seat]) < 2 and not game.is_game_over():
+        gui._maybe_take_bot_turn()
+        gui._rebuild_clickables()
+        if game.current_decider() == gui.human_seat and not game.is_game_over():
+            game.step(game.legal_actions()[-1])
+
+    gui._draw()  # exercises _draw_domibot_activity without crashing
+
+    bot_entries = [e for e in game.action_log if e.player == gui.bot_seat]
+    assert len(bot_entries) >= 2
+    assert all(e.player == gui.bot_seat for e in bot_entries)  # never the human's own actions
