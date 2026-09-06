@@ -87,10 +87,18 @@ def main() -> None:
                          help="iteration number to start counting from when resuming, so iter_N.pt snapshots "
                               "continue a previous run's numbering instead of overwriting it from iter_5.pt again")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--device", type=str, default=None,
+                         help="device for training/eval (default: CUDA if available, else CPU)")
+    parser.add_argument("--self-play-device", type=str, default=None,
+                         help="device for self-play generation only (default: same as --device). Our benchmarks "
+                              "found self-play is bottlenecked by the unbatched Python game-engine loop, not the "
+                              "(tiny) network's forward pass, so CPU self-play alongside GPU training/eval is often "
+                              "just as fast and frees the GPU for the training step -- pass 'cpu' here to do that.")
     args = parser.parse_args()
 
-    device = get_device()
-    print(f"device: {device}")
+    device = torch.device(args.device) if args.device else get_device()
+    self_play_device = torch.device(args.self_play_device) if args.self_play_device else device
+    print(f"device: {device}  |  self-play device: {self_play_device}")
 
     network = DomibotNet.load(args.checkpoint, map_location=device).to(device) if args.checkpoint else DomibotNet().to(device)
     if args.checkpoint:
@@ -98,6 +106,12 @@ def main() -> None:
     optimizer = torch.optim.Adam(network.parameters(), lr=args.lr)
     buffer = ReplayBuffer(args.buffer_capacity)
     rng = random.Random(args.seed)
+
+    # Self-play runs off a separate copy of the weights when --self-play-device
+    # differs from --device, since a single nn.Module lives on one device at a
+    # time; kept in sync via load_state_dict (a plain tensor copy, which
+    # transparently crosses devices) right before each iteration's self-play.
+    self_play_network = network if self_play_device == device else DomibotNet().to(self_play_device)
 
     reference_agent = None
     if args.reference_checkpoint:
@@ -111,13 +125,16 @@ def main() -> None:
     end_iteration = args.start_iteration + args.iterations - 1
     for iteration in range(args.start_iteration, end_iteration + 1):
         network.eval()
+        if self_play_network is not network:
+            self_play_network.load_state_dict(network.state_dict())
+            self_play_network.eval()
         t0 = time.time()
         remaining = args.games_per_iter
         while remaining > 0:
             chunk = min(args.parallel_games, remaining)
             games_examples = play_self_play_games_batch(
-                network, chunk, args.simulations, action_bias=args.action_bias,
-                device=device, seed=rng.randrange(2**31),
+                self_play_network, chunk, args.simulations, action_bias=args.action_bias,
+                device=self_play_device, seed=rng.randrange(2**31),
             )
             for examples in games_examples:
                 buffer.add_game(examples)
