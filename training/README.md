@@ -94,7 +94,10 @@ while True:
   steps (policy = cross-entropy vs. visit counts, value = MSE vs. outcome)
   → checkpoint → every `--eval-every` iterations, play the current network
   (via MCTS) against `BigMoneyAgent` and report the score, so you can watch
-  it actually improve over time.
+  it actually improve over time. Pass `--reference-checkpoint <path>` to
+  also eval against a fixed past checkpoint (loaded once, frozen for the
+  whole run) alongside BigMoney — useful for comparing a new network
+  lineage against an older one on equal footing.
 - `agents.DomibotAgent` wraps a trained network + MCTS behind the same
   `act(game)` interface as the baselines, so it drops straight into
   `evaluate.py` against `RandomAgent`/`BigMoneyAgent` (or another
@@ -108,9 +111,14 @@ python -m training.train
 
 Key flags (see `python -m training.train --help`): `--iterations`,
 `--games-per-iter`, `--simulations` (MCTS sims/move during self-play —
-bigger is stronger but slower), `--eval-every`, `--checkpoint <path>` to
-resume. Checkpoints land in `checkpoints/` (gitignored) as `latest.pt`
-plus a snapshot every eval.
+bigger is stronger but slower), `--action-bias` (self-play-only nudge to
+keep chaining Action cards instead of ending the phase early — see
+`mcts._apply_action_continuation_bias`; most effective when set from a
+fresh network rather than added mid-training), `--eval-every`,
+`--eval-games` (per opponent), `--reference-checkpoint <path>` (adds a
+second, fixed eval opponent), `--checkpoint <path>` to resume. Checkpoints
+land in `checkpoints/` (gitignored) as `latest.pt` plus a snapshot every
+eval.
 
 ### GPU
 

@@ -5,6 +5,7 @@ repeat.
 
     python -m training.train
     python -m training.train --iterations 200 --games-per-iter 20 --simulations 150
+    python -m training.train --reference-checkpoint checkpoints/domibot_v1.4.pt --eval-games 40
 
 GPU note: this network is small (a few hundred thousand parameters) and
 each self-play move currently runs the network one board at a time inside
@@ -66,10 +67,13 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--buffer-capacity", type=int, default=200_000)
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--eval-every", type=int, default=5, help="iterations between eval-vs-BigMoney checks")
-    parser.add_argument("--eval-games", type=int, default=20)
+    parser.add_argument("--eval-every", type=int, default=5, help="iterations between eval checks")
+    parser.add_argument("--eval-games", type=int, default=20, help="games per eval opponent (BigMoney and, if set, --reference-checkpoint)")
     parser.add_argument("--eval-simulations", type=int, default=100, help="MCTS simulations per move during eval")
     parser.add_argument("--checkpoint", type=str, default=None, help="resume from this checkpoint file")
+    parser.add_argument("--reference-checkpoint", type=str, default=None,
+                         help="if set, also eval every --eval-every iterations against this fixed checkpoint "
+                              "(loaded once, frozen for the whole run) in addition to BigMoney")
     parser.add_argument("--start-iteration", type=int, default=1,
                          help="iteration number to start counting from when resuming, so iter_N.pt snapshots "
                               "continue a previous run's numbering instead of overwriting it from iter_5.pt again")
@@ -85,6 +89,13 @@ def main() -> None:
     optimizer = torch.optim.Adam(network.parameters(), lr=args.lr)
     buffer = ReplayBuffer(args.buffer_capacity)
     rng = random.Random(args.seed)
+
+    reference_agent = None
+    if args.reference_checkpoint:
+        reference_net = DomibotNet.load(args.reference_checkpoint, map_location=device).to(device)
+        reference_net.eval()
+        reference_agent = DomibotAgent(reference_net, num_simulations=args.eval_simulations, device=device)
+        print(f"reference opponent: {args.reference_checkpoint}")
 
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -121,6 +132,10 @@ def main() -> None:
             agent = DomibotAgent(network, num_simulations=args.eval_simulations, device=device)
             result = play_match(agent, BigMoneyAgent(), n_games=args.eval_games, seed=iteration)
             print(f"  eval vs BigMoney: {result['agent_a_wins']}/{result['games']} wins, {result['ties']} ties", flush=True)
+            if reference_agent is not None:
+                ref_result = play_match(agent, reference_agent, n_games=args.eval_games, seed=iteration)
+                print(f"  eval vs {Path(args.reference_checkpoint).stem}: "
+                      f"{ref_result['agent_a_wins']}/{ref_result['games']} wins, {ref_result['ties']} ties", flush=True)
             network.save(CHECKPOINT_DIR / f"iter_{iteration}.pt")
 
 
