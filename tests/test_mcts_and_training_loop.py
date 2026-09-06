@@ -5,9 +5,9 @@ from domibot import Action, Game, KINGDOM_CARDS
 from domibot.models import END_ACTIONS
 from training.agents import DomibotAgent
 from training.evaluate import play_game
-from training.mcts import run_mcts, select_action, terminal_value, visit_distribution
+from training.mcts import run_mcts, run_mcts_batch, select_action, terminal_value, visit_distribution
 from training.network import DomibotNet
-from training.self_play import Example, ReplayBuffer, play_self_play_game
+from training.self_play import Example, ReplayBuffer, play_self_play_game, play_self_play_games_batch
 from training.train import train_step
 
 
@@ -85,6 +85,60 @@ def test_mcts_only_visits_legal_actions_and_conserves_visit_count():
     assert game.legal_actions() == list(root.game.legal_actions())
     action = select_action(root, temperature=0.0)
     assert action in legal
+
+
+def test_run_mcts_batch_matches_single_game_semantics():
+    games = [Game(_tiny_kingdom(), num_players=2, seed=s) for s in (10, 11, 12)]
+    net = DomibotNet()
+    net.eval()
+
+    roots = run_mcts_batch(games, net, num_simulations=20, add_noise=True,
+                            rngs=[np.random.default_rng(s) for s in (10, 11, 12)])
+
+    assert len(roots) == 3
+    for game, root in zip(games, roots):
+        legal = set(game.legal_actions())
+        assert set(root.N.keys()) == legal
+        assert sum(root.N.values()) == 20
+        dist = visit_distribution(root)
+        assert abs(sum(dist.values()) - 1.0) < 1e-6
+        # root_game itself must be untouched by the batched search
+        assert game.legal_actions() == list(root.game.legal_actions())
+
+
+def test_run_mcts_batch_of_one_is_consistent_with_run_mcts():
+    # not bit-identical (different RNG draws inside each implementation's
+    # own loop structure), but should explore the same legal-action space
+    # and conserve visit counts identically.
+    game = Game(_tiny_kingdom(), num_players=2, seed=2)
+    game.step(END_ACTIONS)
+    net = DomibotNet()
+    net.eval()
+
+    root_single = run_mcts(game, net, num_simulations=15, add_noise=True, rng=np.random.default_rng(0))
+    root_batch = run_mcts_batch(
+        [game], net, num_simulations=15, add_noise=True, rngs=[np.random.default_rng(0)]
+    )[0]
+
+    assert set(root_single.N.keys()) == set(root_batch.N.keys())
+    assert sum(root_single.N.values()) == sum(root_batch.N.values()) == 15
+
+
+def test_self_play_games_batch_produces_consistent_examples_per_game():
+    net = DomibotNet()
+    net.eval()
+    games_examples = play_self_play_games_batch(net, num_games=3, num_simulations=8, kingdom=_tiny_kingdom(), seed=3)
+
+    assert len(games_examples) == 3
+    for examples in games_examples:
+        assert len(examples) > 0
+        for ex in examples:
+            assert isinstance(ex, Example)
+            assert ex.obs.shape == (net.obs_dim,)
+            assert ex.mask.shape == (net.num_actions,)
+            assert abs(ex.policy_target.sum() - 1.0) < 1e-5
+            assert np.all(ex.policy_target[~ex.mask] == 0.0)
+            assert -1.0 <= ex.value_target <= 1.0
 
 
 def test_self_play_game_produces_consistent_examples():

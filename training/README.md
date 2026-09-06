@@ -151,12 +151,12 @@ each index without installing anything: `pip install --force-reinstall
 whichever `cuNNN` tags exist at https://download.pytorch.org/whl/ , and
 pick whichever gives you the newest torch version with CUDA.
 
-One honest caveat: this network is small, and each self-play move currently
-runs it one board at a time from inside MCTS — so the actual bottleneck is
-the Python game engine driving simulations, not GPU throughput. The GPU
-will make the batched training step faster and will matter more once
-self-play batches leaf evaluations across simulations (a natural next
-optimization, not done in this first version).
+Self-play batches leaf evaluations across `--parallel-games` concurrent
+games (`mcts.run_mcts_batch` / `self_play.play_self_play_games_batch`), so
+raising `--parallel-games` toward your card's real throughput sweet spot is
+the lever for affording higher `--simulations` counts. The Python game
+engine driving move selection is still real, unbatched CPU work though, so
+past some point it — not the network — becomes the bottleneck again.
 
 ### Playing against / evaluating Domibot
 
@@ -176,10 +176,9 @@ print(play_match(domibot, BigMoneyAgent(), n_games=50))
 ## What's still missing
 
 Everything above is a first working version, not a tuned one. Likely next
-steps: batched MCTS leaf evaluation (real GPU utilization during
-self-play), extending search to at least the highest-value sub-decisions,
-hyperparameter tuning (network size, simulation count, replay buffer size),
-and longer training runs than anything validated here (this was only
-smoke-tested for a couple of iterations to confirm the pipeline runs end
-to end without crashing — actual strength after real training time is
-unverified).
+steps: extending search to at least the highest-value sub-decisions,
+hyperparameter tuning (network size, simulation count, `--parallel-games`,
+replay buffer size), and longer training runs than anything validated here
+(this was only smoke-tested for a couple of iterations to confirm the
+pipeline runs end to end without crashing — actual strength after real
+training time is unverified).

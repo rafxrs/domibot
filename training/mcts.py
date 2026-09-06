@@ -139,6 +139,140 @@ def evaluate_node(
     return float(value.item())
 
 
+def evaluate_nodes_batch(
+    nodes: list[MCTSNode], network: torch.nn.Module, device: torch.device, action_bias: float = 0.0
+) -> list[float]:
+    """Batched `evaluate_node`: one forward pass for all given nodes instead
+    of one pass per node. Sets `.P`/`.expanded` on each node exactly like
+    `evaluate_node` and returns their value estimates in the same order.
+    This is the whole point of root-parallel self-play: instead of playing
+    one game at a time and paying a batch-size-1 forward pass per
+    simulation, many independent games' trees are advanced in lockstep so
+    each simulation round costs one batch-size-G forward pass."""
+    if not nodes:
+        return []
+    obs_batch = np.stack([encoding.encode_observation(n.game, n.decider) for n in nodes])
+    obs_t = torch.from_numpy(obs_batch).to(device)
+    with torch.no_grad():
+        policy_logits, values = network(obs_t)
+    policy_logits = policy_logits.cpu().numpy()
+    values = values.cpu().numpy()
+
+    for i, node in enumerate(nodes):
+        mask = encoding.legal_action_mask(node.game)
+        logits = np.where(mask, policy_logits[i], -1e9)
+        logits = logits - logits.max()
+        probs = np.exp(logits)
+        probs = probs / probs.sum()
+        node.P = {a: float(probs[encoding.ACTION_INDEX[a]]) for a in node.legal_actions}
+        if action_bias > 0:
+            _apply_action_continuation_bias(node, action_bias)
+        node.expanded = True
+    return [float(v) for v in values]
+
+
+def _backup(path: list[tuple[MCTSNode, Action, MCTSNode]], leaf_is_terminal: bool, leaf_value: float) -> None:
+    """Iterative equivalent of `_simulate`'s recursive backup, applied to a
+    full root-to-leaf path collected during selection. `leaf_value` is the
+    terminal margin (if `leaf_is_terminal`) or the network's value estimate
+    for the leaf, from the leaf's own perspective (the leaf's `.decider` for
+    a non-terminal leaf; terminal nodes have no decider, so the terminal
+    case instead computes its value directly from the path's last real
+    decider -- see the `terminal_value` call below). Each step up negates
+    the running value exactly when the decider changes between a node and
+    its child, matching `_simulate`'s `value_for_node = ... if child.decider
+    == node.decider else -...` rule level by level."""
+    if leaf_is_terminal:
+        parent_node, parent_action, terminal_child = path[-1]
+        v = terminal_value(terminal_child.game, parent_node.decider)
+        parent_node.N[parent_action] += 1
+        parent_node.W[parent_action] += v
+        current_decider = parent_node.decider
+        rest = path[:-1]
+    else:
+        v = leaf_value
+        current_decider = path[-1][2].decider
+        rest = path
+
+    for node, action, child in reversed(rest):
+        v = v if current_decider == node.decider else -v
+        node.N[action] += 1
+        node.W[action] += v
+        current_decider = node.decider
+
+
+def run_mcts_batch(
+    root_games: list[Game],
+    network: torch.nn.Module,
+    num_simulations: int,
+    c_puct: float = C_PUCT,
+    device: Optional[torch.device] = None,
+    add_noise: bool = False,
+    dirichlet_alpha: float = 0.3,
+    dirichlet_epsilon: float = 0.25,
+    action_bias: float = 0.0,
+    rngs: Optional[list[np.random.Generator]] = None,
+) -> list[MCTSNode]:
+    """Root-parallel version of `run_mcts`: runs independent searches over
+    `len(root_games)` games side by side, one simulation round at a time, so
+    that every round's leaf evaluations across all of them are combined into
+    a single batched network forward pass (see `evaluate_nodes_batch`)
+    instead of one call per game per simulation. Each game's tree is
+    otherwise completely independent -- this is not tree parallelism within
+    one search, just sharing the GPU call across many simultaneous searches.
+
+    Returns one root `MCTSNode` per game, in the same order as
+    `root_games`, each with the same `.N`/`.P` semantics as `run_mcts`'s
+    single root."""
+    for g in root_games:
+        if g.pending_decision is not None or g.is_game_over():
+            raise ValueError("run_mcts_batch requires non-terminal phase-action decision points")
+    if not root_games:
+        return []
+    if device is None:
+        device = next(network.parameters()).device
+    if rngs is None:
+        rngs = [np.random.default_rng() for _ in root_games]
+
+    roots = [MCTSNode(g.clone()) for g in root_games]
+    evaluate_nodes_batch(roots, network, device, action_bias)
+    if add_noise:
+        for root, rng in zip(roots, rngs):
+            if root.legal_actions:
+                noise = rng.dirichlet([dirichlet_alpha] * len(root.legal_actions))
+                for a, n in zip(root.legal_actions, noise):
+                    root.P[a] = (1 - dirichlet_epsilon) * root.P[a] + dirichlet_epsilon * float(n)
+
+    for _ in range(num_simulations):
+        pending: list[tuple[list[tuple[MCTSNode, Action, MCTSNode]], MCTSNode]] = []
+        for root in roots:
+            node = root
+            path: list[tuple[MCTSNode, Action, MCTSNode]] = []
+            while True:
+                action = _puct_select(node, c_puct)
+                child = node.children.get(action)
+                is_new_child = child is None
+                if is_new_child:
+                    child = _create_child(node, action)
+                    node.children[action] = child
+                path.append((node, action, child))
+                if child.is_terminal:
+                    _backup(path, leaf_is_terminal=True, leaf_value=0.0)
+                    break
+                if is_new_child:
+                    pending.append((path, child))
+                    break
+                node = child
+
+        if pending:
+            leaf_nodes = [leaf for _, leaf in pending]
+            values = evaluate_nodes_batch(leaf_nodes, network, device, action_bias)
+            for (path, _leaf), value in zip(pending, values):
+                _backup(path, leaf_is_terminal=False, leaf_value=value)
+
+    return roots
+
+
 def _puct_select(node: MCTSNode, c_puct: float) -> Action:
     sqrt_total = math.sqrt(sum(node.N.values()) + 1e-8)
     best_action, best_score = None, -float("inf")

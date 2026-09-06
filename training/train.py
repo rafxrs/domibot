@@ -7,14 +7,18 @@ repeat.
     python -m training.train --iterations 200 --games-per-iter 20 --simulations 150
     python -m training.train --reference-checkpoint checkpoints/domibot_v1.4.pt --eval-games 40
 
-GPU note: this network is small (a few hundred thousand parameters) and
-each self-play move currently runs the network one board at a time inside
-MCTS, so the actual bottleneck is the Python game engine driving those
-simulations, not GPU throughput — a CUDA build of torch still helps (the
-training step itself batches nicely), but don't expect it to make self-play
-itself dramatically faster without further work (e.g. batching leaf
-evaluations across simulations, which this first version doesn't do).
-`get_device()` already picks CUDA automatically whenever it's available.
+GPU note: self-play runs `--parallel-games` games at a time side by side
+(`self_play.play_self_play_games_batch`), sharing one batched network
+forward pass across all of them at every simulation instead of paying a
+batch-size-1 forward pass per game per simulation (see `mcts.run_mcts_batch`
+/ `mcts.evaluate_nodes_batch`). This is root-parallelism across independent
+games, not parallelism inside a single game's tree, so the per-game move
+sequence is unaffected -- only how the network gets called. Raise
+`--parallel-games` toward your GPU's real batch-throughput sweet spot to
+make higher `--simulations` counts affordable; the Python game engine
+driving move selection is still the other half of the cost and doesn't
+benefit from this. `get_device()` already picks CUDA automatically whenever
+it's available.
 """
 from __future__ import annotations
 
@@ -30,7 +34,7 @@ import torch.nn.functional as F
 from .agents import BigMoneyAgent, DomibotAgent
 from .evaluate import play_match
 from .network import DomibotNet, get_device
-from .self_play import ReplayBuffer, play_self_play_game
+from .self_play import ReplayBuffer, play_self_play_games_batch
 
 CHECKPOINT_DIR = Path(__file__).resolve().parent.parent / "checkpoints"
 
@@ -59,6 +63,11 @@ def main() -> None:
     parser.add_argument("--iterations", type=int, default=50)
     parser.add_argument("--games-per-iter", type=int, default=10)
     parser.add_argument("--simulations", type=int, default=100, help="MCTS simulations per move during self-play")
+    parser.add_argument("--parallel-games", type=int, default=32,
+                         help="self-play games advanced side by side, sharing one batched network forward pass "
+                              "per simulation round (see self_play.play_self_play_games_batch). Higher values "
+                              "trade GPU memory for self-play throughput; --games-per-iter is split into chunks "
+                              "of this size.")
     parser.add_argument("--action-bias", type=float, default=0.2,
                          help="self-play-only nudge toward continuing to play Action cards over ending the phase "
                               "early, applied at every search node (see mcts._apply_action_continuation_bias). "
@@ -103,11 +112,16 @@ def main() -> None:
     for iteration in range(args.start_iteration, end_iteration + 1):
         network.eval()
         t0 = time.time()
-        for _ in range(args.games_per_iter):
-            examples = play_self_play_game(
-                network, args.simulations, action_bias=args.action_bias, seed=rng.randrange(2**31)
+        remaining = args.games_per_iter
+        while remaining > 0:
+            chunk = min(args.parallel_games, remaining)
+            games_examples = play_self_play_games_batch(
+                network, chunk, args.simulations, action_bias=args.action_bias,
+                device=device, seed=rng.randrange(2**31),
             )
-            buffer.add_game(examples)
+            for examples in games_examples:
+                buffer.add_game(examples)
+            remaining -= chunk
         self_play_time = time.time() - t0
 
         network.train()
