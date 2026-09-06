@@ -173,6 +173,23 @@ domibot = DomibotAgent(network, num_simulations=200, device=device)
 print(play_match(domibot, BigMoneyAgent(), n_games=50))
 ```
 
+### Testing against real people: `examples/domibot_relay.py`
+
+A move advisor for playing a real game yourself (e.g. on dominion.games)
+while asking Domibot what it would do at each of your decisions, without
+actually automating any clicks -- you play every move, this only tells you
+what it recommends. `training/relay.py` reconstructs a `Game` from exactly
+what's visible to a player at the table (your own hand/total ownership
+exactly; the opponent's discard pile and hand/deck *sizes*, never their
+contents), filling in what's genuinely hidden (the opponent's hand/deck
+contents, your own deck's order) via determinization -- see that module's
+docstring for the details. Only covers phase-action decisions, matching
+`mcts.py`'s own scope.
+
+```bash
+python examples/domibot_relay.py --checkpoint checkpoints/domibot_v1.4.pt --simulations 400
+```
+
 ## What's still missing
 
 Everything above is a first working version, not a tuned one. Likely next
