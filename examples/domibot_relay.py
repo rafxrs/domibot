@@ -21,6 +21,13 @@ decisions (what to play/buy); for a forced sub-decision (a trash/discard/
 topdeck choice), just apply the same "keep the good stuff, give up junk"
 rule Domibot itself uses for those (see training/heuristics.py) -- neither
 Domibot nor this tool actually searches those.
+
+At each query you can paste in that game's dominion.games text log instead
+of hand-counting the supply, the trash, and your own total card ownership
+(the three genuinely tedious/error-prone-to-tally fields) -- see
+training/log_parser.py for exactly what it does and doesn't derive from it,
+and why. Everything it fills in still shows up as an editable default, so
+you can sanity check or override it before confirming.
 """
 from __future__ import annotations
 
@@ -34,6 +41,7 @@ from domibot import ALL_CARDS
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))  # training/ is a sibling of examples/, not on sys.path by default
+from training.log_parser import parse_dominion_log  # noqa: E402
 from training.mcts import run_mcts, select_action, visit_distribution  # noqa: E402
 from training.network import DomibotNet, get_device  # noqa: E402
 from training.relay import TableState, reconstruct_game  # noqa: E402
@@ -64,18 +72,43 @@ def parse_cards(raw: str) -> list[str]:
     return cards
 
 
+def format_cards(cards: list[str]) -> str:
+    """Inverse of parse_cards, for echoing a default back in 'Copperx3, Estate' form."""
+    if not cards:
+        return ""
+    counts: dict[str, int] = {}
+    for c in cards:
+        counts[c] = counts.get(c, 0) + 1
+    return ", ".join(f"{name}x{n}" if n > 1 else name for name, n in counts.items())
+
+
 def prompt(msg: str, default: str = "") -> str:
     suffix = f" [{default}]" if default else ""
     raw = input(f"{msg}{suffix}: ").strip()
     return raw if raw else default
 
 
-def prompt_cards(msg: str) -> list[str]:
+def prompt_cards(msg: str, default: list[str] | None = None) -> list[str]:
+    default_str = format_cards(default) if default else ""
     while True:
         try:
-            return parse_cards(prompt(msg))
+            return parse_cards(prompt(msg, default_str))
         except ValueError as e:
             print(f"  {e} -- try again")
+
+
+def prompt_multiline(msg: str) -> str:
+    print(f"{msg} (end with a line containing just END):")
+    lines = []
+    while True:
+        try:
+            line = input()
+        except EOFError:
+            break
+        if line.strip() == "END":
+            break
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def prompt_int(msg: str, default: int) -> int:
@@ -108,17 +141,21 @@ def prompt_supply(kingdom: list[str], previous: dict[str, int] | None = None) ->
     return supply
 
 
-def prompt_table_state(kingdom: list[str], supply: dict[str, int]) -> TableState:
+def prompt_table_state(
+    kingdom: list[str], supply: dict[str, int],
+    default_trash: list[str] | None = None, default_my_total: list[str] | None = None,
+    default_my_turns_taken: int = 0,
+) -> TableState:
     print("\n--- your side ---")
     my_hand = prompt_cards("Your hand")
     my_discard = prompt_cards("Your discard pile")
     my_play_area = prompt_cards("Your play area (cards played so far this turn, if any)")
-    my_total = prompt_cards("EVERY card you currently own, any zone (hand+deck+discard+play area)")
+    my_total = prompt_cards("EVERY card you currently own, any zone (hand+deck+discard+play area)", default_my_total)
     my_phase = prompt("Phase (ACTION/BUY)", "ACTION").upper()
     my_actions = prompt_int("Your actions remaining", 1 if my_phase == "ACTION" else 0)
     my_buys = prompt_int("Your buys remaining", 1)
     my_coins = prompt_int("Your coins available (treasures already counted)", 0)
-    my_turns_taken = prompt_int("Your completed turns before this one (0 on your first turn)", 0)
+    my_turns_taken = prompt_int("Your completed turns before this one (0 on your first turn)", default_my_turns_taken)
 
     print("\n--- opponent's side (only what's publicly visible) ---")
     opp_discard = prompt_cards("Opponent's discard pile")
@@ -127,7 +164,7 @@ def prompt_table_state(kingdom: list[str], supply: dict[str, int]) -> TableState
     opp_draw_pile_size = prompt_int("Opponent's draw pile size", 5)
 
     print("\n--- shared ---")
-    trash = prompt_cards("Trash pile")
+    trash = prompt_cards("Trash pile", default_trash)
 
     return TableState(
         kingdom=kingdom, supply=supply, trash=trash,
@@ -151,6 +188,22 @@ def recommend(state: TableState, network: torch.nn.Module, simulations: int, dev
     print(f"\n==> recommended: {best}\n")
 
 
+def try_parse_log(kingdom: list[str], my_name: str):
+    """Returns a `log_parser.ParsedLog`, or None if the user skips it."""
+    if not prompt("Paste a dominion.games log to auto-fill supply/trash/your total? (y/N)", "n").lower().startswith("y"):
+        return None
+    text = prompt_multiline("Log text")
+    try:
+        parsed = parse_dominion_log(text, my_name=my_name, kingdom=kingdom)
+    except ValueError as e:
+        print(f"  couldn't parse that log: {e} -- falling back to manual entry\n")
+        return None
+    print(f"\n  derived from the log: trash={format_cards(parsed.trash) or '(empty)'}")
+    print(f"  your total ownership: {format_cards(parsed.my_total)}")
+    print("  (still shown as editable defaults below -- double check them)\n")
+    return parsed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--checkpoint", type=str, default=str(DEFAULT_CHECKPOINT))
@@ -168,12 +221,23 @@ def main() -> None:
     print(f"Loaded {args.checkpoint} onto {device}, {args.simulations} sims/query.\n")
 
     kingdom = prompt_kingdom()
+    my_name = prompt("Your account name, as it appears in a pasted log (blank if you won't use log paste)")
     supply = None
     try:
         while True:
-            if supply is None or prompt("Update supply counts this query? (y/N)", "n").lower().startswith("y"):
+            parsed = try_parse_log(kingdom, my_name) if my_name else None
+            if parsed is not None:
+                supply = parsed.supply
+            elif supply is None or prompt("Update supply counts this query? (y/N)", "n").lower().startswith("y"):
                 supply = prompt_supply(kingdom, previous=supply)
-            state = prompt_table_state(kingdom, supply)
+
+            default_turns = parsed.turns_taken.get(my_name, 0) if parsed else 0
+            state = prompt_table_state(
+                kingdom, supply,
+                default_trash=parsed.trash if parsed else None,
+                default_my_total=parsed.my_total if parsed else None,
+                default_my_turns_taken=default_turns,
+            )
             try:
                 recommend(state, network, args.simulations, device)
             except ValueError as e:
