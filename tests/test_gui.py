@@ -7,7 +7,7 @@ import pytest
 pytest.importorskip("pygame")
 
 from domibot import Action, Game, KINGDOM_CARDS, Phase
-from domibot.models import END_ACTIONS
+from domibot.models import END_ACTIONS, END_BUY
 from gui.app import DominionGUI
 from training.agents import DomibotAgent
 from training.network import DomibotNet
@@ -110,3 +110,22 @@ def test_domibot_activity_panel_lists_only_the_bots_own_actions():
     bot_entries = [e for e in game.action_log if e.player == gui.bot_seat]
     assert len(bot_entries) >= 2
     assert all(e.player == gui.bot_seat for e in bot_entries)  # never the human's own actions
+
+
+def test_activity_feed_includes_attack_effects_domibot_forces_on_you():
+    game = Game(_tiny_kingdom(), num_players=2, seed=1)  # includes Bureaucrat
+    gui = DominionGUI(game, _agent(), human_seat=0)  # bot is seat 1
+
+    game.step(END_ACTIONS)  # P0's (human's) turn: nothing to play, nothing to buy
+    game.step(END_BUY)
+    assert game.current_decider() == gui.bot_seat
+
+    game.players[gui.bot_seat].hand = ["Bureaucrat", "Copper", "Copper", "Copper", "Copper"]
+    game.players[gui.human_seat].hand = ["Estate", "Copper", "Copper", "Copper", "Copper"]
+    game.step(Action("PLAY", "Bureaucrat"))
+    assert game.pending_decision is not None  # the forced topdeck, on the human
+    game.step(Action("TOPDECK", "Estate"))
+
+    entries = gui._activity_entries()
+    assert (Action("PLAY", "Bureaucrat"), True) in [(e.action, own) for e, own in entries]
+    assert (Action("TOPDECK", "Estate"), False) in [(e.action, own) for e, own in entries]

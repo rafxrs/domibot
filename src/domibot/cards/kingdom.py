@@ -268,12 +268,14 @@ def _bandit_hit(game, opp):
         revealed.append(top)
     targets = [c for c in revealed if CardType.TREASURE in game.cards[c].types and c != "Copper"]
     if targets:
-        if len(set(targets)) > 1:
-            choice = yield from choose_one(
-                game, opp, targets, "TRASH", "Bandit: choose a Treasure to trash.", allow_none=False
-            )
-        else:
-            choice = targets[0]
+        # Always routed through choose_one, even with a single distinct
+        # target (choose_one yields regardless of candidate count) -- this
+        # is what makes the trash show up as a real Action/LogEntry (see
+        # Game.step), rather than a silent state mutation nothing can see
+        # in a saved log or the GUI's activity feed.
+        choice = yield from choose_one(
+            game, opp, targets, "TRASH", "Bandit: choose a Treasure to trash.", allow_none=False
+        )
         revealed.remove(choice)
         game.trash.append(choice)
     for c in revealed:

@@ -180,7 +180,13 @@ def test_bandit_trashes_non_copper_treasure_and_gains_gold():
     play(game, Action("PLAY", "Bandit"))
     assert "Gold" in attacker.discard
     assert game.supply["Gold"] == gold_before - 1
-    assert game.pending_decision is None  # only one Treasure revealed -> automatic
+    # Even with only one distinct Treasure revealed, the trash is still a
+    # real (single-option) decision -- so it's a logged Action a GUI/log
+    # can show, not a silent state mutation.
+    assert game.pending_decision is not None
+    assert game.pending_decision.player == 1
+    play(game, Action("TRASH", "Silver"))
+    assert game.pending_decision is None
     assert "Silver" in game.trash
     assert "Estate" in victim.discard
 

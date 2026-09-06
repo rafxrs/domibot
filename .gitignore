@@ -7,3 +7,4 @@ build/
 dist/
 game_logs/
 checkpoints/
+*.log

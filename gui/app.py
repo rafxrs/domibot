@@ -19,7 +19,7 @@ from __future__ import annotations
 import pygame
 
 from domibot import Action, Game, Phase
-from domibot.models import END_ACTIONS, END_BUY
+from domibot.models import END_ACTIONS, END_BUY, LogEntry
 from training.agents import DomibotAgent
 
 from . import colors
@@ -46,6 +46,25 @@ PLAY_AREA = pygame.Rect(20, DECISION_PANEL.bottom + 10, WIDTH - 40, CARD_H + 20)
 HAND_AREA = pygame.Rect(20, PLAY_AREA.bottom + 10, WIDTH - 40, CARD_H + 20)
 STATUS_BAR = pygame.Rect(0, HAND_AREA.bottom + 10, WIDTH, 60)
 END_PHASE_BUTTON = pygame.Rect(WIDTH - 200, STATUS_BAR.top + 10, 170, BUTTON_H)
+
+
+def _turn_owners(action_log: list[LogEntry]) -> list[int]:
+    """Whose structural turn each log entry happened during. Usually equal
+    to that entry's own `.player`, but a forced sub-decision an attack
+    causes on the *other* player (Militia's discard, Bandit's trash,
+    Bureaucrat's topdeck, a Moat reveal, ...) keeps the attacker as the
+    owner, since it's still part of the attacker's turn even though the
+    victim is the one deciding. A turn boundary is always an END_BUY --
+    the entry right after one belongs to the new owner."""
+    owners: list[int] = []
+    owner = None
+    prev_verb = None
+    for entry in action_log:
+        if owner is None or prev_verb == "END_BUY":
+            owner = entry.player
+        owners.append(owner)
+        prev_verb = entry.action.verb
+    return owners
 
 
 def _label_for(action: Action) -> str:
@@ -239,23 +258,36 @@ class DominionGUI:
             lines_surf = self.small_font.render(names[:30], True, colors.TEXT_LIGHT)
             self.screen.blit(lines_surf, (TRASH_AREA.left + 8, TRASH_AREA.top + 26))
 
+    def _activity_entries(self) -> list[tuple[LogEntry, bool]]:
+        """Everything that happened on Domibot's turns: its own plays/buys
+        (`is_bot_own=True`) plus any sub-decision an attack of its forced
+        onto you -- losing a Silver to Bandit, a Bureaucrat topdeck, a
+        Militia discard, revealing (or not) a Moat -- attributed to you but
+        still part of its turn (`is_bot_own=False`). Read straight off
+        Game.action_log via `_turn_owners` rather than tracked separately,
+        so it can never drift from what really happened."""
+        owners = _turn_owners(self.game.action_log)
+        return [
+            (entry, entry.player == self.bot_seat)
+            for entry, owner in zip(self.game.action_log, owners)
+            if owner == self.bot_seat
+        ]
+
     def _draw_domibot_activity(self) -> None:
-        """A running feed of what Domibot has actually done -- read straight
-        off Game.action_log rather than tracked separately, so it can never
-        drift from what really happened."""
         pygame.draw.rect(self.screen, colors.PANEL_BG, ACTIVITY_LOG_AREA, border_radius=8)
         pygame.draw.rect(self.screen, colors.BORDER, ACTIVITY_LOG_AREA, width=1, border_radius=8)
-        title = self.small_font.render("Domibot's moves", True, colors.TEXT_LIGHT)
+        title = self.small_font.render("Domibot's turn (incl. attacks on you)", True, colors.TEXT_LIGHT)
         self.screen.blit(title, (ACTIVITY_LOG_AREA.left + 8, ACTIVITY_LOG_AREA.top + 6))
 
-        bot_entries = [e for e in self.game.action_log if e.player == self.bot_seat]
+        entries = self._activity_entries()
         line_h = self.small_font.get_linesize()
         max_lines = max(0, (ACTIVITY_LOG_AREA.height - 30) // line_h)
-        recent = list(reversed(bot_entries[-max_lines:])) if max_lines else []
+        recent = list(reversed(entries[-max_lines:])) if max_lines else []
 
         y = ACTIVITY_LOG_AREA.top + 26
-        for entry in recent:
-            text = f"T{entry.turn}: {entry.action}"
+        for entry, is_bot_own in recent:
+            prefix = "" if is_bot_own else "-> you: "
+            text = f"T{entry.turn}: {prefix}{entry.action}"
             surf = self.small_font.render(text, True, colors.TEXT_LIGHT)
             self.screen.blit(surf, (ACTIVITY_LOG_AREA.left + 8, y))
             y += line_h
@@ -308,7 +340,10 @@ class DominionGUI:
     def _draw_status_bar(self, mouse_pos) -> None:
         pygame.draw.rect(self.screen, colors.PANEL_BG, STATUS_BAR)
         player = self.game.players[self.human_seat]
-        text = f"Actions: {player.actions}   Buys: {player.buys}   Coins: {player.coins}"
+        text = (
+            f"Actions: {player.actions}   Buys: {player.buys}   Coins: {player.coins}   "
+            f"Draw pile: {len(player.deck)}   Discard: {len(player.discard)}"
+        )
         surf = self.font.render(text, True, colors.TEXT_LIGHT)
         self.screen.blit(surf, (16, HEIGHT - 42))
 
