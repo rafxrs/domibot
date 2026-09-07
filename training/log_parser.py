@@ -3,18 +3,24 @@
 pasted dominion.games text log, instead of counting them by eye. See
 `examples/domibot_relay.py`.
 
-Deliberately narrow: only `supply`, `trash`, and `my_total` come from the
-log. Everything else (your hand, either player's discard pile, the
-opponent's hand/draw-pile sizes) stays a direct on-screen read, because
-those are trivially re-checkable at the moment you actually need them,
-and some of them are genuinely ambiguous in the log itself -- e.g.
-dominion.games sometimes renders a Cellar-style discard as `discards a
-card and a Remodel`, naming one card and not the other. Rather than guess
-at an unnamed card's identity, this only ever reads events where the log
-gives a name -- buys, gains, and trashes, which are always public and
-always named -- and ignores everything else (draws, discards, topdecks,
-shuffles, plays) since none of those are needed to get supply/trash/
-my_total exactly right.
+Mostly narrow by design: `supply`, `trash`, and `my_total` come from
+reading buys/gains/trashes, which are always public and always named for
+*either* player. Either player's discard pile and the opponent's hand/
+draw-pile sizes stay a direct on-screen read, because some of that is
+genuinely ambiguous in the log itself -- e.g. dominion.games sometimes
+renders a Cellar-style discard as `discards a card and a Remodel`, naming
+one card and not the other -- and the rest is trivially re-checkable at
+the moment you need it anyway.
+
+One deliberate exception: if the log ends exactly at the start of *your*
+turn (the last line is your `Turn N - you` header, nothing done yet --
+the normal way to use this tool, paste right before your first decision),
+your hand, phase, actions, buys, and coins are also derived, since your
+own draws are always named and a turn always starts at the same fixed
+state (ACTION phase, 1 action, 1 buy, 0 coins, empty play area). If the
+log instead ends mid-turn, none of that is derived (too many possible
+in-between states to safely reconstruct from just a name-list of events)
+and you fall back to entering it by hand as before.
 """
 from __future__ import annotations
 
@@ -29,6 +35,8 @@ _TURN_LINE = re.compile(r"^Turn (\d+) - (.+)$")
 _BUY_GAIN_LINE = re.compile(r"^(\S+) buys and gains (.+)\.$")
 _GAIN_LINE = re.compile(r"^(\S+) gains (.+)\.$")
 _TRASH_LINE = re.compile(r"^(\S+) trashes (.+)\.$")
+_DRAW_LINE = re.compile(r"^(\S+) draws (.+)\.$")
+_GENERIC_DRAW = re.compile(r"^\d+ cards?$", re.IGNORECASE)
 
 _STARTING_COPPER = 7
 _STARTING_ESTATE = 3
@@ -40,6 +48,13 @@ class ParsedLog:
     trash: list[str]
     my_total: list[str]
     turns_taken: dict[str, int] = field(default_factory=dict)  # full player name -> turns started so far
+    # Only set when the log ends exactly at the start of your turn; None otherwise.
+    my_hand: list[str] | None = None
+    my_phase: str | None = None
+    my_actions: int | None = None
+    my_buys: int | None = None
+    my_coins: int | None = None
+    my_play_area: list[str] | None = None
 
 
 def _singularize(word: str) -> str:
@@ -128,6 +143,7 @@ def parse_dominion_log(text: str, my_name: str, kingdom: list[str], num_players:
     trash: list[str] = []
     my_total: Counter = Counter({"Copper": _STARTING_COPPER, "Estate": _STARTING_ESTATE})
     turns_taken: Counter = Counter()
+    last_my_draw: list[str] | None = None
 
     for line in lines:
         m = _TURN_LINE.match(line)
@@ -156,12 +172,27 @@ def parse_dominion_log(text: str, my_name: str, kingdom: list[str], num_players:
                     my_total[card] -= 1
             continue
 
+        m = _DRAW_LINE.match(line)
+        if m:
+            abbrev, card_text = m.groups()
+            if resolve(abbrev) == my_full_name:
+                card_text = card_text.strip()
+                last_my_draw = None if _GENERIC_DRAW.match(card_text) else _parse_card_list(card_text)
+            continue
+
     for card, count in supply.items():
         if count < 0:
             raise ValueError(f"supply for {card} went negative -- a line in this log wasn't parsed as expected")
     for card, count in my_total.items():
         if count < 0:
             raise ValueError(f"my_total for {card} went negative -- a trash line was likely mis-attributed")
+
+    my_hand = my_phase = my_actions = my_buys = my_coins = my_play_area = None
+    last_match = _TURN_LINE.match(lines[-1]) if lines else None
+    if last_match and last_match.group(2) == my_full_name and last_my_draw is not None:
+        my_hand, my_phase, my_actions, my_buys, my_coins, my_play_area = (
+            last_my_draw, "ACTION", 1, 1, 0, [],
+        )
 
     return ParsedLog(
         supply=dict(supply),
@@ -170,4 +201,6 @@ def parse_dominion_log(text: str, my_name: str, kingdom: list[str], num_players:
         # "turns started" includes the turn in progress; TableState wants
         # completed turns *before* the current one.
         turns_taken={name: max(count - 1, 0) for name, count in turns_taken.items()},
+        my_hand=my_hand, my_phase=my_phase, my_actions=my_actions,
+        my_buys=my_buys, my_coins=my_coins, my_play_area=my_play_area,
     )

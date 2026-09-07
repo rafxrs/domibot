@@ -24,12 +24,16 @@ Domibot nor this tool actually searches those.
 
 At each query you paste in that game's dominion.games text log (the whole
 thing, fresh, every time -- it keeps growing) to auto-fill the supply, the
-trash, and your own total card ownership (the three genuinely tedious/
-error-prone-to-tally fields) -- see training/log_parser.py for exactly what
-it does and doesn't derive from it, and why. Everything it fills in still
-shows up as an editable default, so you can sanity check or override it
-before confirming. Paste nothing (hit END right away) to skip it for one
-query and fall back to manual entry instead.
+trash, and your own total card ownership. If you paste it right as your
+turn starts (the normal way to use this -- before you've done anything
+that turn), your hand, phase, actions, buys, and coins get derived too,
+since your own draws are always named and a turn always starts the same
+way -- so most queries are just paste-and-mash-Enter through your own
+side, then fill in only the opponent's publicly-visible info. See
+training/log_parser.py for exactly what it does and doesn't derive, and
+why. Everything it fills in still shows up as an editable default, so you
+can sanity check or override it before confirming. Paste nothing (hit END
+right away) to skip it for one query and fall back to manual entry.
 
 Any card list (the kingdom included -- dominion.games' log never states it,
 so it's typed by hand every game) accepts a short code instead of the full
@@ -44,6 +48,7 @@ unrelated to which checkpoint --checkpoint points at.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -59,26 +64,55 @@ from training.relay import CARD_ABBREVIATIONS, TableState, reconstruct_game, res
 DEFAULT_CHECKPOINT = ROOT / "checkpoints" / "latest.pt"
 
 
+_LEADING_COUNT = re.compile(r"^(\d+)x?$", re.IGNORECASE)
+_TRAILING_COUNT = re.compile(r"^(.+?)x(\d+)$", re.IGNORECASE)
+
+
+def _try_resolve(token: str) -> str | None:
+    try:
+        return resolve_card_name(token)
+    except ValueError:
+        return None
+
+
 def parse_cards(raw: str) -> list[str]:
-    """Comma-separated card names, each optionally suffixed 'xN' (matching
-    how hands are shown throughout this project, e.g. 'Copperx3, Estate').
-    Each name may also be a short code from CARD_ABBREVIATIONS (e.g. 'POA'
-    for Poacher, 'CR' for Council Room) -- see --list-abbreviations. Blank
-    input means an empty zone."""
-    raw = raw.strip()
-    if not raw:
-        return []
+    """Card names/codes, comma- *or* space-separated (or both), each
+    optionally paired with a count either before ('3 Copper', '3x Copper')
+    or after ('Copperx3', matching how hands are shown throughout this
+    project) -- no count means one. Card names may be a short code from
+    CARD_ABBREVIATIONS (e.g. 'POA' for Poacher, 'CR' for Council Room) --
+    see --list-abbreviations. A two-word full name (only 'Council Room'
+    and 'Throne Room') is recovered by combining adjacent tokens when the
+    first alone doesn't resolve. Blank input means an empty zone."""
+    tokens = raw.replace(",", " ").split()
     cards: list[str] = []
-    for token in raw.split(","):
-        token = token.strip()
-        if not token:
-            continue
-        if "x" in token and token.rsplit("x", 1)[-1].isdigit():
-            name, count = token.rsplit("x", 1)
-            name = name.strip()
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        count = 1
+        m = _LEADING_COUNT.match(tok)
+        if m:
+            count = int(m.group(1))
+            i += 1
+            if i >= len(tokens):
+                raise ValueError(f"expected a card name after {tok!r}")
+            tok = tokens[i]
         else:
-            name, count = token, "1"
-        cards.extend([resolve_card_name(name)] * int(count))
+            m2 = _TRAILING_COUNT.match(tok)
+            if m2 and _try_resolve(m2.group(1)) is not None:
+                cards.extend([resolve_card_name(m2.group(1))] * int(m2.group(2)))
+                i += 1
+                continue
+
+        resolved = _try_resolve(tok)
+        if resolved is not None:
+            i += 1
+        elif i + 1 < len(tokens) and _try_resolve(f"{tok} {tokens[i + 1]}") is not None:
+            resolved = _try_resolve(f"{tok} {tokens[i + 1]}")
+            i += 2
+        else:
+            raise ValueError(f"not a recognized card name or abbreviation: {tok!r}")
+        cards.extend([resolved] * count)
     return cards
 
 
@@ -168,17 +202,20 @@ def prompt_supply(kingdom: list[str], previous: dict[str, int] | None = None) ->
 def prompt_table_state(
     kingdom: list[str], supply: dict[str, int],
     default_trash: list[str] | None = None, default_my_total: list[str] | None = None,
-    default_my_turns_taken: int = 0,
+    default_my_turns_taken: int = 0, default_my_hand: list[str] | None = None,
+    default_my_phase: str | None = None, default_my_actions: int | None = None,
+    default_my_buys: int | None = None, default_my_coins: int | None = None,
+    default_my_play_area: list[str] | None = None,
 ) -> TableState:
     print("\n--- your side ---")
-    my_hand = prompt_cards("Your hand")
+    my_hand = prompt_cards("Your hand", default_my_hand)
     my_discard = prompt_cards("Your discard pile")
-    my_play_area = prompt_cards("Your play area (cards played so far this turn, if any)")
+    my_play_area = prompt_cards("Your play area (cards played so far this turn, if any)", default_my_play_area)
     my_total = prompt_cards("EVERY card you currently own, any zone (hand+deck+discard+play area)", default_my_total)
-    my_phase = prompt("Phase (ACTION/BUY)", "ACTION").upper()
-    my_actions = prompt_int("Your actions remaining", 1 if my_phase == "ACTION" else 0)
-    my_buys = prompt_int("Your buys remaining", 1)
-    my_coins = prompt_int("Your coins available (treasures already counted)", 0)
+    my_phase = prompt("Phase (ACTION/BUY)", default_my_phase or "ACTION").upper()
+    my_actions = prompt_int("Your actions remaining", default_my_actions if default_my_actions is not None else (1 if my_phase == "ACTION" else 0))
+    my_buys = prompt_int("Your buys remaining", default_my_buys if default_my_buys is not None else 1)
+    my_coins = prompt_int("Your coins available (treasures already counted)", default_my_coins if default_my_coins is not None else 0)
     my_turns_taken = prompt_int("Your completed turns before this one (0 on your first turn)", default_my_turns_taken)
 
     print("\n--- opponent's side (only what's publicly visible) ---")
@@ -226,6 +263,8 @@ def try_parse_log(kingdom: list[str], my_name: str):
         return None
     print(f"\n  derived from the log: trash={format_cards(parsed.trash) or '(empty)'}")
     print(f"  your total ownership: {format_cards(parsed.my_total)}")
+    if parsed.my_hand is not None:
+        print(f"  your hand (fresh turn detected): {format_cards(parsed.my_hand)}")
     print("  (still shown as editable defaults below -- double check them)\n")
     return parsed
 
@@ -281,6 +320,12 @@ def main() -> None:
                 default_trash=parsed.trash if parsed else None,
                 default_my_total=parsed.my_total if parsed else None,
                 default_my_turns_taken=default_turns,
+                default_my_hand=parsed.my_hand if parsed else None,
+                default_my_phase=parsed.my_phase if parsed else None,
+                default_my_actions=parsed.my_actions if parsed else None,
+                default_my_buys=parsed.my_buys if parsed else None,
+                default_my_coins=parsed.my_coins if parsed else None,
+                default_my_play_area=parsed.my_play_area if parsed else None,
             )
             try:
                 recommend(state, network, args.simulations, device)

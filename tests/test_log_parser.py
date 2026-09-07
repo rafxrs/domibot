@@ -258,3 +258,58 @@ def test_ambiguous_first_letters_raise():
     log = "dave: 30.0\ndan: 25.0\nTurn 1 - dave\n"
     with pytest.raises(ValueError, match="same letter"):
         parse_dominion_log(log, my_name="dave", kingdom=KINGDOM)
+
+
+def test_my_hand_not_derived_when_log_ends_mid_turn():
+    # REAL_LOG ends partway through lololololo's turn 11, not at the start
+    # of domibot_v1.4's own turn -- too many possible in-between states to
+    # safely reconstruct, so this should fall back to manual entry.
+    parsed = parse_dominion_log(REAL_LOG, my_name="domibot_v1.4", kingdom=KINGDOM)
+    assert parsed.my_hand is None
+    assert parsed.my_phase is None
+
+
+FRESH_TURN_LOG = """
+Game #1, rated.
+Pogonomyrmex: 48.26
+domibot_v1.4: 44.22
+Timer: Patient
+Card Pool: level 1
+d starts with 3 Estates.
+d starts with 7 Coppers.
+P starts with 3 Estates.
+P starts with 7 Coppers.
+P shuffles their deck.
+d shuffles their deck.
+P draws 5 cards.
+d draws 4 Coppers and an Estate.
+Turn 1 - Pogonomyrmex
+P plays 5 Coppers. (+$5)
+P buys and gains a Market.
+P draws 5 cards.
+Turn 1 - domibot_v1.4
+"""
+
+
+FRESH_TURN_KINGDOM = KINGDOM[:-1] + ["Market"]  # the log's one buy (Market) must be a real kingdom card
+
+
+def test_my_hand_derived_when_log_ends_at_a_fresh_turn_for_me():
+    parsed = parse_dominion_log(FRESH_TURN_LOG, my_name="domibot_v1.4", kingdom=FRESH_TURN_KINGDOM)
+    assert sorted(parsed.my_hand) == sorted(["Copper", "Copper", "Copper", "Copper", "Estate"])
+    assert parsed.my_phase == "ACTION"
+    assert parsed.my_actions == 1
+    assert parsed.my_buys == 1
+    assert parsed.my_coins == 0
+    assert parsed.my_play_area == []
+
+
+def test_my_hand_not_derived_when_the_fresh_turn_is_the_opponents():
+    parsed = parse_dominion_log(FRESH_TURN_LOG, my_name="Pogonomyrmex", kingdom=FRESH_TURN_KINGDOM)
+    assert parsed.my_hand is None
+
+
+def test_my_hand_not_derived_from_a_generic_draw():
+    log = FRESH_TURN_LOG.replace("d draws 4 Coppers and an Estate.", "d draws 5 cards.")
+    parsed = parse_dominion_log(log, my_name="domibot_v1.4", kingdom=FRESH_TURN_KINGDOM)
+    assert parsed.my_hand is None
