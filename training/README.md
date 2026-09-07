@@ -186,6 +186,19 @@ contents, your own deck's order) via determinization -- see that module's
 docstring for the details. Only covers phase-action decisions, matching
 `mcts.py`'s own scope.
 
+In practice this is closer to zero-effort than that description suggests:
+`training/log_parser.py` does a full turn-by-turn replay of a pasted
+dominion.games log (plays, buys/gains, trashes/discards/topdecks including
+Sentry/Bandit-style reveals and Throne-Room replays, explicit "+N
+Action/Buy/$" lines, and Cleanup) to derive *everything* -- your hand,
+discard, play area, phase, actions, buys, coins, and the opponent's hand
+size, draw-pile size, and discard. When that fully succeeds (the common
+case), the CLI skips straight to the recommendation with no further
+prompts at all. It's still best-effort -- dominion.games occasionally
+renders a card as a bare, unnamed "a card", which breaks exact replay from
+that point on -- and gracefully falls back to manual entry (pre-filled
+with whatever it did derive) when that happens.
+
 ```bash
 python examples/domibot_relay.py --checkpoint checkpoints/domibot_v2.1.pt --simulations 400
 ```

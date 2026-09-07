@@ -23,17 +23,21 @@ rule Domibot itself uses for those (see training/heuristics.py) -- neither
 Domibot nor this tool actually searches those.
 
 At each query you paste in that game's dominion.games text log (the whole
-thing, fresh, every time -- it keeps growing) to auto-fill the supply, the
-trash, and your own total card ownership. If you paste it right as your
-turn starts (the normal way to use this -- before you've done anything
-that turn), your hand, phase, actions, buys, and coins get derived too,
-since your own draws are always named and a turn always starts the same
-way -- so most queries are just paste-and-mash-Enter through your own
-side, then fill in only the opponent's publicly-visible info. See
-training/log_parser.py for exactly what it does and doesn't derive, and
-why. Everything it fills in still shows up as an editable default, so you
-can sanity check or override it before confirming. Paste nothing (hit END
-right away) to skip it for one query and fall back to manual entry.
+thing, fresh, every time -- it keeps growing) and press Enter once more on
+the blank line when done. That alone derives the supply, the trash, your
+own total card ownership, and (via a full turn-by-turn replay) your hand,
+discard, play area, phase, actions, buys, coins, and the opponent's hand
+size, draw-pile size, and discard pile -- covering plays, buys/gains,
+trashes/discards/topdecks (including Sentry/Bandit-style reveals and
+Harbinger's discard-sourced topdeck), Throne-Room-style replays, and
+explicit "+N Action/Buy/$" lines. When all of that lines up, it skips
+straight to the recommendation -- no confirmation step. It's still
+best-effort: dominion.games occasionally renders a card as a bare, unnamed
+"a card" (e.g. some Cellar-style discards), which makes exact replay
+impossible from that point on -- when that happens it falls back to
+showing whatever it *did* derive as editable defaults for manual entry,
+same as before. See training/log_parser.py for the full picture. Paste
+nothing (blank line right away) to skip it for one query entirely.
 
 Any card list (the kingdom included -- dominion.games' log never states it,
 so it's typed by hand every game) accepts a short code instead of the full
@@ -142,14 +146,14 @@ def prompt_cards(msg: str, default: list[str] | None = None) -> list[str]:
 
 
 def prompt_multiline(msg: str) -> str:
-    print(f"{msg} (end with a line containing just END):")
+    print(f"{msg} (paste it, then press Enter on its own once more when done):")
     lines = []
     while True:
         try:
             line = input()
         except EOFError:
             break
-        if line.strip() == "END":
+        if not line.strip():
             break
         lines.append(line)
     return "\n".join(lines)
@@ -251,9 +255,10 @@ def recommend(state: TableState, network: torch.nn.Module, simulations: int, dev
 
 def try_parse_log(kingdom: list[str], my_name: str):
     """Always prompts for a log paste; returns a `log_parser.ParsedLog`, or
-    None if it couldn't be parsed (an empty paste included -- just hit
-    END immediately to skip and fall back to manual entry for this query)."""
-    text = prompt_multiline("Paste a dominion.games log to auto-fill supply/trash/your total")
+    None if it couldn't be parsed (an empty paste included -- just press
+    Enter on the blank line right away to skip and fall back to manual
+    entry for this query)."""
+    text = prompt_multiline("Paste a dominion.games log to auto-fill this decision")
     if not text.strip():
         return None
     try:
@@ -261,12 +266,27 @@ def try_parse_log(kingdom: list[str], my_name: str):
     except ValueError as e:
         print(f"  couldn't parse that log: {e} -- falling back to manual entry\n")
         return None
-    print(f"\n  derived from the log: trash={format_cards(parsed.trash) or '(empty)'}")
-    print(f"  your total ownership: {format_cards(parsed.my_total)}")
-    if parsed.my_hand is not None:
-        print(f"  your hand (fresh turn detected): {format_cards(parsed.my_hand)}")
-    print("  (still shown as editable defaults below -- double check them)\n")
     return parsed
+
+
+def _fully_derived(parsed) -> bool:
+    return all(x is not None for x in (
+        parsed.my_hand, parsed.my_discard, parsed.my_play_area, parsed.my_phase,
+        parsed.my_actions, parsed.my_buys, parsed.my_coins,
+        parsed.opp_discard, parsed.opp_play_area, parsed.opp_hand_size, parsed.opp_draw_pile_size,
+    ))
+
+
+def state_from_parsed(kingdom: list[str], parsed, my_name: str) -> TableState:
+    return TableState(
+        kingdom=kingdom, supply=parsed.supply, trash=parsed.trash,
+        my_hand=parsed.my_hand, my_discard=parsed.my_discard, my_play_area=parsed.my_play_area,
+        my_total=parsed.my_total, my_actions=parsed.my_actions, my_buys=parsed.my_buys,
+        my_coins=parsed.my_coins, my_phase=parsed.my_phase,
+        my_turns_taken=parsed.turns_taken.get(my_name, 0),
+        opp_discard=parsed.opp_discard, opp_play_area=parsed.opp_play_area,
+        opp_hand_size=parsed.opp_hand_size, opp_draw_pile_size=parsed.opp_draw_pile_size,
+    )
 
 
 def print_abbreviations() -> None:
@@ -311,22 +331,33 @@ def main() -> None:
             parsed = try_parse_log(kingdom, my_name)
             if parsed is not None:
                 supply = parsed.supply
-            elif supply is None or prompt("Update supply counts this query? (y/N)", "n").lower().startswith("y"):
-                supply = prompt_supply(kingdom, previous=supply)
 
-            default_turns = parsed.turns_taken.get(my_name, 0) if parsed else 0
-            state = prompt_table_state(
-                kingdom, supply,
-                default_trash=parsed.trash if parsed else None,
-                default_my_total=parsed.my_total if parsed else None,
-                default_my_turns_taken=default_turns,
-                default_my_hand=parsed.my_hand if parsed else None,
-                default_my_phase=parsed.my_phase if parsed else None,
-                default_my_actions=parsed.my_actions if parsed else None,
-                default_my_buys=parsed.my_buys if parsed else None,
-                default_my_coins=parsed.my_coins if parsed else None,
-                default_my_play_area=parsed.my_play_area if parsed else None,
-            )
+            if parsed is not None and _fully_derived(parsed):
+                print("Everything needed was fully derived from the log -- here's the recommendation:")
+                state = state_from_parsed(kingdom, parsed, my_name)
+            else:
+                if parsed is not None:
+                    print(f"  derived from the log: trash={format_cards(parsed.trash) or '(empty)'}, "
+                          f"your total={format_cards(parsed.my_total)}")
+                    if parsed.my_hand is not None:
+                        print(f"  your hand: {format_cards(parsed.my_hand)}")
+                    print("  (the rest still needs manual entry -- shown as editable defaults below)\n")
+                elif supply is None or prompt("Update supply counts this query? (y/N)", "n").lower().startswith("y"):
+                    supply = prompt_supply(kingdom, previous=supply)
+
+                default_turns = parsed.turns_taken.get(my_name, 0) if parsed else 0
+                state = prompt_table_state(
+                    kingdom, supply,
+                    default_trash=parsed.trash if parsed else None,
+                    default_my_total=parsed.my_total if parsed else None,
+                    default_my_turns_taken=default_turns,
+                    default_my_hand=parsed.my_hand if parsed else None,
+                    default_my_phase=parsed.my_phase if parsed else None,
+                    default_my_actions=parsed.my_actions if parsed else None,
+                    default_my_buys=parsed.my_buys if parsed else None,
+                    default_my_coins=parsed.my_coins if parsed else None,
+                    default_my_play_area=parsed.my_play_area if parsed else None,
+                )
             try:
                 recommend(state, network, args.simulations, device)
             except ValueError as e:

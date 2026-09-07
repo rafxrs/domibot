@@ -1,5 +1,6 @@
 import pytest
 
+from domibot.models import END_ACTIONS
 from training.log_parser import parse_dominion_log
 
 # Verbatim (trimmed) from a real dominion.games log, provided by the user --
@@ -313,3 +314,623 @@ def test_my_hand_not_derived_from_a_generic_draw():
     log = FRESH_TURN_LOG.replace("d draws 4 Coppers and an Estate.", "d draws 5 cards.")
     parsed = parse_dominion_log(log, my_name="domibot_v1.4", kingdom=FRESH_TURN_KINGDOM)
     assert parsed.my_hand is None
+
+
+# A second real, complete (23-turn) dominion.games log, provided by the
+# user -- a mutual-Witch mirror match with heavy Throne Room/Village
+# chaining on the opponent's side and several Bandit-forced reveals on
+# ours. This caught two real bugs during development: the opponent's
+# hand_size double-counting their opening draw, and -- more subtly -- a
+# shuffle line logged *before* the cleanup draw it's actually part of,
+# which (without special handling) let that turn's played cards wrongly
+# survive into "known" discard instead of being swept away by the shuffle
+# like everything else already there.
+WITCH_MIRROR_LOG = """
+Game #183186242, rated.
+domibot_v1.4: 43.22
+apoorvab: 40.69
+Timer: Patient
+Card Pool: level 1
+d starts with 3 Estates.
+d starts with 7 Coppers.
+a starts with 3 Estates.
+a starts with 7 Coppers.
+d shuffles their deck.
+a shuffles their deck.
+d draws 3 Coppers and 2 Estates.
+a draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d draws 4 Coppers and an Estate.
+Turn 1 - apoorvab
+a draws 5 cards.
+Turn 2 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Moneylender.
+d shuffles their deck.
+d draws a Copper, a Silver, 2 Estates, and a Moneylender.
+Turn 2 - apoorvab
+a plays 5 Coppers. (+$5)
+a buys and gains a Witch.
+a shuffles their deck.
+a draws 5 cards.
+Turn 3 - domibot_v1.4
+d plays a Moneylender.
+d trashes a Copper.
+d gets +$3.
+d plays a Silver. (+$2)
+d buys and gains a Witch.
+d draws 4 Coppers and an Estate.
+Turn 3 - apoorvab
+a plays 4 Coppers. (+$4)
+a buys and gains a Moneylender.
+a draws 5 cards.
+Turn 4 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Throne Room.
+d shuffles their deck.
+d draws 2 Coppers, 2 Estates, and a Moneylender.
+Turn 4 - apoorvab
+a plays a Witch.
+a shuffles their deck.
+a draws 2 cards.
+d gains a Curse.
+a plays 3 Coppers. (+$3)
+a buys and gains a Village.
+a draws 5 cards.
+Turn 5 - domibot_v1.4
+d plays a Moneylender.
+d trashes a Copper.
+d gets +$3.
+d plays a Copper. (+$1)
+d buys and gains a Silver.
+d draws 3 Coppers, a Silver, and a Witch.
+Turn 5 - apoorvab
+a plays a Moneylender.
+a trashes a Copper.
+a gets +$3.
+a plays 3 Coppers. (+$3)
+a buys and gains a Witch.
+a shuffles their deck.
+a draws 5 cards.
+Turn 6 - domibot_v1.4
+d plays a Witch.
+d draws an Estate and a Throne Room.
+a gains a Curse.
+d plays a Silver and 3 Coppers. (+$5)
+d buys and gains a Council Room.
+d shuffles their deck.
+d draws 2 Coppers, a Silver, an Estate, and a Council Room.
+Turn 6 - apoorvab
+a plays a Witch.
+a draws 2 cards.
+d gains a Curse.
+a plays 4 Coppers. (+$4)
+a buys and gains a Throne Room.
+a draws 5 cards.
+Turn 7 - domibot_v1.4
+d plays a Council Room.
+d draws a Curse, a Silver, an Estate, and a Witch.
+d gets +1 Buy.
+a draws a card.
+d plays 2 Silvers and 2 Coppers. (+$6)
+d buys and gains a Gold.
+d draws 3 Coppers, an Estate, and a Throne Room.
+Turn 7 - apoorvab
+a plays a Village.
+a shuffles their deck.
+a draws a card.
+a gets +2 Actions.
+a plays a Witch.
+a draws 2 cards.
+d gains a Curse.
+a plays a Witch.
+a draws 2 cards.
+d gains a Curse.
+a plays 4 Coppers. (+$4)
+a buys and gains a Throne Room.
+a shuffles their deck.
+a draws 5 cards.
+Turn 8 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d shuffles their deck.
+d draws a Curse, 2 Silvers, an Estate, and a Moneylender.
+Turn 8 - apoorvab
+a plays 3 Coppers. (+$3)
+a buys and gains a Village.
+a draws 5 cards.
+Turn 9 - domibot_v1.4
+d plays a Moneylender.
+d plays 2 Silvers. (+$4)
+d buys and gains a Silver.
+d draws a Curse, a Copper, a Gold, a Council Room, and a Witch.
+Turn 9 - apoorvab
+a plays a Throne Room.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Village again.
+a draws a card.
+a gets +2 Actions.
+a plays a Witch.
+a draws 2 cards.
+d gains a Curse.
+a plays a Moneylender.
+a trashes a Copper.
+a gets +$3.
+a plays a Copper. (+$1)
+a buys and gains a Throne Room.
+a shuffles their deck.
+a draws 5 cards.
+Turn 10 - domibot_v1.4
+d plays a Witch.
+d draws a Curse and an Estate.
+a gains a Curse.
+d plays a Copper and a Gold. (+$4)
+d buys and gains a Silver.
+d draws 3 Coppers, a Silver, and an Estate.
+Turn 10 - apoorvab
+a plays a Throne Room.
+a plays a Witch.
+a draws 2 cards.
+d gains a Curse.
+a plays a Witch again.
+a draws 2 cards.
+d gains a Curse.
+a plays 3 Coppers. (+$3)
+a buys and gains a Village.
+a draws 5 cards.
+Turn 11 - domibot_v1.4
+d plays a Silver and 3 Coppers. (+$5)
+d buys and gains a Bandit.
+d shuffles their deck.
+d draws a Curse, 2 Coppers, a Silver, and a Throne Room.
+Turn 11 - apoorvab
+a plays a Throne Room.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Village again.
+a draws a card.
+a gets +2 Actions.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a shuffles their deck.
+a draws 5 cards.
+Turn 12 - domibot_v1.4
+d plays a Silver and 2 Coppers. (+$4)
+d buys and gains a Silver.
+d draws 2 Curses, a Silver, a Gold, and a Council Room.
+Turn 12 - apoorvab
+a plays a Throne Room.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Village again.
+a draws a card.
+a gets +2 Actions.
+a draws 5 cards.
+Turn 13 - domibot_v1.4
+d plays a Council Room.
+d draws a Copper, a Silver, an Estate, and a Bandit.
+d gets +1 Buy.
+a draws a card.
+d plays 2 Silvers, a Copper, and a Gold. (+$8)
+d buys and gains a Province.
+d draws a Curse, a Copper, a Silver, an Estate, and a Witch.
+Turn 13 - apoorvab
+a plays a Throne Room.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Village again.
+a draws a card.
+a gets +2 Actions.
+a plays a Throne Room.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Village again.
+a draws a card.
+a gets +2 Actions.
+a plays a Witch.
+a draws 2 cards.
+d gains a Curse.
+a plays a Witch.
+a shuffles their deck.
+a draws 2 cards.
+a plays a Moneylender.
+a trashes a Copper.
+a gets +$3.
+a plays 3 Coppers. (+$3)
+a buys and gains a Council Room.
+a draws 5 cards.
+Turn 14 - domibot_v1.4
+d plays a Witch.
+d draws a Curse and a Moneylender.
+d plays a Silver and a Copper. (+$3)
+d buys and gains a Silver.
+d draws 2 Curses, a Copper, a Silver, and an Estate.
+Turn 14 - apoorvab
+a plays a Throne Room.
+a plays a Village.
+a shuffles their deck.
+a draws a card.
+a gets +2 Actions.
+a plays a Village again.
+a draws a card.
+a gets +2 Actions.
+a plays a Council Room.
+a draws 4 cards.
+a gets +1 Buy.
+d shuffles their deck.
+d draws a Throne Room.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Witch.
+a draws 2 cards.
+a plays a Witch.
+a draws 2 cards.
+a plays a Throne Room.
+a plays a Moneylender.
+a trashes a Copper.
+a gets +$3.
+a plays a Moneylender again.
+a trashes a Copper.
+a gets +$3.
+a plays 2 Coppers. (+$2)
+a buys and gains a Bandit.
+a buys and gains a Village.
+a shuffles their deck.
+a draws 5 cards.
+Turn 15 - domibot_v1.4
+d plays a Throne Room.
+d plays a Silver and a Copper. (+$3)
+d buys and gains a Silver.
+d draws a Curse, a Copper, 2 Silvers, and a Council Room.
+Turn 15 - apoorvab
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Throne Room.
+a plays a Witch.
+a draws 2 cards.
+a plays a Witch again.
+a draws 2 cards.
+a plays a Throne Room.
+a plays a Moneylender.
+a trashes a Copper.
+a gets +$3.
+a plays a Moneylender again.
+a trashes a Copper.
+a gets +$3.
+a buys and gains a Gold.
+a draws 5 cards.
+Turn 16 - domibot_v1.4
+d plays a Council Room.
+d draws a Curse, a Silver, an Estate, and a Moneylender.
+d gets +1 Buy.
+a draws a card.
+d plays 3 Silvers and a Copper. (+$7)
+d buys and gains a Gold.
+d draws 2 Curses, 2 Silvers, and a Bandit.
+Turn 16 - apoorvab
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Throne Room.
+a plays a Witch.
+a draws 2 cards.
+a plays a Witch again.
+a shuffles their deck.
+a draws 2 cards.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Throne Room.
+a plays a Witch.
+a draws 2 cards.
+a plays a Witch again.
+a draws 2 cards.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Throne Room.
+a plays a Bandit.
+a gains a Gold.
+d reveals a Copper and a Silver.
+d trashes a Silver.
+d discards a Copper.
+a plays a Bandit again.
+a gains a Gold.
+d reveals a Curse and a Copper.
+d discards a Curse and a Copper.
+a plays a Council Room.
+a shuffles their deck.
+a draws 2 cards.
+a gets +1 Buy.
+d draws a Gold.
+a plays 3 Golds. (+$9)
+a buys and gains a Province.
+a shuffles their deck.
+a draws 5 cards.
+Turn 17 - domibot_v1.4
+d plays a Bandit.
+d gains a Gold.
+a reveals a Bandit and a Throne Room.
+a discards a Bandit and a Throne Room.
+d plays 2 Silvers and a Gold. (+$7)
+d buys and gains a Gold.
+d draws a Curse, a Copper, an Estate, a Province, and a Witch.
+Turn 17 - apoorvab
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Witch.
+a draws 2 cards.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Gold. (+$3)
+a buys and gains a Village.
+a draws 5 cards.
+Turn 18 - domibot_v1.4
+d plays a Witch.
+d shuffles their deck.
+d draws a Silver and a Bandit.
+d plays a Silver and a Copper. (+$3)
+d buys and gains a Silver.
+d draws 2 Curses, a Copper, a Silver, and an Estate.
+Turn 18 - apoorvab
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Witch.
+a draws 2 cards.
+a plays 2 Golds. (+$6)
+a buys and gains a Gold.
+a shuffles their deck.
+a draws 5 cards.
+Turn 19 - domibot_v1.4
+d plays a Silver and a Copper. (+$3)
+d buys and gains a Silver.
+d draws a Copper, a Silver, 2 Golds, and a Council Room.
+Turn 19 - apoorvab
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Council Room.
+a draws 4 cards.
+a gets +1 Buy.
+d draws a Curse.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Throne Room.
+a plays a Witch.
+a draws 2 cards.
+a plays a Witch again.
+a draws 2 cards.
+a plays a Throne Room.
+a plays a Witch.
+a draws 2 cards.
+a plays a Witch again.
+a draws 2 cards.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Bandit.
+a gains a Gold.
+d reveals a Curse and a Gold.
+d trashes a Gold.
+d discards a Curse.
+a plays 4 Golds. (+$12)
+a buys and gains a Province.
+a buys and gains a Throne Room.
+a shuffles their deck.
+a draws 5 cards.
+Turn 20 - domibot_v1.4
+d plays a Council Room.
+d draws 2 Curses, a Copper, and an Estate.
+d gets +1 Buy.
+a draws a card.
+d plays a Silver, 2 Coppers, and 2 Golds. (+$10)
+d buys and gains a Province.
+d buys and gains an Estate.
+d draws a Curse, a Copper, a Silver, a Moneylender, and a Throne Room.
+Turn 20 - apoorvab
+a plays a Throne Room.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Village again.
+a draws a card.
+a gets +2 Actions.
+a plays a Throne Room.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Village again.
+a draws a card.
+a gets +2 Actions.
+a plays a Witch.
+a draws 2 cards.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Witch.
+a draws 2 cards.
+a plays a Council Room.
+a draws 4 cards.
+a gets +1 Buy.
+d draws a Silver.
+a plays a Throne Room.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Village again.
+a draws a card.
+a gets +2 Actions.
+a plays a Bandit.
+a gains a Gold.
+d reveals a Silver and a Gold.
+d trashes a Silver.
+d discards a Gold.
+a plays 4 Golds. (+$12)
+a buys and gains a Province.
+a buys and gains a Village.
+a draws 5 cards.
+Turn 21 - domibot_v1.4
+d plays a Throne Room.
+d plays a Moneylender.
+d trashes a Copper.
+d gets +$3.
+d plays a Moneylender again.
+d plays 2 Silvers. (+$4)
+d buys and gains a Gold.
+d shuffles their deck.
+d draws 3 Silvers, a Gold, and an Estate.
+Turn 21 - apoorvab
+a plays a Throne Room.
+a plays a Village.
+a shuffles their deck.
+a draws a card.
+a gets +2 Actions.
+a plays a Village again.
+a draws a card.
+a gets +2 Actions.
+a plays a Gold. (+$3)
+a buys and gains a Village.
+a draws 5 cards.
+Turn 22 - domibot_v1.4
+d plays 3 Silvers and a Gold. (+$9)
+d buys and gains a Province.
+d draws a Copper, a Silver, a Gold, a Bandit, and a Council Room.
+Turn 22 - apoorvab
+a plays a Throne Room.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Village again.
+a draws a card.
+a gets +2 Actions.
+a plays a Throne Room.
+a plays a Witch.
+a draws 2 cards.
+a plays a Witch again.
+a draws 2 cards.
+a plays a Council Room.
+a draws 4 cards.
+a gets +1 Buy.
+d draws a Gold.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Throne Room.
+a plays a Witch.
+a draws 2 cards.
+a plays a Witch again.
+a draws 2 cards.
+a plays a Bandit.
+a gains a Gold.
+d reveals a Gold and a Province.
+d trashes a Gold.
+d discards a Province.
+a plays a Village.
+a draws a card.
+a gets +2 Actions.
+a plays a Village.
+a shuffles their deck.
+a draws a card.
+a gets +2 Actions.
+a plays 5 Golds. (+$15)
+a buys and gains a Province.
+a buys and gains a Gold.
+a draws 5 cards.
+Turn 23 - domibot_v1.4
+d plays a Council Room.
+d draws a Curse, a Copper, a Silver, and an Estate.
+d gets +1 Buy.
+a draws a card.
+d plays 2 Silvers, 2 Coppers, and 2 Golds. (+$12)
+d buys and gains an Estate.
+d buys and gains a Province.
+d draws 2 Curses, a Copper, a Silver, and a Province.
+The game has ended.
+"""
+
+WITCH_MIRROR_KINGDOM = [
+    "Council Room", "Library", "Mine", "Witch", "Workshop",
+    "Moneylender", "Throne Room", "Bandit", "Vassal", "Village",
+]
+
+
+def test_witch_mirror_full_game_derives_final_hand():
+    parsed = parse_dominion_log(WITCH_MIRROR_LOG, my_name="domibot_v1.4", kingdom=WITCH_MIRROR_KINGDOM)
+    # last line: "d draws 2 Curses, a Copper, a Silver, and a Province." at
+    # the true end of d's turn 23, immediately followed by game-end.
+    assert sorted(parsed.my_hand) == sorted(["Curse", "Curse", "Copper", "Silver", "Province"])
+    assert parsed.my_phase == "ACTION"
+    assert parsed.my_actions == 1 and parsed.my_buys == 1 and parsed.my_coins == 0
+
+
+def test_witch_mirror_mid_turn_stop_after_council_room():
+    lines = WITCH_MIRROR_LOG.splitlines()
+    truncated = "\n".join(lines[: lines.index("d gets +1 Buy.") + 1])  # first occurrence: turn 7
+    parsed = parse_dominion_log(truncated, my_name="domibot_v1.4", kingdom=WITCH_MIRROR_KINGDOM)
+    # turn 7 hand was [Copper, Copper, Silver, Estate, Throne Room] (from
+    # turn 6's cleanup draw), minus the played Council Room, plus its
+    # +4 Cards draw [Curse, Silver, Estate, Witch].
+    assert sorted(parsed.my_hand) == sorted(
+        ["Copper", "Copper", "Silver", "Estate", "Curse", "Silver", "Estate", "Witch"]
+    )
+    assert parsed.my_phase == "ACTION"
+    assert parsed.my_actions == 0  # spent on Council Room, which grants no +actions
+    assert parsed.my_buys == 2  # base 1 + Council Room's +1 Buy
+    assert parsed.my_coins == 0  # no treasure played yet
+
+
+def test_witch_mirror_bandit_reveal_does_not_touch_hand():
+    lines = WITCH_MIRROR_LOG.splitlines()
+    truncated = "\n".join(lines[: lines.index("d discards a Copper.") + 1])
+    parsed = parse_dominion_log(truncated, my_name="domibot_v1.4", kingdom=WITCH_MIRROR_KINGDOM)
+    # d's hand at this point is turn 16's cleanup draw, untouched by the
+    # opponent's Bandit (which reveals/trashes/discards from *deck top*,
+    # never hand) -- the revealed Copper/Silver must not be removed from
+    # the tracked hand, and the discarded Copper must land in discard.
+    assert sorted(parsed.my_hand) == sorted(["Curse", "Curse", "Silver", "Silver", "Bandit"])
+    assert "Copper" in parsed.my_discard
+    assert parsed.trash[-1] == "Silver"
+
+
+def test_witch_mirror_reconstructs_without_error():
+    from training.relay import TableState, reconstruct_game
+
+    parsed = parse_dominion_log(WITCH_MIRROR_LOG, my_name="domibot_v1.4", kingdom=WITCH_MIRROR_KINGDOM)
+    state = TableState(
+        kingdom=WITCH_MIRROR_KINGDOM, supply=parsed.supply, trash=parsed.trash,
+        my_hand=parsed.my_hand, my_discard=parsed.my_discard, my_play_area=parsed.my_play_area,
+        my_total=parsed.my_total, my_actions=parsed.my_actions, my_buys=parsed.my_buys,
+        my_coins=parsed.my_coins, my_phase=parsed.my_phase,
+        my_turns_taken=parsed.turns_taken["domibot_v1.4"],
+        opp_discard=parsed.opp_discard, opp_play_area=parsed.opp_play_area,
+        opp_hand_size=parsed.opp_hand_size, opp_draw_pile_size=parsed.opp_draw_pile_size,
+    )
+    game = reconstruct_game(state, seed=1)
+    assert game.legal_actions() == [END_ACTIONS]
