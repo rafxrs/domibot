@@ -1,6 +1,6 @@
 import pytest
 
-from examples.domibot_relay import format_cards, parse_cards, parse_kingdom
+from examples.domibot_relay import format_cards, parse_cards, parse_kingdom, prompt_multiline
 
 
 def test_parse_kingdom_accepts_space_separated_codes_no_commas():
@@ -84,3 +84,23 @@ def test_recommend_auto_skips_action_phase_with_no_playable_cards(capsys):
     out = capsys.readouterr().out
     assert "auto-ending your action phase" in out
     assert "recommended: END_ACTIONS" not in out
+
+
+def test_prompt_multiline_ignores_spurious_leading_blank_line(monkeypatch):
+    # Pasting a large block into a Windows console commonly delivers a
+    # spurious empty first line before the real content (no bracketed-
+    # paste support) -- without skipping it, the old "blank line ends the
+    # paste" logic terminated immediately with nothing captured, and every
+    # subsequent already-buffered log line got fed one-at-a-time into
+    # whatever prompt came next instead.
+    fed = iter(["", "Turn 1 - domibot_v1.4", "d plays 3 Coppers. (+$3)", ""])
+    monkeypatch.setattr("builtins.input", lambda: next(fed))
+    result = prompt_multiline("Paste something")
+    assert result == "Turn 1 - domibot_v1.4\nd plays 3 Coppers. (+$3)"
+
+
+def test_prompt_multiline_still_ends_on_first_real_blank_line(monkeypatch):
+    fed = iter(["line one", "line two", "", "should never be consumed"])
+    monkeypatch.setattr("builtins.input", lambda: next(fed))
+    result = prompt_multiline("Paste something")
+    assert result == "line one\nline two"

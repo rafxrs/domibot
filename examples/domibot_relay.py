@@ -158,6 +158,11 @@ def prompt_cards(msg: str, default: list[str] | None = None) -> list[str]:
 
 
 def prompt_multiline(msg: str) -> str:
+    """A blank line ends the paste -- but a large paste into a Windows
+    console commonly delivers a spurious empty first line before the real
+    content arrives (no bracketed-paste support), so a blank line only
+    counts as the terminator once real content has actually started;
+    leading blank lines are just skipped."""
     print(f"{msg} (paste it, then press Enter on its own once more when done):")
     lines = []
     while True:
@@ -166,7 +171,9 @@ def prompt_multiline(msg: str) -> str:
         except EOFError:
             break
         if not line.strip():
-            break
+            if lines:
+                break
+            continue
         lines.append(line)
     return "\n".join(lines)
 
