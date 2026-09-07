@@ -187,8 +187,43 @@ docstring for the details. Only covers phase-action decisions, matching
 `mcts.py`'s own scope.
 
 ```bash
-python examples/domibot_relay.py --checkpoint checkpoints/domibot_v1.4.pt --simulations 400
+python examples/domibot_relay.py --checkpoint checkpoints/domibot_v2.1.pt --simulations 400
 ```
+
+## Checkpoint lineage and results
+
+`checkpoints/` (gitignored) holds two separate lineages, each archived as
+`domibot_vX.Y.pt` plus a `vX.Y_run/` folder with that run's `iter_N.pt`
+snapshots:
+
+- **v1.1 - v1.4**: the original network, resumed across several training
+  sessions (`v1.1_run` through `v1.4_run`). BigMoney-relative win rate
+  climbed roughly 0% → 46% (v1.1) → 52-55% (v1.2) → 59% (v1.3) → 68%
+  (v1.4) over its training history. Play was generally sound (good
+  Province timing, sensible attack usage) but self-play games essentially
+  never showed genuine multi-card "engine" turns -- confirmed by directly
+  testing `_apply_action_continuation_bias` at various strengths against
+  the converged v1.4 network and finding zero effect, since PUCT's
+  exploitation term dominates the prior once a network already has
+  confident (anti-chaining) value estimates. That finding motivated v2.
+- **v2.1**: a *fresh* network (not resumed from v1.x) trained with the
+  action-continuation bias active from iteration 1 instead of retrofitted
+  later, `--simulations 500` (vs. v1.x's 100), and root-parallel self-play
+  batching (`mcts.run_mcts_batch`) to make that simulation count
+  affordable. One 100-iteration run (`v2.1_run/`), self-play on CPU /
+  training+eval on CUDA. Final in-training eval: **35/40 vs BigMoney,
+  28/40 vs domibot_v1.4** (iteration 100); a separate 100-game, non-
+  alternating-seat head-to-head against v1.4 gave **71-27-2**. Directly
+  inspecting its self-play games (not just win rate) found real,
+  repeated Village/Laboratory/Merchant-enabled multi-action turns v1.4
+  never showed -- e.g. stacking 3-4 Laboratories in one turn to draw deep
+  into the deck, or `Village -> Bureaucrat` (a pure enabler spending its
+  extra action on a genuine payoff card, not just another cantrip). Not
+  perfect: an early checkpoint (iter 30) showed a real pathology --
+  trashing its entire deck down to a single Chapel via over-aggressive
+  trashing, then stalling turn after turn with nothing to draw or buy --
+  gone by iter 90/100, though later checkpoints lean toward avoiding
+  Chapel altogether rather than clearly having learned moderate use of it.
 
 ## What's still missing
 
