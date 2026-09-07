@@ -36,8 +36,58 @@ import random
 from collections import Counter
 from dataclasses import dataclass, field
 
-from domibot import Game
+from domibot import ALL_CARDS, Game
 from domibot.enums import Phase
+
+# Short codes for the 26 base-set kingdom cards, so you don't have to type
+# the full name at every prompt (dominion.games' log never lists the
+# kingdom, so this is entered by hand every game). 2 letters where that's
+# unambiguous; 3 where several cards share a prefix (the Market/Merchant/
+# Militia/Mine/Moat/Moneylender cluster all start with "M").
+CARD_ABBREVIATIONS: dict[str, str] = {
+    "ART": "Artisan",
+    "BAN": "Bandit",
+    "BUR": "Bureaucrat",
+    "CEL": "Cellar",
+    "CHA": "Chapel",
+    "CR": "Council Room",
+    "FES": "Festival",
+    "GAR": "Gardens",
+    "HAR": "Harbinger",
+    "LAB": "Laboratory",
+    "LIB": "Library",
+    "MAR": "Market",
+    "MER": "Merchant",
+    "MIL": "Militia",
+    "MIN": "Mine",
+    "MOA": "Moat",
+    "MLR": "Moneylender",
+    "POA": "Poacher",
+    "REM": "Remodel",
+    "SEN": "Sentry",
+    "SMI": "Smithy",
+    "TR": "Throne Room",
+    "VAS": "Vassal",
+    "VIL": "Village",
+    "WIT": "Witch",
+    "WOR": "Workshop",
+}
+
+
+def resolve_card_name(token: str) -> str:
+    """A full card name, unchanged; or an abbreviation from
+    CARD_ABBREVIATIONS (case-insensitive) expanded to one. Raises
+    ValueError naming the token otherwise."""
+    if token in ALL_CARDS:
+        return token
+    expanded = CARD_ABBREVIATIONS.get(token.upper())
+    if expanded is not None:
+        return expanded
+    # case-insensitive full-name match too (e.g. "copper", "COPPER")
+    for name in ALL_CARDS:
+        if name.lower() == token.lower():
+            return name
+    raise ValueError(f"not a recognized card name or abbreviation: {token!r}")
 
 
 @dataclass

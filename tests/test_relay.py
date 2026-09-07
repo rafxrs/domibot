@@ -2,7 +2,7 @@ import pytest
 
 from domibot import Game, KINGDOM_CARDS
 from domibot.enums import Phase
-from training.relay import TableState, reconstruct_game
+from training.relay import CARD_ABBREVIATIONS, TableState, reconstruct_game, resolve_card_name
 
 
 def _tiny_kingdom() -> list[str]:
@@ -105,3 +105,31 @@ def test_domibot_agent_can_act_on_a_reconstructed_game():
     game = reconstruct_game(state, seed=7)
     action = agent.act(game)
     assert action in game.legal_actions()
+
+
+def test_card_abbreviations_cover_every_kingdom_card_exactly_once():
+    covered = sorted(CARD_ABBREVIATIONS.values())
+    assert covered == sorted(KINGDOM_CARDS)
+
+
+def test_card_abbreviations_are_all_distinct():
+    codes = list(CARD_ABBREVIATIONS.keys())
+    assert len(codes) == len(set(codes))
+
+
+def test_resolve_card_name_expands_abbreviations_case_insensitively():
+    assert resolve_card_name("POA") == "Poacher"
+    assert resolve_card_name("poa") == "Poacher"
+    assert resolve_card_name("Poa") == "Poacher"
+    assert resolve_card_name("CR") == "Council Room"
+
+
+def test_resolve_card_name_passes_through_full_names_and_is_case_insensitive():
+    assert resolve_card_name("Copper") == "Copper"
+    assert resolve_card_name("copper") == "Copper"
+    assert resolve_card_name("Council Room") == "Council Room"
+
+
+def test_resolve_card_name_rejects_unknown_tokens():
+    with pytest.raises(ValueError, match="not a recognized card"):
+        resolve_card_name("XYZ")

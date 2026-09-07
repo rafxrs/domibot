@@ -28,6 +28,11 @@ of hand-counting the supply, the trash, and your own total card ownership
 training/log_parser.py for exactly what it does and doesn't derive from it,
 and why. Everything it fills in still shows up as an editable default, so
 you can sanity check or override it before confirming.
+
+Any card list (the kingdom included -- dominion.games' log never states it,
+so it's typed by hand every game) accepts a short code instead of the full
+name, e.g. 'POA' for Poacher or 'CR' for Council Room -- run with
+--list-abbreviations to see the full table (also printed at startup).
 """
 from __future__ import annotations
 
@@ -37,14 +42,12 @@ from pathlib import Path
 
 import torch
 
-from domibot import ALL_CARDS
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))  # training/ is a sibling of examples/, not on sys.path by default
 from training.log_parser import parse_dominion_log  # noqa: E402
 from training.mcts import run_mcts, select_action, visit_distribution  # noqa: E402
 from training.network import DomibotNet, get_device  # noqa: E402
-from training.relay import TableState, reconstruct_game  # noqa: E402
+from training.relay import CARD_ABBREVIATIONS, TableState, reconstruct_game, resolve_card_name  # noqa: E402
 
 DEFAULT_CHECKPOINT = ROOT / "checkpoints" / "latest.pt"
 
@@ -52,7 +55,9 @@ DEFAULT_CHECKPOINT = ROOT / "checkpoints" / "latest.pt"
 def parse_cards(raw: str) -> list[str]:
     """Comma-separated card names, each optionally suffixed 'xN' (matching
     how hands are shown throughout this project, e.g. 'Copperx3, Estate').
-    Blank input means an empty zone."""
+    Each name may also be a short code from CARD_ABBREVIATIONS (e.g. 'POA'
+    for Poacher, 'CR' for Council Room) -- see --list-abbreviations. Blank
+    input means an empty zone."""
     raw = raw.strip()
     if not raw:
         return []
@@ -66,9 +71,7 @@ def parse_cards(raw: str) -> list[str]:
             name = name.strip()
         else:
             name, count = token, "1"
-        if name not in ALL_CARDS:
-            raise ValueError(f"not a real card name: {name!r}")
-        cards.extend([name] * int(count))
+        cards.extend([resolve_card_name(name)] * int(count))
     return cards
 
 
@@ -204,13 +207,25 @@ def try_parse_log(kingdom: list[str], my_name: str):
     return parsed
 
 
+def print_abbreviations() -> None:
+    print("Kingdom card abbreviations (case-insensitive, use anywhere a card list is asked for):")
+    width = max(len(name) for name in CARD_ABBREVIATIONS.values())
+    for code, name in sorted(CARD_ABBREVIATIONS.items(), key=lambda kv: kv[1]):
+        print(f"  {name:<{width}}  {code}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--checkpoint", type=str, default=str(DEFAULT_CHECKPOINT))
     parser.add_argument("--simulations", type=int, default=400, help="MCTS simulations per query (no self-play "
                                                                        "speed pressure here, so it's fine to go higher than training's default)")
     parser.add_argument("--gpu", action="store_true", help="use CUDA if available")
+    parser.add_argument("--list-abbreviations", action="store_true", help="print the kingdom card short codes and exit")
     args = parser.parse_args()
+
+    if args.list_abbreviations:
+        print_abbreviations()
+        return
 
     if not Path(args.checkpoint).exists():
         raise SystemExit(f"no checkpoint at {args.checkpoint}")
@@ -219,6 +234,8 @@ def main() -> None:
     network = DomibotNet.load(args.checkpoint, map_location=device).to(device)
     network.eval()
     print(f"Loaded {args.checkpoint} onto {device}, {args.simulations} sims/query.\n")
+    print_abbreviations()
+    print()
 
     kingdom = prompt_kingdom()
     my_name = prompt("Your account name, as it appears in a pasted log (blank if you won't use log paste)")
