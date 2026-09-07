@@ -1,3 +1,5 @@
+from collections import Counter
+
 import pytest
 
 from domibot.models import END_ACTIONS
@@ -981,3 +983,135 @@ Turn 1 - domibot_v1.4"""
     parsed = parse_dominion_log(log, my_name="domibot_v1.4", kingdom=kingdom)
     assert sorted(parsed.my_hand) == sorted(["Copper", "Copper", "Estate", "Estate", "Estate"])
     assert parsed.opp_hand_size == 5
+
+
+# A real dominion.games game against Lord Rattington where "d" (me) played
+# Bureaucrat twice, hitting the opponent's "no Victory card in hand"
+# fallback both times -- that fallback is rendered as "X reveals their
+# hand: ..." rather than the usual reveal-then-resolve grammar, and
+# Bureaucrat's own gain goes straight to the deck top, not discard.
+BUREAUCRAT_LOG = """Game #183190908, unrated.
+d starts with 7 Coppers.
+d starts with 3 Estates.
+L starts with 7 Coppers.
+L starts with 3 Estates.
+d shuffles their deck.
+L shuffles their deck.
+d draws 2 Coppers and 3 Estates.
+L draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 2 Coppers. (+$2)
+d buys and gains a Copper.
+d draws 5 Coppers.
+Turn 1 - Lord Rattington
+L plays 4 Coppers. (+$4)
+L buys and gains a Silver.
+L draws 5 cards.
+Turn 2 - domibot_v1.4
+d plays 5 Coppers. (+$5)
+d buys and gains a Bandit.
+d shuffles their deck.
+d draws 4 Coppers and a Bandit.
+Turn 2 - Lord Rattington
+L plays 3 Coppers. (+$3)
+L buys and gains a Silver.
+L shuffles their deck.
+L draws 5 cards.
+Turn 3 - domibot_v1.4
+d plays a Bandit.
+d gains a Gold.
+L reveals 2 Coppers.
+L discards 2 Coppers.
+d plays 4 Coppers. (+$4)
+d buys and gains a Bureaucrat.
+d draws 3 Coppers and 2 Estates.
+Turn 3 - Lord Rattington
+L plays 3 Coppers and 2 Silvers. (+$7)
+L buys and gains a Bandit.
+L draws 5 cards.
+Turn 4 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d shuffles their deck.
+d draws 3 Coppers, an Estate, and a Bandit.
+Turn 4 - Lord Rattington
+L plays 2 Coppers. (+$2)
+L shuffles their deck.
+L draws 5 cards.
+Turn 5 - domibot_v1.4
+d plays a Bandit.
+d gains a Gold.
+L reveals a Copper and an Estate.
+L discards a Copper and an Estate.
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d draws 3 Coppers, a Gold, and a Bureaucrat.
+Turn 5 - Lord Rattington
+L plays a Bandit.
+L gains a Gold.
+d reveals 2 Coppers.
+d discards 2 Coppers.
+L plays a Copper and a Silver. (+$3)
+L buys and gains a Silver.
+L draws 5 cards.
+Turn 6 - domibot_v1.4
+d plays a Bureaucrat.
+d gains a Silver.
+L reveals their hand: 5 Coppers.
+d plays 3 Coppers and a Gold. (+$6)
+d buys and gains a Gold.
+d shuffles their deck.
+d draws 2 Silvers, 2 Estates, and a Bureaucrat.
+Turn 6 - Lord Rattington
+L plays 5 Coppers. (+$5)
+L buys and gains a Library.
+L shuffles their deck.
+L draws 5 cards.
+Turn 7 - domibot_v1.4
+d plays a Bureaucrat.
+d gains a Silver.
+L reveals their hand: 2 Coppers and 3 Silvers.
+d plays 2 Silvers. (+$4)
+d buys and gains a Bureaucrat.
+d draws 3 Coppers, a Silver, and a Bandit.
+Turn 7 - Lord Rattington
+L plays 2 Coppers and 3 Silvers. (+$8)
+L buys and gains a Province.
+L draws 5 cards.
+Turn 8 - domibot_v1.4
+d plays a Bandit.
+d gains a Gold.
+L reveals an Estate and a Bandit.
+L discards an Estate and a Bandit.
+d plays 3 Coppers and a Silver. (+$5)
+d buys and gains a Festival.
+d draws 2 Coppers, a Silver, a Gold, and an Estate.
+Turn 8 - Lord Rattington
+L plays 4 Coppers. (+$4)
+L buys and gains a Silver.
+L shuffles their deck.
+L draws 5 cards.
+Turn 9 - domibot_v1.4"""
+
+BUREAUCRAT_KINGDOM = ["Bandit", "Bureaucrat", "Festival", "Library"]
+
+
+def test_bureaucrat_reveals_hand_fallback_is_a_no_op():
+    # Previously "L reveals their hand: 5 Coppers." matched the general
+    # reveal regex and then blew up trying to parse "their hand: 5
+    # Coppers" as a card list, aborting the entire layer-2 replay.
+    parsed = parse_dominion_log(BUREAUCRAT_LOG, my_name="domibot_v1.4", kingdom=BUREAUCRAT_KINGDOM)
+    assert parsed.my_phase == "ACTION"
+    assert parsed.opp_hand_size == 5
+
+
+def test_bureaucrat_own_gain_is_not_double_counted_via_discard():
+    # Bureaucrat's own Silver gain goes to the deck top, not discard --
+    # treating it as discard-bound (keyed off the gained card's name
+    # instead of the playing card) let a later shuffle silently wipe it
+    # from every tracked zone, undercounting Silver relative to my_total.
+    parsed = parse_dominion_log(BUREAUCRAT_LOG, my_name="domibot_v1.4", kingdom=BUREAUCRAT_KINGDOM)
+    tracked = Counter(parsed.my_hand) + Counter(parsed.my_discard) + Counter(parsed.my_play_area)
+    my_total = Counter(parsed.my_total)
+    for card, count in tracked.items():
+        assert count <= my_total[card], f"{card}: tracked {count} exceeds my_total {my_total[card]}"

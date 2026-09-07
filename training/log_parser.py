@@ -12,7 +12,9 @@ Two layers, in increasing order of ambition:
    opponent's hand size, draw-pile size, and discard pile -- covering
    plays (including Throne-Room-style "plays X again" replays, which
    reapply a card's effect without moving it again), buys/gains (to
-   discard, except Artisan/Mine which go to hand), trashes/discards/
+   discard, except a card-triggered gain whose source card sends it
+   elsewhere -- Artisan/Mine to hand, Bureaucrat's own Silver to the
+   deck top), trashes/discards/
    topdecks (sourced from hand normally, from a just-revealed/looked-at
    card for Sentry/Bandit-style effects, or from discard for Harbinger),
    explicit "gets +N Action/Buy/$" lines, and end-of-turn cleanup
@@ -62,12 +64,19 @@ _DISCARD_LINE = re.compile(r"^(\S+) discards (.+)\.$")
 _TOPDECK_LINE = re.compile(r"^(\S+) topdecks (.+)\.$")
 _REVEALS_LINE = re.compile(r"^(\S+) reveals (.+)\.$")
 _LOOKS_AT_LINE = re.compile(r"^(\S+) looks at (.+)\.$")
+# Bureaucrat's "no Victory card in hand" fallback: the whole hand is shown
+# as proof, but nothing moves anywhere -- a different phrasing from a
+# Sentry/Bandit-style reveal-then-resolve, and purely informational.
+_REVEALS_HAND_LINE = re.compile(r"^(\S+) reveals their hand: (.+)\.$")
 _GETS_ACTIONS_LINE = re.compile(r"^(\S+) gets \+(\d+) Actions?\.$")
 _GETS_BUYS_LINE = re.compile(r"^(\S+) gets \+(\d+) Buys?\.$")
 _GETS_COINS_LINE = re.compile(r"^(\S+) gets \+\$(\d+)\.")
 
-# Cards whose gain destination is hand, not discard (per src/domibot/cards/kingdom.py).
-_GAINS_TO_HAND = {"Artisan", "Mine"}
+# Which card *caused* a gain determines its destination (per
+# src/domibot/cards/kingdom.py), never the gained card's own name -- a
+# bought Bureaucrat, say, still goes to discard like anything else.
+_GAIN_TO_HAND_SOURCES = {"Artisan", "Mine"}
+_GAIN_TO_DECK_TOP_SOURCES = {"Bureaucrat"}
 
 _STARTING_COPPER = 7
 _STARTING_ESTATE = 3
@@ -268,17 +277,32 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
             abbrev, card_text = m.groups()
             player = resolve(abbrev)
             is_buy = bool(_BUY_GAIN_LINE.match(line))
+            # A buy always lands in discard regardless of what was just
+            # played; a card-triggered gain's destination depends on which
+            # card caused it (e.g. Artisan/Mine gain to hand, Bureaucrat
+            # gains its Silver straight to the deck top).
+            source = None if is_buy else last_played.get(player)
+            to_hand = source in _GAIN_TO_HAND_SOURCES
+            to_deck_top = source in _GAIN_TO_DECK_TOP_SOURCES
             for card in _parse_card_list(card_text):
                 if player == my_full_name:
                     if is_buy:
                         me.buys -= 1
-                    (me.hand if card in _GAINS_TO_HAND else me.discard).append(card)
+                    if to_hand:
+                        me.hand.append(card)
+                    elif not to_deck_top:
+                        me.discard.append(card)
+                    # deck-top gains aren't tracked in any zone -- deck
+                    # contents/order are always derived by elimination.
                 else:
-                    if card in _GAINS_TO_HAND:
+                    if to_hand:
                         opp.hand_size += 1
-                    else:
+                    elif not to_deck_top:
                         opp.discard.append(card)
             continue
+
+        if _REVEALS_HAND_LINE.match(line):
+            continue  # informational only -- nothing to trash/discard/topdeck results from this
 
         m = _REVEALS_LINE.match(line) or _LOOKS_AT_LINE.match(line)
         if m:
