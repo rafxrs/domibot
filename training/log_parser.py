@@ -46,7 +46,7 @@ from dataclasses import dataclass, field
 
 from domibot import ALL_CARDS
 
-_RATING_LINE = re.compile(r"^([\w.\-]+): [\d.]+$")
+_RATING_LINE = re.compile(r"^([\w.\- ]+): [\d.]+$")
 _TURN_LINE = re.compile(r"^Turn (\d+) - (.+)$")
 _GAME_END_LINE = re.compile(r"^The game has ended\.?$", re.IGNORECASE)
 _STARTS_WITH_LINE = re.compile(r"^(\S+) starts with \d+ \S+\.$")

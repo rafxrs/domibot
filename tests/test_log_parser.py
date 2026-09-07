@@ -934,3 +934,31 @@ def test_witch_mirror_reconstructs_without_error():
     )
     game = reconstruct_game(state, seed=1)
     assert game.legal_actions() == [END_ACTIONS]
+
+
+def test_opponent_name_with_a_space_is_recognized():
+    # A real dominion.games opponent name ("Lord Rattington") broke player
+    # detection entirely: the rating-line regex didn't allow spaces in
+    # names, so only the first player was ever found, silently disabling
+    # the full replay (and even the baseline supply/trash layer) for every
+    # game against a multi-word-named opponent.
+    log = """Game #183190908, unrated.
+domibot_v1.4: 44
+Lord Rattington: 40
+Timer: Off
+Card Pool: level 2
+d starts with 7 Coppers.
+d starts with 3 Estates.
+L starts with 7 Coppers.
+L starts with 3 Estates.
+d shuffles their deck.
+L shuffles their deck.
+d draws 2 Coppers and 3 Estates.
+L draws 5 cards.
+Turn 1 - domibot_v1.4"""
+    kingdom = ["Bandit", "Festival", "Library", "Artisan", "Vassal",
+               "Bureaucrat", "Moneylender", "Remodel", "Cellar", "Harbinger"]
+    parsed = parse_dominion_log(log, my_name="domibot_v1.4", kingdom=kingdom)
+    assert sorted(parsed.my_hand) == sorted(["Copper", "Copper", "Estate", "Estate", "Estate"])
+    assert parsed.my_phase == "ACTION" and parsed.my_actions == 1
+    assert parsed.opp_hand_size == 5 and parsed.opp_draw_pile_size == 5
