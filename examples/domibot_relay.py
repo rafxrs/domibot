@@ -13,6 +13,11 @@ and total card ownership exactly; for the opponent, only what Dominion
 actually makes public -- their discard pile, and their hand/draw-pile
 *sizes*, never contents).
 
+After each recommendation it loops straight back to asking for the next
+one -- there's no "another decision?" prompt to answer. Ctrl+C is how you
+stop (not Escape: input() is line-buffered, so a bare Escape keypress
+doesn't submit anything and just sits there until you press Enter).
+
 State is re-entered in full at every decision rather than tracked
 incrementally turn to turn -- more typing per query, but far less risk of
 this tool's internal state silently drifting from the real game's if a
@@ -391,9 +396,9 @@ def main() -> None:
                 recommend(state, network, args.simulations, device)
             except ValueError as e:
                 print(f"\nInput doesn't add up: {e}\n")
-                continue
-            if not prompt("Another decision? (Y/n)", "y").lower().startswith("y"):
-                break
+            # Always loops straight back to pasting the next decision --
+            # Ctrl+C is how you stop (a bare Escape does nothing here;
+            # input() is line-buffered and won't submit until Enter).
     except (KeyboardInterrupt, EOFError):
         print("\nbye")
 
