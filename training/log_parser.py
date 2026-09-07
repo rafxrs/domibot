@@ -397,7 +397,13 @@ def parse_dominion_log(text: str, my_name: str, kingdom: list[str], num_players:
         if _TURN_LINE.match(line):
             break
     if not player_names:
-        raise ValueError("couldn't find the 'name: rating' lines at the top of the log")
+        # No "name: rating" header pasted (e.g. a trimmed practice-game
+        # log) -- default to you vs. dominion.games' own built-in bot,
+        # since that's who a header-less log is overwhelmingly likely to
+        # be against. If this guess is wrong, an unrecognized abbreviation
+        # or a failed consistency check downstream will surface it rather
+        # than silently mis-model the game.
+        player_names = [my_name, "Lord Rattington"]
 
     my_matches = [n for n in player_names if n.lower() == my_name.lower()]
     if not my_matches:

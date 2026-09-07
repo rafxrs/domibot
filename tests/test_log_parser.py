@@ -962,3 +962,22 @@ Turn 1 - domibot_v1.4"""
     assert sorted(parsed.my_hand) == sorted(["Copper", "Copper", "Estate", "Estate", "Estate"])
     assert parsed.my_phase == "ACTION" and parsed.my_actions == 1
     assert parsed.opp_hand_size == 5 and parsed.opp_draw_pile_size == 5
+
+
+def test_missing_header_defaults_to_lord_rattington():
+    # A trimmed log with no "name: rating" lines at all -- default to you
+    # (whatever --account-name is) vs. dominion.games' own bot.
+    log = """d starts with 7 Coppers.
+d starts with 3 Estates.
+L starts with 7 Coppers.
+L starts with 3 Estates.
+d shuffles their deck.
+L shuffles their deck.
+d draws 2 Coppers and 3 Estates.
+L draws 5 cards.
+Turn 1 - domibot_v1.4"""
+    kingdom = ["Bandit", "Festival", "Library", "Artisan", "Vassal",
+               "Bureaucrat", "Moneylender", "Remodel", "Cellar", "Harbinger"]
+    parsed = parse_dominion_log(log, my_name="domibot_v1.4", kingdom=kingdom)
+    assert sorted(parsed.my_hand) == sorted(["Copper", "Copper", "Estate", "Estate", "Estate"])
+    assert parsed.opp_hand_size == 5

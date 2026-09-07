@@ -47,7 +47,16 @@ kingdom itself also doesn't need commas between entries.
 
 Your account name defaults to 'domibot_v1.4' (override with
 --account-name) -- it's just whatever your dominion.games username is,
-unrelated to which checkpoint --checkpoint points at.
+unrelated to which checkpoint --checkpoint points at. If the pasted log
+has no "name: rating" header at all (e.g. a trimmed practice-game log),
+it defaults to you vs. "Lord Rattington", dominion.games' own built-in
+bot, rather than refusing to parse it.
+
+If your hand has nothing playable, dominion.games itself auto-skips
+straight to the Buy phase (treasures auto-played) rather than making you
+click "end actions" -- this does the same, silently, so the recommendation
+you get is always the useful one (what to buy), not "end your action
+phase" (something you'd never actually see asked on the real site).
 """
 from __future__ import annotations
 
@@ -57,6 +66,9 @@ import sys
 from pathlib import Path
 
 import torch
+
+from domibot import Phase
+from domibot.models import END_ACTIONS
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))  # training/ is a sibling of examples/, not on sys.path by default
@@ -242,6 +254,16 @@ def prompt_table_state(
 
 def recommend(state: TableState, network: torch.nn.Module, simulations: int, device: torch.device) -> None:
     game = reconstruct_game(state)
+    # dominion.games itself auto-skips straight to the Buy phase (treasures
+    # auto-played) whenever nothing in the Action phase is actually
+    # playable -- matching that here means the recommendation is always
+    # "what to buy" in that situation, not the trivial "end your action
+    # phase" you'd never see asked on the real site. Uses the engine's own
+    # step(), not a reimplementation, so treasure coin totals etc. are
+    # exactly what the real game would produce.
+    if game.phase == Phase.ACTION and game.legal_actions() == [END_ACTIONS]:
+        game.step(END_ACTIONS)
+        print("(no action cards playable -- auto-ending your action phase)")
     root = run_mcts(game, network, simulations, device=device)
     dist = visit_distribution(root)
     ranked = sorted(dist.items(), key=lambda kv: -kv[1])

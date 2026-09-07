@@ -56,3 +56,31 @@ def test_parse_cards_mixes_leading_and_trailing_counts_freely():
 def test_parse_cards_rejects_unrecognized_token():
     with pytest.raises(ValueError, match="not a recognized card"):
         parse_cards("3 xyz")
+
+
+def test_recommend_auto_skips_action_phase_with_no_playable_cards(capsys):
+    import torch
+
+    from domibot import Game
+    from examples.domibot_relay import recommend
+    from training.network import DomibotNet
+    from training.relay import TableState
+
+    kingdom = ["Bandit", "Festival", "Library", "Artisan", "Vassal",
+               "Bureaucrat", "Moneylender", "Remodel", "Cellar", "Harbinger"]
+    supply = dict(Game(kingdom, num_players=2, seed=0).supply)
+    state = TableState(
+        kingdom=kingdom, supply=supply, trash=[],
+        my_hand=["Copper", "Copper", "Estate", "Estate", "Estate"],
+        my_discard=[], my_play_area=[],
+        my_total=["Copper"] * 7 + ["Estate"] * 3,
+        my_phase="ACTION", my_actions=1, my_buys=1, my_coins=0, my_turns_taken=0,
+        opp_discard=[], opp_play_area=[], opp_hand_size=5, opp_draw_pile_size=5,
+    )
+    net = DomibotNet()
+    net.eval()
+    recommend(state, net, simulations=10, device=torch.device("cpu"))
+
+    out = capsys.readouterr().out
+    assert "auto-ending your action phase" in out
+    assert "recommended: END_ACTIONS" not in out
