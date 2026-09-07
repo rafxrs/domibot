@@ -22,17 +22,24 @@ topdeck choice), just apply the same "keep the good stuff, give up junk"
 rule Domibot itself uses for those (see training/heuristics.py) -- neither
 Domibot nor this tool actually searches those.
 
-At each query you can paste in that game's dominion.games text log instead
-of hand-counting the supply, the trash, and your own total card ownership
-(the three genuinely tedious/error-prone-to-tally fields) -- see
-training/log_parser.py for exactly what it does and doesn't derive from it,
-and why. Everything it fills in still shows up as an editable default, so
-you can sanity check or override it before confirming.
+At each query you paste in that game's dominion.games text log (the whole
+thing, fresh, every time -- it keeps growing) to auto-fill the supply, the
+trash, and your own total card ownership (the three genuinely tedious/
+error-prone-to-tally fields) -- see training/log_parser.py for exactly what
+it does and doesn't derive from it, and why. Everything it fills in still
+shows up as an editable default, so you can sanity check or override it
+before confirming. Paste nothing (hit END right away) to skip it for one
+query and fall back to manual entry instead.
 
 Any card list (the kingdom included -- dominion.games' log never states it,
 so it's typed by hand every game) accepts a short code instead of the full
 name, e.g. 'POA' for Poacher or 'CR' for Council Room -- run with
---list-abbreviations to see the full table (also printed at startup).
+--list-abbreviations to see the full table (also printed at startup). The
+kingdom itself also doesn't need commas between entries.
+
+Your account name defaults to 'domibot_v1.4' (override with
+--account-name) -- it's just whatever your dominion.games username is,
+unrelated to which checkpoint --checkpoint points at.
 """
 from __future__ import annotations
 
@@ -123,9 +130,23 @@ def prompt_int(msg: str, default: int) -> int:
             print("  not a number -- try again")
 
 
+def parse_kingdom(raw: str) -> list[str]:
+    """Whitespace- *or* comma-separated (no comma required) -- e.g.
+    'POA CR CHA MIL MIN MOA MLR VAS VIL TR'. No 'xN' support (a kingdom is
+    always exactly one of each), so a multi-word full name typed out
+    (rather than its code, e.g. 'Council Room' instead of 'CR') would be
+    misread as two separate tokens -- use the short code for those two."""
+    tokens = raw.replace(",", " ").split()
+    return [resolve_card_name(t) for t in tokens]
+
+
 def prompt_kingdom() -> list[str]:
     while True:
-        kingdom = prompt_cards("Kingdom (10 cards)")
+        try:
+            kingdom = parse_kingdom(prompt("Kingdom (10 cards, space-separated codes are fine)"))
+        except ValueError as e:
+            print(f"  {e} -- try again")
+            continue
         if len(kingdom) == 10 and len(set(kingdom)) == 10:
             return kingdom
         print(f"  need exactly 10 distinct kingdom cards, got {len(kingdom)} -- try again")
@@ -192,10 +213,12 @@ def recommend(state: TableState, network: torch.nn.Module, simulations: int, dev
 
 
 def try_parse_log(kingdom: list[str], my_name: str):
-    """Returns a `log_parser.ParsedLog`, or None if the user skips it."""
-    if not prompt("Paste a dominion.games log to auto-fill supply/trash/your total? (y/N)", "n").lower().startswith("y"):
+    """Always prompts for a log paste; returns a `log_parser.ParsedLog`, or
+    None if it couldn't be parsed (an empty paste included -- just hit
+    END immediately to skip and fall back to manual entry for this query)."""
+    text = prompt_multiline("Paste a dominion.games log to auto-fill supply/trash/your total")
+    if not text.strip():
         return None
-    text = prompt_multiline("Log text")
     try:
         parsed = parse_dominion_log(text, my_name=my_name, kingdom=kingdom)
     except ValueError as e:
@@ -221,6 +244,9 @@ def main() -> None:
                                                                        "speed pressure here, so it's fine to go higher than training's default)")
     parser.add_argument("--gpu", action="store_true", help="use CUDA if available")
     parser.add_argument("--list-abbreviations", action="store_true", help="print the kingdom card short codes and exit")
+    parser.add_argument("--account-name", type=str, default="domibot_v1.4",
+                         help="your account name as it appears in a pasted log -- unrelated to which "
+                              "checkpoint is giving advice, just whatever your dominion.games username is")
     args = parser.parse_args()
 
     if args.list_abbreviations:
@@ -238,11 +264,12 @@ def main() -> None:
     print()
 
     kingdom = prompt_kingdom()
-    my_name = prompt("Your account name, as it appears in a pasted log (blank if you won't use log paste)")
+    my_name = args.account_name
+    print(f"Using account name {my_name!r} for log parsing (override with --account-name).\n")
     supply = None
     try:
         while True:
-            parsed = try_parse_log(kingdom, my_name) if my_name else None
+            parsed = try_parse_log(kingdom, my_name)
             if parsed is not None:
                 supply = parsed.supply
             elif supply is None or prompt("Update supply counts this query? (y/N)", "n").lower().startswith("y"):
