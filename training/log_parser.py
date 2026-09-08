@@ -304,7 +304,24 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
         if _REVEALS_HAND_LINE.match(line):
             continue  # informational only -- nothing to trash/discard/topdeck results from this
 
-        m = _REVEALS_LINE.match(line) or _LOOKS_AT_LINE.match(line)
+        m = _LOOKS_AT_LINE.match(line)
+        if m:
+            abbrev, card_text = m.groups()
+            player = resolve(abbrev)
+            # Library logs each drawn-and-examined card as a bare, unnamed
+            # "looks at a card." (unlike Sentry/Bandit's named deck-top
+            # reveals) -- the card itself is drawn from the deck, so it's
+            # a draw for hand-size purposes; whether it's later set aside
+            # is resolved separately by an ordinary named discard line.
+            if _GENERIC_DRAW.match(card_text.strip()):
+                if player == my_full_name:
+                    raise ValueError("your own Library draw was unnamed -- can't track exact hand from here")
+                opp.hand_size += 1
+            else:
+                pending_reveal[player].extend(_parse_card_list(card_text))
+            continue
+
+        m = _REVEALS_LINE.match(line)
         if m:
             abbrev, card_text = m.groups()
             pending_reveal[resolve(abbrev)].extend(_parse_card_list(card_text))

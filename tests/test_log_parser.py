@@ -1095,6 +1095,46 @@ Turn 9 - domibot_v1.4"""
 
 BUREAUCRAT_KINGDOM = ["Bandit", "Bureaucrat", "Festival", "Library"]
 
+# BUREAUCRAT_LOG continued two more turns into the opponent playing a
+# Library: dominion.games logs each drawn-and-examined card as a bare,
+# unnamed "looks at a card." (unlike Sentry/Bandit's named deck-top
+# reveals), which used to hit the same unnamed-card-list crash.
+LIBRARY_LOG = BUREAUCRAT_LOG + """
+d plays 2 Coppers, a Gold, and a Silver. (+$7)
+d buys and gains a Gold.
+d draws 3 Coppers and 2 Golds.
+Turn 9 - Lord Rattington
+L plays a Library.
+L looks at a card.
+L looks at a card.
+L looks at a card.
+L plays 2 Coppers, a Gold, and 2 Silvers. (+$9)
+L buys and gains a Province.
+L draws 5 cards.
+Turn 10 - domibot_v1.4"""
+
+
+def test_library_unnamed_looks_at_a_card_does_not_crash_the_replay():
+    parsed = parse_dominion_log(LIBRARY_LOG, my_name="domibot_v1.4", kingdom=BUREAUCRAT_KINGDOM)
+    assert parsed.my_phase == "ACTION"
+    # By the time the log ends, turn 9's cleanup draw has already reset
+    # the opponent back to a fresh 5-card hand -- the interesting check
+    # is the mid-turn count, below.
+    assert parsed.opp_hand_size == 5
+    tracked = Counter(parsed.my_hand) + Counter(parsed.my_discard) + Counter(parsed.my_play_area)
+    my_total = Counter(parsed.my_total)
+    for card, count in tracked.items():
+        assert count <= my_total[card], f"{card}: tracked {count} exceeds my_total {my_total[card]}"
+
+
+def test_library_looks_at_a_card_increments_opponent_hand_size():
+    lines = LIBRARY_LOG.splitlines()
+    cutoff = lines.index("L plays 2 Coppers, a Gold, and 2 Silvers. (+$9)")
+    parsed = parse_dominion_log("\n".join(lines[:cutoff]), my_name="domibot_v1.4", kingdom=BUREAUCRAT_KINGDOM)
+    # Turn 9 opponent hand started at 5, minus the played Library, plus
+    # the 3 drawn-and-examined cards.
+    assert parsed.opp_hand_size == 5 - 1 + 3
+
 
 def test_bureaucrat_reveals_hand_fallback_is_a_no_op():
     # Previously "L reveals their hand: 5 Coppers." matched the general
