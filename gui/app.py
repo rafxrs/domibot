@@ -86,7 +86,16 @@ class DominionGUI:
     def __init__(self, game: Game, domibot: DomibotAgent, human_seat: int = 0):
         pygame.init()
         pygame.display.set_caption("Domibot")
-        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        # Everything below still draws onto a fixed WIDTH x HEIGHT logical
+        # canvas (self.screen, unchanged) -- self.window is the real OS
+        # window, sized to fit the actual screen and scaled up/down to it
+        # on every flip, so layout code never needs to know the real size.
+        info = pygame.display.Info()
+        margin = 0.9  # leave room for the OS taskbar/window chrome
+        fit_scale = min(1.0, info.current_w * margin / WIDTH, info.current_h * margin / HEIGHT)
+        window_size = (round(WIDTH * fit_scale), round(HEIGHT * fit_scale))
+        self.window = pygame.display.set_mode(window_size, pygame.RESIZABLE)
+        self.screen = pygame.Surface((WIDTH, HEIGHT))
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("arial", 15)
         self.small_font = pygame.font.SysFont("arial", 12)
@@ -124,8 +133,17 @@ class DominionGUI:
                 self.running = False
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 self.running = False
+            elif event.type == pygame.VIDEORESIZE:
+                self.window = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                self._handle_click(event.pos)
+                self._handle_click(self._to_logical(event.pos))
+
+    def _to_logical(self, pos: tuple[int, int]) -> tuple[int, int]:
+        """Real window pixels -> the fixed WIDTH x HEIGHT canvas every rect
+        in this module is defined in terms of."""
+        win_w, win_h = self.window.get_size()
+        x, y = pos
+        return round(x * WIDTH / win_w), round(y * HEIGHT / win_h)
 
     def _handle_click(self, pos: tuple[int, int]) -> None:
         if self.game.is_game_over() or self.game.current_decider() != self.human_seat:
@@ -204,7 +222,7 @@ class DominionGUI:
 
     # ----------------------------------------------------------- drawing ---
     def _draw(self, thinking: bool = False) -> None:
-        mouse_pos = pygame.mouse.get_pos()
+        mouse_pos = self._to_logical(pygame.mouse.get_pos())
         self.screen.fill(colors.BACKGROUND)
 
         self._draw_top_bar()
@@ -221,6 +239,7 @@ class DominionGUI:
         elif self.game.is_game_over():
             self._draw_game_over()
 
+        pygame.transform.smoothscale(self.screen, self.window.get_size(), self.window)
         pygame.display.flip()
 
     def _draw_top_bar(self) -> None:
