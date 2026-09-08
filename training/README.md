@@ -200,7 +200,7 @@ that point on -- and gracefully falls back to manual entry (pre-filled
 with whatever it did derive) when that happens.
 
 ```bash
-python examples/domibot_relay.py --checkpoint checkpoints/domibot_v2.1.pt --simulations 400
+python examples/domibot_relay.py --checkpoint checkpoints/domibot_v2.2.pt --simulations 400
 ```
 
 ## Checkpoint lineage and results
@@ -237,6 +237,20 @@ snapshots:
   trashing, then stalling turn after turn with nothing to draw or buy --
   gone by iter 90/100, though later checkpoints lean toward avoiding
   Chapel altogether rather than clearly having learned moderate use of it.
+- **v2.2**: resumed from v2.1 for 100 more iterations (101-200), same
+  settings, self-play on CPU / training+eval on CUDA. Training loss
+  plateaued almost immediately (policy_loss oscillating ~0.51-0.54,
+  value_loss ~0.04-0.05 from iter 110 onward, no real downward trend),
+  and the periodic 40-game in-training evals were too noisy on their own
+  to tell whether any given checkpoint was actually better -- e.g. iter
+  180 looked like the run's peak (34/40 vs BigMoney, 32/40 vs v1.4) while
+  the final iter 200 looked worse (28/40, 25/40). A proper 100-game
+  round-robin between v2.1, iter_180, and iter_200 cleared this up: **iter
+  200 beat v2.1 57-36-7**, a real margin, while iter_180 landed close to
+  even against both v2.1 (49-46-5) and iter_200 (50-46-4) -- the
+  in-training numbers were mostly noise, and the final checkpoint (the
+  one promoted to `domibot_v2.2.pt`) is genuinely the strongest of the
+  three despite its worse-looking final eval line.
 
 ## What's still missing
 
