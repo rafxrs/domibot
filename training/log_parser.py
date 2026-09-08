@@ -224,11 +224,18 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
             )
             # Discard becomes the new deck; deck contents/order are never
             # tracked here (reconstruct_game derives them by elimination
-            # anyway), so this is just "discard is now empty."
+            # anyway), so this is just "discard is now empty." When this is
+            # the cleanup shuffle, the not-yet-logged hand/play-area discard
+            # is folded into that same deck, so both must be wiped *now* --
+            # otherwise the subsequent cleanup() call (fired by the actual
+            # draw line) re-adds the stale leftover hand into the fresh
+            # post-shuffle discard, resurrecting cards that already got
+            # folded into the (untracked) deck.
             if player == my_full_name:
                 me.discard = []
                 if upcoming_cleanup:
                     me.play_area = []
+                    me.hand = []
             else:
                 opp.discard = []
                 if upcoming_cleanup:

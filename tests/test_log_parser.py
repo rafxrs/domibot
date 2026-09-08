@@ -1127,6 +1127,57 @@ def test_library_unnamed_looks_at_a_card_does_not_crash_the_replay():
         assert count <= my_total[card], f"{card}: tracked {count} exceeds my_total {my_total[card]}"
 
 
+# A real dominion.games log where a cleanup-triggered shuffle happens on
+# turn 2 -- the deck runs out mid-cleanup, so dominion.games logs "shuffles
+# their deck" *before* the cleanup draw line, one line "early" relative to
+# when the automatic hand+play-area discard actually happens.
+SHUFFLE_CLEANUP_LOG = """Game #183209524, unrated.
+d starts with 7 Coppers.
+d starts with 3 Estates.
+L starts with 7 Coppers.
+L starts with 3 Estates.
+d shuffles their deck.
+L shuffles their deck.
+d draws 4 Coppers and an Estate.
+L draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Bureaucrat.
+d draws 3 Coppers and 2 Estates.
+Turn 1 - Lord Rattington
+L plays 4 Coppers. (+$4)
+L buys and gains a Chapel.
+L draws 5 cards.
+Turn 2 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d shuffles their deck.
+d draws 3 Coppers, a Silver, and a Bureaucrat.
+Turn 2 - Lord Rattington
+L plays 3 Coppers. (+$3)
+L buys and gains a Silver.
+L shuffles their deck.
+L draws 5 cards.
+Turn 3 - domibot_v1.4"""
+
+SHUFFLE_CLEANUP_KINGDOM = ["Bandit", "Bureaucrat", "Chapel", "Militia", "Laboratory"]
+
+
+def test_cleanup_shuffle_does_not_resurrect_leftover_hand_into_discard():
+    # Before the fix, the leftover unplayed hand at the moment of the
+    # cleanup-triggered shuffle (2 Estates here) wasn't wiped along with
+    # discard/play-area, so the *next* draw line's cleanup() call re-added
+    # them into the fresh post-shuffle discard -- resurrecting cards that
+    # had already been (implicitly) folded into the untracked deck, and
+    # overcounting them relative to my_total.
+    parsed = parse_dominion_log(SHUFFLE_CLEANUP_LOG, my_name="domibot_v1.4", kingdom=SHUFFLE_CLEANUP_KINGDOM)
+    tracked = Counter(parsed.my_hand) + Counter(parsed.my_discard) + Counter(parsed.my_play_area)
+    my_total = Counter(parsed.my_total)
+    for card, count in tracked.items():
+        assert count <= my_total[card], f"{card}: tracked {count} exceeds my_total {my_total[card]}"
+    assert parsed.my_discard.count("Estate") == 0  # both got folded into the untracked deck
+
+
 def test_library_looks_at_a_card_increments_opponent_hand_size():
     lines = LIBRARY_LOG.splitlines()
     cutoff = lines.index("L plays 2 Coppers, a Gold, and 2 Silvers. (+$9)")
