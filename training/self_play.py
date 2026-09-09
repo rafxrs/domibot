@@ -27,7 +27,17 @@ from .mcts import materialize, run_mcts, run_mcts_batch, select_action, terminal
 
 DEFAULT_C_PUCT = 1.5
 DEFAULT_TEMPERATURE_MOVES = 15  # phase-action decisions before switching to near-greedy play
-DEFAULT_MAX_MOVES = 400  # safety cap; real games finish well under this
+# Safety cap for an undertrained/near-random policy that can stall
+# indefinitely (e.g. never buying anything worth ending the game over --
+# see evaluate.py's MAX_STEPS docstring for the same pathology). Every
+# decision counts against this now, sub-decisions included, so it needs to
+# be noticeably higher than back when only phase-actions did: measured
+# directly against an early (iteration-10) checkpoint, a 400 cap made
+# self-play games with sub-decision search fail to finish naturally 8/8
+# times (all value targets silently defaulting to 0.0, crippling value
+# learning); 1000 got most of them to a real conclusion instead, matching
+# or beating the old phase-actions-only completion rate at 400.
+DEFAULT_MAX_MOVES = 1000
 DEFAULT_ACTION_BIAS = 0.2  # see mcts._apply_action_continuation_bias
 
 

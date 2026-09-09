@@ -34,7 +34,7 @@ import torch.nn.functional as F
 from .agents import BigMoneyAgent, DomibotAgent
 from .evaluate import play_match
 from .network import DomibotNet, get_device
-from .self_play import ReplayBuffer, play_self_play_games_batch
+from .self_play import DEFAULT_MAX_MOVES, ReplayBuffer, play_self_play_games_batch
 
 CHECKPOINT_DIR = Path(__file__).resolve().parent.parent / "checkpoints"
 
@@ -72,6 +72,10 @@ def main() -> None:
                          help="self-play-only nudge toward continuing to play Action cards over ending the phase "
                               "early, applied at every search node (see mcts._apply_action_continuation_bias). "
                               "0 disables it.")
+    parser.add_argument("--max-moves", type=int, default=None,
+                         help="safety cap on decisions per self-play game, sub-decisions included, for an "
+                              "undertrained policy that can otherwise stall indefinitely (default: "
+                              "self_play.DEFAULT_MAX_MOVES)")
     parser.add_argument("--train-steps-per-iter", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--buffer-capacity", type=int, default=200_000)
@@ -98,7 +102,8 @@ def main() -> None:
 
     device = torch.device(args.device) if args.device else get_device()
     self_play_device = torch.device(args.self_play_device) if args.self_play_device else device
-    print(f"device: {device}  |  self-play device: {self_play_device}")
+    max_moves = args.max_moves if args.max_moves is not None else DEFAULT_MAX_MOVES
+    print(f"device: {device}  |  self-play device: {self_play_device}  |  max_moves: {max_moves}")
 
     network = DomibotNet.load(args.checkpoint, map_location=device).to(device) if args.checkpoint else DomibotNet().to(device)
     if args.checkpoint:
@@ -134,7 +139,7 @@ def main() -> None:
             chunk = min(args.parallel_games, remaining)
             games_examples = play_self_play_games_batch(
                 self_play_network, chunk, args.simulations, action_bias=args.action_bias,
-                device=self_play_device, seed=rng.randrange(2**31),
+                max_moves=max_moves, device=self_play_device, seed=rng.randrange(2**31),
             )
             for examples in games_examples:
                 buffer.add_game(examples)
