@@ -22,10 +22,12 @@ State is re-entered in full at every decision rather than tracked
 incrementally turn to turn -- more typing per query, but far less risk of
 this tool's internal state silently drifting from the real game's if a
 public event gets missed or mis-entered. Only covers your own phase-action
-decisions (what to play/buy); for a forced sub-decision (a trash/discard/
-topdeck choice), just apply the same "keep the good stuff, give up junk"
-rule Domibot itself uses for those (see training/heuristics.py) -- neither
-Domibot nor this tool actually searches those.
+decisions (what to play/buy) -- state is always reconstructed at a phase-
+action boundary, so a forced sub-decision (a trash/discard/topdeck choice)
+can't be represented here. For those, apply the same "keep the good stuff,
+give up junk" rule (see training/heuristics.py); Domibot itself searches
+sub-decisions by default when playing directly (see training/mcts.py), but
+this relay tool doesn't reach that path.
 
 At each query you paste in that game's dominion.games text log (the whole
 thing, fresh, every time -- it keeps growing) and press Enter once more on

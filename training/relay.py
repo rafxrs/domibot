@@ -24,11 +24,13 @@ This is "perfect information Monte Carlo", a standard approximation for
 search under hidden information -- not exact, but exactly as much as a
 human opponent has to guess with.
 
-Scope: only phase-action decisions (what to play, what to buy), matching
-`mcts.py`'s own scope -- that's the only thing actually searched anywhere
-in this project. A forced sub-decision (a trash/discard/topdeck choice)
-isn't search-worthy here either; just follow the same fixed "keep the good
-stuff, give up junk" rule `heuristics.heuristic_reaction` already uses.
+Scope: only phase-action decisions (what to play, what to buy).
+`reconstruct_game` only ever produces boundary states (`pending_decision is
+None`), so a forced sub-decision (a trash/discard/topdeck choice) can't be
+represented here at all -- even though `mcts.py` itself now searches those
+too when driving self-play/DomibotAgent directly. Just follow the same
+fixed "keep the good stuff, give up junk" rule `heuristics.heuristic_reaction`
+uses for those instead.
 """
 from __future__ import annotations
 

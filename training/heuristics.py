@@ -1,10 +1,10 @@
 """Fixed, non-learned resolution of card-effect sub-decisions (discard,
 trash, topdeck, react-to-attack, optional yes/no).
 
-Both BigMoneyAgent and Domibot (the MCTS/network agent) share this: neither
-searches or learns these — see mcts.py's module docstring for why. This
-keeps the strategic layer (what to play, what to buy) as the only thing
-either agent actually reasons about.
+BigMoneyAgent always uses this. DomibotAgent/self-play use it only as an
+ablation/fallback (`search_sub_decisions=False`) -- by default they search
+and learn these sub-decisions via MCTS instead, same as phase actions; see
+mcts.py's module docstring for how.
 """
 from __future__ import annotations
 

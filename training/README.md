@@ -63,33 +63,37 @@ while True:
   automatically when available. `.save(path)` / `DomibotNet.load(path)`
   handle checkpointing.
 - **`mcts.py`** — PUCT search (`run_mcts`), same family of algorithm as
-  AlphaZero/AlphaGo. **Scope decision, read this before extending it**: MCTS
-  only searches phase-action decisions (what to play, what to buy, when to
-  end a phase). Card-effect sub-decisions (Chapel's trashes, Militia's
-  forced discard, a Moat reveal, ...) are resolved immediately by the fixed
-  heuristic in `heuristics.py`, never searched. Two reasons: (1) *hard
-  constraint* — card effects are Python generators that capture a live
-  reference to the `Game` they were created against (see `effects.py` in
-  the engine), so `Game.clone()` refuses to run while one is suspended;
-  MCTS nodes only ever exist at the safe boundaries where cloning works.
-  (2) *scope* — the strategic weight of a turn is overwhelmingly in what to
-  play/buy, so this gets a working v1 without the sub-decision branching
-  factor. Extending search to specific sub-decisions later is possible but
-  not done here.
-- **`heuristics.py`** — `heuristic_reaction(game)`, the fixed fallback both
-  `BigMoneyAgent` and `DomibotAgent` use for sub-decisions, plus
-  `advance_to_next_phase_action(game, action)` (apply an action, then keep
-  auto-resolving forced sub-decisions until the next phase-action boundary
-  or game end) — the one primitive MCTS, self-play, and `DomibotAgent` all
-  share for "take one strategic step."
+  AlphaZero/AlphaGo. Searches and learns *every* Dominion decision — phase
+  actions (what to play, what to buy, when to end a phase) *and*
+  card-effect sub-decisions (Chapel's trashes, Militia's forced discard,
+  Sentry's trash/discard/reorder, ...) — uniformly. A node's position is a
+  `(boundary, path)` pair rather than a raw `Game`: `boundary` is the
+  nearest ancestor `Game` at a true phase-action boundary (always safely
+  clonable — card effects are Python generators that capture a live
+  reference to the `Game` they were created against, see `effects.py` in
+  the engine, so `Game.clone()` refuses to run while one is suspended), and
+  `path` is the sub-decision `Action`s taken since that boundary.
+  `materialize()` reconstructs the actual position on demand by cloning
+  `boundary` and replaying `path` — safe because `Game.rng`'s state is
+  fully captured by `clone()` and every random draw inside a card effect
+  goes exclusively through it, so replay always reaches bit-identical
+  state. See the module docstring for the full reasoning.
+- **`heuristics.py`** — `heuristic_reaction(game)`, the fixed, non-learned
+  fallback `BigMoneyAgent` always uses for sub-decisions, and that
+  `DomibotAgent`/self-play fall back to only as an ablation
+  (`search_sub_decisions=False`) — by default they search and learn
+  sub-decisions via MCTS instead. Also `advance_to_next_phase_action(game,
+  action)` (apply an action, then keep auto-resolving forced sub-decisions
+  via the heuristic until the next phase-action boundary or game end),
+  used by that ablation path and by `BigMoneyAgent`.
 - **`self_play.py`** — `play_self_play_game(network, num_simulations, ...)`
   plays one game with MCTS-guided moves (Dirichlet noise at the root,
   temperature-based sampling for the first ~15 moves, then near-greedy),
-  and returns one training `Example` per phase-action decision: the
-  encoded state, the legal mask, the MCTS visit-count distribution (policy
-  target), and — filled in once the game ends — the actual outcome from
-  that decision's perspective (value target). `ReplayBuffer` is a fixed-
-  capacity FIFO of these.
+  and returns one training `Example` per decision — phase action or
+  sub-decision alike: the encoded state, the legal mask, the MCTS
+  visit-count distribution (policy target), and — filled in once the game
+  ends — the actual outcome from that decision's perspective (value
+  target). `ReplayBuffer` is a fixed-capacity FIFO of these.
 - **`train.py`** — the loop: self-play games → add to buffer → gradient
   steps (policy = cross-entropy vs. visit counts, value = MSE vs. outcome)
   → checkpoint → every `--eval-every` iterations, play the current network
@@ -183,8 +187,10 @@ what's visible to a player at the table (your own hand/total ownership
 exactly; the opponent's discard pile and hand/deck *sizes*, never their
 contents), filling in what's genuinely hidden (the opponent's hand/deck
 contents, your own deck's order) via determinization -- see that module's
-docstring for the details. Only covers phase-action decisions, matching
-`mcts.py`'s own scope.
+docstring for the details. Only covers phase-action decisions: state is
+always reconstructed at a phase-action boundary, so a sub-decision can't be
+represented here even though `mcts.py` itself searches those too now when
+driving self-play/`DomibotAgent` directly.
 
 In practice this is closer to zero-effort than that description suggests:
 `training/log_parser.py` does a full turn-by-turn replay of a pasted
@@ -254,10 +260,14 @@ snapshots:
 
 ## What's still missing
 
-Everything above is a first working version, not a tuned one. Likely next
-steps: extending search to at least the highest-value sub-decisions,
+Card-effect sub-decisions are now searched and learned (see `mcts.py`
+above), not just play/buy. What's still missing: extending
+`examples/domibot_relay.py`/`training/relay.py` to also recommend
+sub-decisions (`reconstruct_game` only ever produces boundary states
+today); extending `mcts.run_mcts_batch`'s root-parallel batching to
+heterogeneous per-root simulation budgets (sub-decisions now consume
+search budget that used to be free, so a kingdom with lots of them needs
+more total decision points for the same amount of real game); and
 hyperparameter tuning (network size, simulation count, `--parallel-games`,
-replay buffer size), and longer training runs than anything validated here
-(this was only smoke-tested for a couple of iterations to confirm the
-pipeline runs end to end without crashing — actual strength after real
-training time is unverified).
+replay buffer size) and longer training runs than anything validated so
+far.

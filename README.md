@@ -122,9 +122,9 @@ AlphaZero-style MCTS self-play (`training/mcts.py`, `training/self_play.py`,
 `training/train.py`). `python -m training.train` runs the self-play loop;
 `python -m training.evaluate` and `training.agents.DomibotAgent` let you
 measure it against the baselines. See `training/README.md` for the full
-picture, including the one real scope tradeoff worth knowing before
-extending it: MCTS searches only the play/buy decisions, not card-effect
-sub-decisions like Chapel's trashes.
+picture, including how MCTS searches and learns card-effect sub-decisions
+(Chapel's trashes, Militia's forced discard, ...) uniformly alongside
+play/buy decisions, not just the play/buy decisions themselves.
 
 ## What's not here yet (next layers)
 

@@ -1,8 +1,8 @@
-"""Fixed-size numeric encodings of Game state and Action, for feeding a
-future policy/value network. Nothing in this module trains anything — it
-just defines the (observation, action) interface every learning agent will
-share, kept separate from domibot itself since it's specific to the RL
-side, not the rules engine.
+"""Fixed-size numeric encodings of Game state and Action, for feeding the
+policy/value network (see network.py). Nothing in this module trains
+anything — it just defines the (observation, action) interface every
+learning agent shares, kept separate from domibot itself since it's
+specific to the RL side, not the rules engine.
 
 Two vocabularies, fixed once at import time regardless of which 10 kingdom
 cards a given game uses:
