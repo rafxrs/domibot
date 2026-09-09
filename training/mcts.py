@@ -1,36 +1,38 @@
-"""PUCT-style MCTS (as in AlphaZero) over Dominion's phase-action decisions only: what to play, what to buy, when to end a phase.
+"""PUCT-style MCTS (as in AlphaZero) over every Dominion decision -- phase
+actions (what to play, what to buy, when to end a phase) *and* card-effect
+sub-decisions (Chapel's trash choices, Militia's forced discard, Sentry's
+trash/discard/reorder, ...), searched and backed up uniformly.
 
-Everything a card effect forces on a player mid-resolution (Chapel's trash
-choices, Militia's forced discard, a Moat reveal, ...) is resolved
-immediately by the fixed heuristic in heuristics.py rather than searched.
-Two reasons, one of them a hard constraint:
+A node's position is represented as a `(boundary, path)` pair rather than a
+raw `Game`: `boundary` is the nearest ancestor `Game` sitting at a true
+phase-action boundary (`pending_decision is None`, always safely clonable),
+and `path` is the ordered list of sub-decision `Action`s taken since that
+boundary. `materialize()` reconstructs the actual position on demand by
+cloning `boundary` and replaying `path` via `Game.step()`.
 
-1. (Hard constraint) Card effects are implemented as Python generators
-   (see effects.py) that capture a live reference to the `Game` object
-   they were created against. `Game.clone()` refuses to clone while one is
-   suspended (`pending_gen is not None`) — cloning it anyway would leave
-   the resumed generator silently mutating the wrong object. MCTS nodes
-   are only ever created at points where cloning is safe, i.e. exactly the
-   phase-action decision points.
-2. (Scope) The strategic weight of a Dominion turn is overwhelmingly in
-   what to play and what to buy; treating every discard/trash micro-choice
-   as its own searched decision would blow up branching factor for
-   comparatively little gain in a first version. A future version could
-   extend search to specific high-value sub-decisions if it turns out to
-   matter.
-
-Each MCTS node therefore corresponds to a `Game` state at a phase-action
-boundary. Expanding an untried action clones the current node's game,
-applies the action, and fast-forwards through any forced sub-decisions
-(`advance_to_next_phase_action`) to land on the next such boundary — that
-result, not the raw one-decision-later state, is the child.
+This sidesteps a real hard constraint without touching `Game`/`effects.py`
+at all: card effects are Python generators (see effects.py) that capture a
+live reference to the `Game` object they were created against, so
+`Game.clone()` refuses to clone while one is suspended (`pending_gen is not
+None`) -- cloning it anyway would leave the resumed generator silently
+mutating the wrong object. But `Game.rng`'s state is fully, deterministically
+captured by `clone()` (`getstate()`/`setstate()`), and every random draw
+inside any card effect goes exclusively through `game.rng` -- so replaying
+the same ordered action sequence against a fresh clone of the boundary
+always reaches bit-identical state to the original, uncloned position. A
+node therefore never needs to clone anything mid-effect; only `boundary`
+(always a real, safe clone) ever gets cloned, and `path` stays short since
+it resets to `[]` the moment a node lands back on a boundary -- bounded by a
+single effect's depth (e.g. Sentry's 3 stages), not the whole game's length.
 
 Backup: every node's stored Q/N/W is from the perspective of whoever
 decides at that node (`node.decider`). Dominion turns often keep the same
-player deciding across many consecutive phase-action nodes (e.g. an entire
-Action phase), so — unlike strictly-alternating 2-player games — a value is
-only negated when propagating across an actual change of decider between a
-node and its child, not on every single edge.
+player deciding across many consecutive nodes (e.g. an entire Action phase,
+or a multi-stage sub-decision), and a sub-decision can belong to a different
+player than the one whose turn it is (Militia's forced discard, Bureaucrat's
+forced topdeck) -- so, unlike strictly-alternating 2-player games, a value
+is only negated when propagating across an actual change of decider between
+a node and its child, not on every single edge.
 """
 from __future__ import annotations
 
@@ -44,7 +46,6 @@ from domibot import Action, Game
 from domibot.models import END_ACTIONS
 
 from . import encoding
-from .heuristics import advance_to_next_phase_action
 
 C_PUCT = 1.5
 
@@ -58,8 +59,14 @@ MARGIN_SCALE = 20.0
 
 
 class MCTSNode:
-    def __init__(self, game: Game):
+    def __init__(self, game: Game, boundary: Game, path: list[Action]):
         self.game = game
+        # Nearest ancestor safely-clonable Game (boundary=game, path=[] for
+        # a node that's itself at a boundary) and the sub-decision actions
+        # since it -- see module docstring. `_create_child` clones
+        # `boundary`, never `game` (which may be mid-effect).
+        self.boundary = boundary
+        self.path = path
         self.is_terminal = game.is_game_over()
         self.decider: Optional[int] = None if self.is_terminal else game.current_decider()
         self.legal_actions: list[Action] = [] if self.is_terminal else game.legal_actions()
@@ -68,6 +75,28 @@ class MCTSNode:
         self.N: dict[Action, int] = {a: 0 for a in self.legal_actions}
         self.W: dict[Action, float] = {a: 0.0 for a in self.legal_actions}
         self.expanded = False
+
+
+def materialize(boundary: Game, path: list[Action]) -> Game:
+    """Reconstruct the position reached from `boundary` (a safely-clonable
+    Game, i.e. `pending_gen is None`) by replaying `path`. Never mutates
+    `boundary`. Deterministic -- see module docstring."""
+    game = boundary.clone()
+    for a in path:
+        game.step(a)
+    return game
+
+
+def _make_node(boundary: Game, path: list[Action]) -> MCTSNode:
+    """Build the node for the position reached from `boundary` by replaying
+    `path`. If that position is itself a fresh boundary (including game
+    over, which can only be detected at a boundary), the node becomes its
+    own boundary with an empty path, so path length never grows past a
+    single effect's sub-decision depth."""
+    game = materialize(boundary, path)
+    if game.pending_decision is None:
+        return MCTSNode(game, boundary=game, path=[])
+    return MCTSNode(game, boundary=boundary, path=path)
 
 
 def terminal_value(game: Game, perspective: int) -> float:
@@ -212,6 +241,7 @@ def run_mcts_batch(
     dirichlet_epsilon: float = 0.25,
     action_bias: float = 0.0,
     rngs: Optional[list[np.random.Generator]] = None,
+    paths: Optional[list[list[Action]]] = None,
 ) -> list[MCTSNode]:
     """Root-parallel version of `run_mcts`: runs independent searches over
     `len(root_games)` games side by side, one simulation round at a time, so
@@ -221,20 +251,31 @@ def run_mcts_batch(
     otherwise completely independent -- this is not tree parallelism within
     one search, just sharing the GPU call across many simultaneous searches.
 
+    Each `root_games[i]` must be a safely-clonable phase-action boundary;
+    pass sub-decision actions taken since it via `paths[i]` (default `[]`
+    for every root, identical to today's behavior) rather than handing in a
+    mid-effect Game directly -- see `run_mcts`.
+
     Returns one root `MCTSNode` per game, in the same order as
     `root_games`, each with the same `.N`/`.P` semantics as `run_mcts`'s
     single root."""
     for g in root_games:
         if g.pending_decision is not None or g.is_game_over():
-            raise ValueError("run_mcts_batch requires non-terminal phase-action decision points")
+            raise ValueError("run_mcts_batch requires root_games to be non-terminal phase-action "
+                              "boundaries; pass sub-decision actions via `paths`, not by handing in "
+                              "a mid-effect Game")
     if not root_games:
         return []
     if device is None:
         device = next(network.parameters()).device
     if rngs is None:
         rngs = [np.random.default_rng() for _ in root_games]
+    paths = paths or [[] for _ in root_games]
 
-    roots = [MCTSNode(g.clone()) for g in root_games]
+    roots = [_make_node(g, p) for g, p in zip(root_games, paths)]
+    for root in roots:
+        if root.is_terminal:
+            raise ValueError("run_mcts_batch requires non-terminal decision points")
     evaluate_nodes_batch(roots, network, device, action_bias)
     if add_noise:
         for root, rng in zip(roots, rngs):
@@ -286,9 +327,7 @@ def _puct_select(node: MCTSNode, c_puct: float) -> Action:
 
 
 def _create_child(node: MCTSNode, action: Action) -> MCTSNode:
-    clone = node.game.clone()
-    advance_to_next_phase_action(clone, action)
-    return MCTSNode(clone)
+    return _make_node(node.boundary, node.path + [action])
 
 
 def _simulate(
@@ -330,12 +369,19 @@ def run_mcts(
     dirichlet_epsilon: float = 0.25,
     action_bias: float = 0.0,
     rng: Optional[np.random.Generator] = None,
+    path: Optional[list[Action]] = None,
 ) -> MCTSNode:
-    """Runs `num_simulations` simulations from a clone of `root_game`
-    (never mutates `root_game` itself) and returns the root node; its `.N`
+    """Runs `num_simulations` simulations from the position reached by
+    replaying `path` from `root_game`, and returns the root node; its `.N`
     is the visit-count distribution used both to pick a move and as the
-    policy training target. `root_game` must be at a phase-action boundary
-    (`pending_decision is None`) and not already over.
+    policy training target. Never mutates `root_game` itself.
+
+    `root_game` must itself be a safely-clonable phase-action boundary
+    (`pending_decision is None`) and not already over -- to search a
+    sub-decision (mid-effect) position, pass the boundary it descends from
+    as `root_game` and the sub-decision actions taken since then as `path`
+    (default `[]`: the common case of searching a plain phase-action
+    decision, identical to today's behavior).
 
     `add_noise` mixes Dirichlet noise into the root priors (standard
     AlphaZero self-play exploration). `action_bias` (see
@@ -343,12 +389,15 @@ def run_mcts(
     just the root, toward continuing to play Action cards. Leave both at
     their defaults (off) for evaluation/play."""
     if root_game.pending_decision is not None or root_game.is_game_over():
-        raise ValueError("run_mcts requires a non-terminal phase-action decision point")
+        raise ValueError("run_mcts requires root_game to be a non-terminal phase-action boundary; "
+                          "pass sub-decision actions via `path`, not by handing in a mid-effect Game")
     if device is None:
         device = next(network.parameters()).device
     rng = rng or np.random.default_rng()
 
-    root = MCTSNode(root_game.clone())
+    root = _make_node(root_game, path or [])
+    if root.is_terminal:
+        raise ValueError("run_mcts requires a non-terminal decision point")
     evaluate_node(root, network, device, action_bias)
     if add_noise and root.legal_actions:
         noise = rng.dirichlet([dirichlet_alpha] * len(root.legal_actions))

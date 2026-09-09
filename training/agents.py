@@ -66,8 +66,23 @@ class BigMoneyAgent:
 
 
 class DomibotAgent:
-    """A trained policy/value network driving MCTS at each phase-action
-    decision, falling back to the same fixed heuristic as BigMoneyAgent for card-effect sub-decisions (see mcts.py's module docstring for why those aren't searched)."""
+    """A trained policy/value network driving MCTS at every decision --
+    phase actions *and* card-effect sub-decisions alike (Chapel's trash
+    choices, Militia's forced discard, ...) -- by default. Pass
+    `search_sub_decisions=False` to fall back to the fixed heuristic
+    (`BigMoneyAgent`'s always-on behavior) for sub-decisions instead, e.g.
+    to A/B a checkpoint's strength with and without searching them.
+
+    Unlike a plain function of `game`, this agent keeps a small cache
+    (`_boundary`/`_boundary_log_len`) across `.act()` calls so it can search
+    a sub-decision without needing to clone the shared, externally-stepped
+    `game` object mid-effect -- see `mcts.py`'s module docstring for why
+    that's unsafe. The cache is refreshed from `game.action_log` (a
+    complete history for the single, never-cloned `Game` object real play
+    loops use) every time this agent is asked to decide a phase action, so
+    it self-heals at the very first such call and must not be shared
+    between two games played concurrently (reuse across *sequential* games,
+    e.g. in `evaluate.play_match`'s loop, is fine)."""
 
     def __init__(
         self,
@@ -76,15 +91,35 @@ class DomibotAgent:
         c_puct: float = 1.5,
         temperature: float = 0.0,
         device: Optional[torch.device] = None,
+        search_sub_decisions: bool = True,
+        sub_decision_simulations: Optional[int] = None,
     ):
         self.network = network
         self.num_simulations = num_simulations
         self.c_puct = c_puct
         self.temperature = temperature
         self.device = device or next(network.parameters()).device
+        self.search_sub_decisions = search_sub_decisions
+        self.sub_decision_simulations = sub_decision_simulations
+        self._boundary: Optional[Game] = None
+        self._boundary_log_len = 0
 
     def act(self, game: Game) -> Action:
-        if game.pending_decision is not None:
+        if game.pending_decision is not None and not self.search_sub_decisions:
             return heuristic_reaction(game)
-        root = run_mcts(game, self.network, self.num_simulations, c_puct=self.c_puct, device=self.device)
+
+        if game.pending_decision is None:
+            boundary, path = game, []
+        else:
+            if self._boundary is None:
+                raise RuntimeError("DomibotAgent.act called mid-effect before it ever saw a "
+                                    "phase-action boundary for this game")
+            path = [entry.action for entry in game.action_log[self._boundary_log_len:]]
+            boundary = self._boundary
+
+        sims = self.num_simulations if not path else (self.sub_decision_simulations or self.num_simulations)
+        root = run_mcts(boundary, self.network, sims, c_puct=self.c_puct, device=self.device, path=path)
+        if game.pending_decision is None:
+            self._boundary = root.game  # run_mcts's own clone -- no extra clone needed
+            self._boundary_log_len = len(game.action_log)
         return select_action(root, self.temperature)
