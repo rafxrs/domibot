@@ -28,8 +28,9 @@ def heuristic_reaction(game: Game) -> Action:
         return NO if NO in actions else actions[0]
 
     card_actions = [a for a in actions if a.card is not None]
+    decline_actions = [a for a in actions if a.card is None]  # DONE / NONE
     if not card_actions:
-        return actions[0]  # e.g. DONE, with nothing left worth giving up
+        return actions[0]  # nothing left worth giving up
 
     if card_actions[0].verb == "GAIN":
         # Gaining is the opposite of giving something up -- take the most
@@ -44,7 +45,13 @@ def heuristic_reaction(game: Game) -> Action:
         except ValueError:
             return len(_JUNK_PRIORITY)  # an unrecognized (kingdom) card: give up last
 
-    return min(card_actions, key=rank)
+    best = min(card_actions, key=rank)
+    if decline_actions and rank(best) == len(_JUNK_PRIORITY):
+        # An *optional* give-up (Chapel, Cellar, ...) where nothing on
+        # offer is actual junk -- decline rather than trash/discard a
+        # perfectly good Silver/Gold/kingdom card just because asked.
+        return decline_actions[0]
+    return best
 
 
 def advance_to_next_phase_action(game: Game, action: Action) -> None:
