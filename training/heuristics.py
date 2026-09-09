@@ -31,6 +31,13 @@ def heuristic_reaction(game: Game) -> Action:
     if not card_actions:
         return actions[0]  # e.g. DONE, with nothing left worth giving up
 
+    if card_actions[0].verb == "GAIN":
+        # Gaining is the opposite of giving something up -- take the most
+        # expensive card on offer (never Curse, cost 0, unless it's
+        # somehow the only legal option) rather than reusing the
+        # give-up-your-worst-card ranking below.
+        return max(card_actions, key=lambda a: game.cards[a.card].cost)
+
     def rank(a: Action) -> int:
         try:
             return _JUNK_PRIORITY.index(a.card)
