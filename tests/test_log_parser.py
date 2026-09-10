@@ -1206,3 +1206,89 @@ def test_bureaucrat_own_gain_is_not_double_counted_via_discard():
     my_total = Counter(parsed.my_total)
     for card, count in tracked.items():
         assert count <= my_total[card], f"{card}: tracked {count} exceeds my_total {my_total[card]}"
+
+
+# Real dominion.games log (game #183301566) where the opponent's Artisan
+# forces an unnamed "topdecks a card." -- Artisan's own second decision (put
+# a card from *hand* onto your deck) is rendered unnamed for the opponent
+# specifically, since hand contents are hidden -- unlike Harbinger's
+# discard-sourced topdeck, which is always named because discard is public.
+ARTISAN_TOPDECK_KINGDOM = ["Throne Room", "Council Room", "Laboratory", "Market", "Artisan",
+                           "Cellar", "Moat", "Moneylender", "Poacher", "Remodel"]
+ARTISAN_TOPDECK_LOG = """Game #183301566, rated.
+L starts with 7 Coppers.
+L starts with 3 Estates.
+d starts with 7 Coppers.
+d starts with 3 Estates.
+L shuffles their deck.
+d shuffles their deck.
+L draws 5 cards.
+d draws 4 Coppers and an Estate.
+Turn 1 - Lord Rattington
+L plays 4 Coppers. (+$4)
+L buys and gains an Artisan.
+L draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Silver.
+d draws 4 Coppers and an Estate.
+Turn 2 - Lord Rattington
+L plays an Artisan.
+L gains a Laboratory.
+L topdecks a card."""
+
+
+def test_artisan_unnamed_opponent_topdeck_does_not_crash_the_replay():
+    # Stops mid-effect (no cleanup draw yet) so the interesting count isn't
+    # washed out by a subsequent full-hand reset.
+    parsed = parse_dominion_log(ARTISAN_TOPDECK_LOG, my_name="domibot_v1.4", kingdom=ARTISAN_TOPDECK_KINGDOM)
+    assert parsed.my_phase == "ACTION"  # unaffected by the opponent's still-unresolved turn
+    # Artisan's play (-1 hand) + the Laboratory gain (+1, to hand) + the
+    # topdeck (-1) should net the opponent's hand back down by exactly 1
+    # from their pre-Artisan 5-card hand -- the topdeck must actually be
+    # counted, not silently dropped or double-counted.
+    assert parsed.opp_hand_size == 4
+
+
+# Real dominion.games log (same game) where the opponent's Cellar discards a
+# mix of unnamed cards from their hidden hand and one named card in the same
+# line -- "discards 3 other cards and a Copper." -- previously crashed
+# trying to parse the segment "3 other cards" as a card name.
+CELLAR_ANONYMOUS_DISCARD_KINGDOM = ARTISAN_TOPDECK_KINGDOM
+CELLAR_ANONYMOUS_DISCARD_LOG = """Game #183301566, rated.
+L starts with 7 Coppers.
+L starts with 3 Estates.
+d starts with 7 Coppers.
+d starts with 3 Estates.
+L shuffles their deck.
+d shuffles their deck.
+L draws 5 cards.
+d draws 4 Coppers and an Estate.
+Turn 1 - Lord Rattington
+L plays 4 Coppers. (+$4)
+L buys and gains a Cellar.
+L draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Silver.
+d draws 4 Coppers and an Estate.
+Turn 2 - Lord Rattington
+L plays a Cellar.
+L gets +1 Action.
+L discards 3 other cards and a Copper."""
+
+
+def test_cellar_anonymous_discard_does_not_crash_the_replay():
+    # Stops right after the discard (no cleanup shuffle+draw yet) so the
+    # interesting counts aren't washed out by a subsequent full-hand reset.
+    parsed = parse_dominion_log(CELLAR_ANONYMOUS_DISCARD_LOG, my_name="domibot_v1.4",
+                                 kingdom=CELLAR_ANONYMOUS_DISCARD_KINGDOM)
+    assert parsed.my_phase == "ACTION"
+    # Turn 1's cleanup already swept the opponent's played Coppers and
+    # bought Cellar into discard before turn 2 starts; this turn's named
+    # Copper discard adds exactly one more on top of that.
+    assert Counter(parsed.opp_discard) == Counter(["Copper"] * 5 + ["Cellar"])
+    # 1 played Cellar (-1) + 1 named Copper discarded (-1) + 3 unnamed
+    # discarded (-3) from a 5-card hand -- the unnamed cards must still
+    # count against hand size even though we can't name them.
+    assert parsed.opp_hand_size == 0

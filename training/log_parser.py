@@ -136,6 +136,38 @@ def _parse_card_list(text: str) -> list[str]:
     return cards
 
 
+_ANON_SEGMENT_RE = re.compile(r"^(\d+)\s+other\s+cards?$", re.IGNORECASE)
+
+
+def _parse_card_list_with_anonymous(text: str) -> tuple[list[str], int]:
+    """Like `_parse_card_list`, but also tolerates one or more 'N other
+    card(s)' segments -- dominion.games' placeholder for cards it won't
+    name from a hidden hand (e.g. Cellar discarding a mix of named and
+    unnamed cards: 'discards 3 other cards and a Copper') -- returned
+    separately as a count rather than real names, since we don't (and, for
+    an opponent's hidden hand, can't) know which cards those were."""
+    text = text.strip().rstrip(".")
+    if not text:
+        return [], 0
+    text = text.replace(", and ", ", ").replace(" and ", ", ")
+    named: list[str] = []
+    anonymous = 0
+    for segment in text.split(","):
+        segment = segment.strip()
+        if not segment:
+            continue
+        anon_match = _ANON_SEGMENT_RE.match(segment)
+        if anon_match:
+            anonymous += int(anon_match.group(1))
+            continue
+        m = _SEGMENT_RE.match(segment)
+        if not m:
+            raise ValueError(f"can't parse {segment!r} as a card list segment")
+        count = int(m.group(1)) if m.group(1) else 1
+        named.extend([_singularize(m.group(2).strip())] * count)
+    return named, anonymous
+
+
 def _remove_one(zone: list[str], card: str) -> bool:
     if card in zone:
         zone.remove(card)
@@ -351,7 +383,8 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
         if m:
             abbrev, card_text = m.groups()
             player = resolve(abbrev)
-            for card in _parse_card_list(card_text):
+            named, anonymous = _parse_card_list_with_anonymous(card_text)
+            for card in named:
                 from_reveal = _remove_one(pending_reveal[player], card)
                 if player == my_full_name:
                     if not from_reveal and not _remove_one(me.hand, card):
@@ -361,6 +394,13 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                     if not from_reveal:
                         opp.hand_size -= 1
                     opp.discard.append(card)
+            if anonymous:
+                if player == my_full_name:
+                    raise ValueError("your own discard included unnamed 'other card(s)' -- can't track exact hand from here")
+                # A real card each, just not one we can name -- counted out
+                # of the opponent's hand, but left out of their tracked
+                # discard (which must stay a list of actually-known cards).
+                opp.hand_size -= anonymous
             continue
 
         m = _TOPDECK_LINE.match(line)
@@ -368,6 +408,20 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
             abbrev, card_text = m.groups()
             player = resolve(abbrev)
             harbinger_context = last_played.get(player) == "Harbinger"
+            # Artisan's own second decision (put a card from *hand* onto
+            # your deck) is rendered as an unnamed "topdecks a card" for
+            # the opponent, since hand contents are hidden -- unlike
+            # Harbinger's discard-sourced topdeck, which is always named
+            # because discard is public. Only the hand-sourced case can
+            # ever be unnamed, so only handle it there; a still-unnamed
+            # discard-sourced topdeck (unexpected) falls through to the
+            # named path below and safely aborts the replay instead of
+            # guessing which discarded card it was.
+            if not harbinger_context and _GENERIC_DRAW.match(card_text.strip()):
+                if player == my_full_name:
+                    raise ValueError("your own Artisan topdeck was unnamed -- can't track exact hand from here")
+                opp.hand_size -= 1
+                continue
             for card in _parse_card_list(card_text):
                 from_reveal = _remove_one(pending_reveal[player], card)
                 if from_reveal:
