@@ -280,6 +280,33 @@ snapshots:
   removed the confounds that would have made a weak result here
   ambiguous. Promoted as `domibot_v3.1.pt`, expecting a `v3.2` (and
   likely more) continuation before this lineage is competitive.
+- **v3.2**: resumed from v3.1 for 200 more iterations (101-300), same
+  settings (`--max-moves 1000`). `policy_loss` kept declining (0.71 ->
+  ~0.65, still no plateau) and eval vs BigMoney climbed sharply from
+  v3.1's 2/50 up into a noisy 34-54% range (17-27/50) from iteration 170
+  on -- a real jump, confirmed by a clean 100-game (non-noisy) match
+  against BigMoney-caliber play. But a 100-game round-robin against
+  `domibot_v2.2.pt` (the actual bar that matters) told a very different
+  story: **v2.2 beat both iter_260 (the in-training peak) and iter_300
+  (the final iteration) about 80% of the time** (80-17-3 and 83-16-1),
+  with iter_260 and iter_300 statistically indistinguishable from each
+  other (17/100 vs 16/100 against v2.2) -- so v3.2 is genuinely still
+  far behind v2.2 despite its encouraging trend against BigMoney.
+  Directly inspecting its actual games (not just the score) explains
+  why: across a 6-game self-play sample with a kingdom covering every
+  sub-decision type, it converged hard on spamming Militia (197 plays,
+  next-highest was Smithy at 21) -- the one card here needing *no*
+  sub-decision from whoever plays it, since the opponent does the
+  discarding -- while essentially avoiding Village/Market/Festival
+  (chaining enablers) and Artisan (a two-step gain-then-topdeck
+  decision) entirely. The sub-decision machinery itself looks sound
+  where it *does* get used: every Workshop-triggered gain went to
+  Silver or Village, never Curse, and 17/18 trashes across the sample
+  were genuine junk (Estate/Copper), not good cards -- both of today's
+  fixed bugs stayed fixed under real play. It just hasn't learned to
+  reach for the harder, more valuable lines yet. Promoted as
+  `domibot_v3.2.pt` (the final iteration, per the tie-breaker above);
+  `domibot_v2.2.pt` remains the strongest checkpoint for actual play.
 
 ## What's still missing
 
