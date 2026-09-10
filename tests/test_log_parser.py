@@ -1292,3 +1292,48 @@ def test_cellar_anonymous_discard_does_not_crash_the_replay():
     # discarded (-3) from a 5-card hand -- the unnamed cards must still
     # count against hand size even though we can't name them.
     assert parsed.opp_hand_size == 0
+
+
+# Throne Room replaying Bureaucrat twice: each hit forces domibot to reveal
+# and topdeck a *named* Victory card (unlike Artisan's own hand-topdeck,
+# Bureaucrat's target is always named since it must be revealed) -- the
+# interesting part is that last_played must stay "Bureaucrat" across the
+# "again" replay so both gains correctly route to the (untracked) deck top
+# rather than discard, independent of the forced topdeck in between.
+THRONE_ROOM_BUREAUCRAT_KINGDOM = ["Throne Room", "Bureaucrat", "Village", "Smithy",
+                                  "Market", "Militia", "Witch", "Laboratory", "Festival", "Council Room"]
+THRONE_ROOM_BUREAUCRAT_LOG = """Game #1, unrated.
+L starts with 7 Coppers.
+L starts with 3 Estates.
+d starts with 7 Coppers.
+d starts with 3 Estates.
+L shuffles their deck.
+d shuffles their deck.
+L draws 5 cards.
+d draws 3 Coppers and 2 Estates.
+Turn 1 - Lord Rattington
+L plays 4 Coppers. (+$4)
+L buys and gains a Throne Room.
+L draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Bureaucrat.
+d shuffles their deck.
+d draws 3 Coppers and 2 Estates.
+Turn 2 - Lord Rattington
+L plays a Throne Room.
+L plays a Bureaucrat.
+L gains a Silver.
+d topdecks an Estate.
+L plays a Bureaucrat again.
+L gains a Silver.
+d topdecks an Estate."""
+
+
+def test_throne_room_replays_bureaucrat_topdecking_twice():
+    parsed = parse_dominion_log(THRONE_ROOM_BUREAUCRAT_LOG, my_name="domibot_v1.4",
+                                 kingdom=THRONE_ROOM_BUREAUCRAT_KINGDOM)
+    # Both Estates topdecked (untracked -- deck contents are always derived
+    # by elimination), neither one incorrectly landing in discard.
+    assert parsed.my_hand == ["Copper", "Copper", "Copper"]
+    assert parsed.my_discard == []
