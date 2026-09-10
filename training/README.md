@@ -257,6 +257,29 @@ snapshots:
   in-training numbers were mostly noise, and the final checkpoint (the
   one promoted to `domibot_v2.2.pt`) is genuinely the strongest of the
   three despite its worse-looking final eval line.
+- **v3.1**: a *fresh* network, first lineage trained with sub-decision
+  search on (see `mcts.py` above) -- every trash/discard/gain/topdeck
+  choice searched and learned via MCTS, not resolved by the fixed
+  heuristic. Same settings as v2.1/v2.2 otherwise (500 sims, self-play on
+  CPU / training+eval on CUDA), `--max-moves 1000` (see `self_play.py`'s
+  `DEFAULT_MAX_MOVES` -- the original 400 was calibrated before
+  sub-decisions counted against it and made self-play games fail to
+  finish naturally almost every time at this run's early checkpoints,
+  which was caught and fixed before this run). One 100-iteration run
+  (`v3.1_run/`). `policy_loss` declined steadily throughout (0.86 -> 0.71,
+  never plateaued), confirming real learning -- unlike v2.2's plateau,
+  though not directly comparable since v3.1 is also learning a much
+  larger decision space (every sub-decision, not just play/buy) from a
+  fresh network in the same 100 iterations. Playing strength is
+  correspondingly far behind v2.2 at this stage: eval win rate vs
+  BigMoney never exceeded 6/50 (12%) across the whole run, finishing at
+  2/50. Expected for iteration 1-100 of a new, harder-to-learn lineage
+  starting from scratch (compare v1.1's own 0% start) rather than a sign
+  of anything broken -- the fixes verified during this run's own
+  diagnosis (the two `heuristics.py` bugs, the move-cap recalibration)
+  removed the confounds that would have made a weak result here
+  ambiguous. Promoted as `domibot_v3.1.pt`, expecting a `v3.2` (and
+  likely more) continuation before this lineage is competitive.
 
 ## What's still missing
 
