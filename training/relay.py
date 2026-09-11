@@ -24,12 +24,16 @@ This is "perfect information Monte Carlo", a standard approximation for
 search under hidden information -- not exact, but exactly as much as a
 human opponent has to guess with.
 
-Scope: only phase-action decisions (what to play, what to buy).
+Scope: mainly phase-action decisions (what to play, what to buy) --
 `reconstruct_game` only ever produces boundary states (`pending_decision is
-None`), so a forced sub-decision (a trash/discard/topdeck choice) can't be
-represented here at all -- even though `mcts.py` itself now searches those
-too when driving self-play/DomibotAgent directly. Just follow the same
-fixed "keep the good stuff, give up junk" rule `heuristics.heuristic_reaction`
+None`). The one exception is `reconstruct_opponent_turn_boundary`, which
+positions the Game at the *opponent's* turn start instead of yours, so a
+`log_parser`-derived path of their plays-so-far can be replayed (via
+`training.mcts.materialize`) to reach a forced reaction pending on you --
+currently just Militia's discard (see `log_parser._SUPPORTED_TERMINAL_ATTACKS`).
+Every other sub-decision (your own mid-turn choices, or any other card's
+forced reaction) still can't be represented here; follow the same fixed
+"keep the good stuff, give up junk" rule `heuristics.heuristic_reaction`
 uses for those instead.
 """
 from __future__ import annotations
@@ -38,7 +42,7 @@ import random
 from collections import Counter
 from dataclasses import dataclass, field
 
-from domibot import ALL_CARDS, Game
+from domibot import ALL_CARDS, Action, Game
 from domibot.enums import Phase
 
 # Short codes for the 26 base-set kingdom cards, so you don't have to type
@@ -216,4 +220,72 @@ def reconstruct_game(state: TableState, seed: int | None = None) -> Game:
     game.pending_decision = None
     game.pending_gen = None
     game.action_log = []
+    return game
+
+
+def reconstruct_opponent_turn_boundary(
+    state: TableState, opp_turn_start_discard: list[str], path: list[Action] | None = None,
+    seed: int | None = None,
+) -> Game:
+    """Like reconstruct_game, but positions the Game at the START of the
+    opponent's still-open turn (current_player=1, Phase.ACTION) instead of
+    your own phase-action decision -- for replaying
+    log_parser.ParsedLog.pending_reaction_path via training.mcts.materialize
+    to reach whatever Decision (if any) is now pending on you (Militia's
+    forced discard, currently the only supported case -- see
+    log_parser._SUPPORTED_TERMINAL_ATTACKS).
+
+    Only valid together with a path built from log_parser's
+    _SAFE_MIDTURN_ACTION_CARDS whitelist: every such card is known to never
+    touch gain/buy/trash/topdeck, so every other field on `state` is safe
+    to reuse as-is -- your own hand hasn't changed since it's not your turn
+    yet, and the opponent's play_area/hand_size at *any* turn start are
+    always [] and 5 (Game._cleanup_and_advance always empties play_area and
+    draws back to a full hand). Only their *discard* can differ between
+    "now" and "turn start" (whatever they've bought/gained this turn
+    already sits there), hence the separate `opp_turn_start_discard` -- a
+    snapshot taken the moment their turn began, before any of that.
+
+    `path` is that same list of plays: pass it here too (not just to
+    materialize/run_mcts afterward) so the cards it names are forced into
+    the opponent's *reconstructed* turn-start hand rather than left to
+    chance. Their hidden hand/deck split is otherwise random (perfect
+    information Monte Carlo, see the module docstring) -- but we don't
+    actually need to guess whether they held e.g. Militia, we *know* they
+    did, they just played it. Without this, `materialize` would raise
+    "illegal action" any time the random split happened to put a known
+    play in their deck instead of their hand."""
+    opp_total_now = (state.opp_hand_size + state.opp_draw_pile_size
+                      + len(state.opp_discard) + len(state.opp_play_area))
+    turn_start_state = TableState(
+        kingdom=state.kingdom, supply=state.supply, trash=state.trash,
+        my_hand=state.my_hand, my_discard=state.my_discard,
+        my_play_area=state.my_play_area, my_total=state.my_total,
+        my_actions=state.my_actions, my_buys=state.my_buys, my_coins=state.my_coins,
+        my_phase=state.my_phase, my_turns_taken=state.my_turns_taken,
+        opp_discard=opp_turn_start_discard, opp_play_area=[],
+        opp_hand_size=5,
+        opp_draw_pile_size=opp_total_now - len(opp_turn_start_discard) - 5,
+    )
+    game = reconstruct_game(turn_start_state, seed=seed)  # reuses its own arithmetic/validation
+    game.current_player = 1
+    game.phase = Phase.ACTION
+    game.players[1].actions = 1
+    game.players[1].buys = 1
+
+    opp = game.players[1]
+    rng = random.Random(seed)
+    for action in path or []:
+        card = action.card
+        if card in opp.hand:
+            continue
+        if card not in opp.deck:
+            raise ValueError(
+                f"path plays {card!r}, but the opponent's reconstructed turn-start hand+deck "
+                f"don't contain it -- their total ownership (by elimination) must be wrong"
+            )
+        opp.deck.remove(card)
+        opp.deck.append(opp.hand.pop())  # displace an arbitrary hand card to make room
+        opp.hand.append(card)
+        rng.shuffle(opp.deck)
     return game

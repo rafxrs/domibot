@@ -46,7 +46,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
-from domibot import ALL_CARDS
+from domibot import ALL_CARDS, Action
 
 _RATING_LINE = re.compile(r"^([\w.\- ]+): [\d.]+$")
 _TURN_LINE = re.compile(r"^Turn (\d+) - (.+)$")
@@ -78,6 +78,28 @@ _GETS_COINS_LINE = re.compile(r"^(\S+) gets \+\$(\d+)\.")
 _GAIN_TO_HAND_SOURCES = {"Artisan", "Mine"}
 _GAIN_TO_DECK_TOP_SOURCES = {"Bureaucrat"}
 
+# Cards whose effect can never yield a Decision for the player who played
+# them -- either a flat bonus with no `effect` at all (Village/Smithy/
+# Festival/Laboratory/Market), an `effect` that never yields (Merchant),
+# or an attack whose only Decision targets the *victim*, never the
+# attacker (Witch/Bureaucrat/Bandit/Militia; Moat has no effect of its own,
+# only a REACT it can trigger for someone else's attack). Used to decide
+# whether a still-open opponent turn is safe to replay past via
+# training.mcts.materialize: anything NOT in this set (Chapel, Sentry,
+# Workshop, Artisan, Vassal, Harbinger, Cellar, Moneylender, Poacher,
+# Remodel, Mine, Library, Throne Room, and Council Room -- which silently
+# draws a card into *your* hand as a side effect) can itself demand a
+# choice from the player who played it, which nothing here models.
+_SAFE_MIDTURN_ACTION_CARDS = {
+    "Village", "Smithy", "Festival", "Laboratory", "Market", "Merchant",
+    "Moat", "Witch", "Bureaucrat", "Bandit", "Militia",
+}
+# Attack cards this module can build a pending-reaction path for -- see
+# `_PendingReaction`. Militia only for now; Bureaucrat/Bandit are
+# mechanically identical to support (same "path ends in a safe attack"
+# shape) but are deliberately out of scope for this pass.
+_SUPPORTED_TERMINAL_ATTACKS = {"Militia"}
+
 _STARTING_COPPER = 7
 _STARTING_ESTATE = 3
 
@@ -100,6 +122,14 @@ class ParsedLog:
     opp_play_area: list[str] | None = None
     opp_hand_size: int | None = None
     opp_draw_pile_size: int | None = None
+    # Set only when the log ends with the opponent's turn still open and a
+    # reaction pending on you (see _SUPPORTED_TERMINAL_ATTACKS) -- the
+    # ordered PLAY actions of their turn so far (ending in the attack), and
+    # a snapshot of their discard at the moment their turn started (their
+    # play_area/hand_size at turn start are always [] and 5, so nothing to
+    # snapshot there -- see training.relay.reconstruct_opponent_turn_boundary).
+    pending_reaction_path: list[Action] | None = None
+    pending_reaction_opp_discard: list[str] | None = None
 
 
 def _singularize(word: str) -> str:
@@ -202,7 +232,17 @@ class _OppState:
     play_area: list[str]
 
 
-def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, resolve) -> tuple[_MyState, _OppState]:
+@dataclass
+class _PendingReaction:
+    """The log ended with the opponent's turn still open and a reaction
+    pending on you -- see _SUPPORTED_TERMINAL_ATTACKS."""
+    path: list[Action]
+    opp_turn_start_discard: list[str]
+
+
+def _replay_full_state(
+    lines: list[str], my_full_name: str, opp_full_name: str, resolve
+) -> tuple[_MyState, _OppState, "_PendingReaction | None"]:
     """Raises ValueError the moment it hits anything it can't resolve
     exactly. Returns final states only if it makes it to the end clean."""
     me = _MyState(hand=[], discard=[], play_area=[])
@@ -216,6 +256,26 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
     # topdeck that resolves them -- as opposed to a plain hand-sourced one.
     pending_reveal: dict[str, list[str]] = {my_full_name: [], opp_full_name: []}
     last_played: dict[str, str | None] = {my_full_name: None, opp_full_name: None}
+
+    # Tracking for _PendingReaction: the opponent's PLAY actions so far on
+    # their still-open turn, provided every one of them is in
+    # _SAFE_MIDTURN_ACTION_CARDS (anything else -- a card that could itself
+    # demand a choice from them, or any non-PLAY event touching their
+    # zones beyond an automatic echo of a safe card's flat bonus --
+    # disqualifies the whole turn, not just that one play). Reset at every
+    # _TURN_LINE; opp_turn_start_discard is snapshotted there too, since
+    # discard is the one opponent zone that isn't provably constant at
+    # turn start (see training.relay.reconstruct_opponent_turn_boundary).
+    current_turn_safe_path: list[Action] = []
+    current_turn_disqualified = False
+    opp_turn_start_discard: list[str] | None = None
+    game_ended = False
+    # True exactly when the most recent play in current_turn_safe_path was
+    # a supported attack (Militia) whose reaction hasn't shown up yet --
+    # cleared the moment a line about *me* appears during the opponent's
+    # still-open turn (my discard once logged, or a Moat reveal blocking
+    # it), since either means there's nothing left pending to recommend.
+    reaction_pending = False
 
     def is_boundary(next_line: str | None) -> bool:
         return next_line is None or bool(_TURN_LINE.match(next_line)) or bool(_GAME_END_LINE.match(next_line))
@@ -238,8 +298,16 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
         m = _TURN_LINE.match(line)
         if m:
             current_turn_player = m.group(2)
+            current_turn_safe_path = []
+            current_turn_disqualified = False
+            reaction_pending = False
+            if current_turn_player == opp_full_name:
+                opp_turn_start_discard = list(opp.discard)
             continue
-        if _GAME_END_LINE.match(line) or _STARTS_WITH_LINE.match(line) or _RATING_LINE.match(line):
+        if _GAME_END_LINE.match(line):
+            game_ended = True
+            continue
+        if _STARTS_WITH_LINE.match(line) or _RATING_LINE.match(line):
             continue
 
         m = _SHUFFLE_LINE.match(line)
@@ -295,6 +363,12 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
             else:
                 opp.hand_size -= len(cards)
                 opp.play_area.extend(cards)
+                # Treasures are always played in the Buy phase, after any
+                # attack in the same turn's Action phase would already
+                # have appeared -- reaching this for the opponent means
+                # their turn has moved past where a pending-reaction path
+                # could still apply.
+                current_turn_disqualified = True
             continue
 
         m = _PLAY_ACTION_LINE.match(line)
@@ -314,6 +388,16 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                 if not again:
                     opp.hand_size -= 1
                     opp.play_area.append(card_name)
+                # A Throne-Room-style replay (`again`) would need its own
+                # sub-decision (which card to double) represented in the
+                # path, which nothing here builds -- and any card outside
+                # the whitelist could itself demand a choice from the
+                # opponent, which replaying past would silently skip.
+                if again or card_name not in _SAFE_MIDTURN_ACTION_CARDS:
+                    current_turn_disqualified = True
+                else:
+                    current_turn_safe_path.append(Action("PLAY", card_name))
+                    reaction_pending = card_name in _SUPPORTED_TERMINAL_ATTACKS
             continue
 
         m = _BUY_GAIN_LINE.match(line) or _GAIN_LINE.match(line)
@@ -343,6 +427,7 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                         opp.hand_size += 1
                     elif not to_deck_top:
                         opp.discard.append(card)
+                    current_turn_disqualified = True
             continue
 
         if _REVEALS_HAND_LINE.match(line):
@@ -361,14 +446,28 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                 if player == my_full_name:
                     raise ValueError("your own Library draw was unnamed -- can't track exact hand from here")
                 opp.hand_size += 1
+                current_turn_disqualified = True
             else:
                 pending_reveal[player].extend(_parse_card_list(card_text))
+                if player == opp_full_name:
+                    current_turn_disqualified = True
             continue
 
         m = _REVEALS_LINE.match(line)
         if m:
             abbrev, card_text = m.groups()
-            pending_reveal[resolve(abbrev)].extend(_parse_card_list(card_text))
+            player = resolve(abbrev)
+            revealed = _parse_card_list(card_text)
+            pending_reveal[player].extend(revealed)
+            if player == opp_full_name:
+                current_turn_disqualified = True
+            elif player == my_full_name and current_turn_player == opp_full_name and "Moat" in revealed:
+                # Blocks the attack outright -- nothing left pending to
+                # recommend. (Unverified against a real log: this exact
+                # phrasing hasn't been seen in a Moat-reveal-to-block-an-
+                # attack fixture yet, only inferred from _REVEALS_LINE's
+                # general pattern.)
+                reaction_pending = False
             continue
 
         m = _TRASH_LINE.match(line)
@@ -380,8 +479,10 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                 if player == my_full_name:
                     if not from_reveal and not _remove_one(me.hand, card):
                         raise ValueError(f"trashed {card!r} not found in tracked hand")
-                elif not from_reveal:
-                    opp.hand_size -= 1
+                else:
+                    if not from_reveal:
+                        opp.hand_size -= 1
+                    current_turn_disqualified = True
             continue
 
         m = _DISCARD_LINE.match(line)
@@ -395,10 +496,17 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                     if not from_reveal and not _remove_one(me.hand, card):
                         raise ValueError(f"discarded {card!r} not found in tracked hand")
                     me.discard.append(card)
+                    if current_turn_player == opp_full_name:
+                        reaction_pending = False  # this resolves the Militia discard just requested
                 else:
                     if not from_reveal:
                         opp.hand_size -= 1
                     opp.discard.append(card)
+                    # A discard belonging to the opponent, during their own
+                    # still-open turn, can only be self-caused (Cellar/
+                    # Sentry/Poacher) -- a reaction they force on *me* is
+                    # a discard of mine, handled in the other branch above.
+                    current_turn_disqualified = True
             if anonymous:
                 if player == my_full_name:
                     raise ValueError("your own discard included unnamed 'other card(s)' -- can't track exact hand from here")
@@ -406,6 +514,7 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                 # of the opponent's hand, but left out of their tracked
                 # discard (which must stay a list of actually-known cards).
                 opp.hand_size -= anonymous
+                current_turn_disqualified = True
             continue
 
         m = _TOPDECK_LINE.match(line)
@@ -487,7 +596,11 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                 me.coins += int(m.group(2))
             continue
 
-    return me, opp
+    pending_reaction = None
+    if (reaction_pending and not current_turn_disqualified and not game_ended
+            and current_turn_player == opp_full_name and opp_turn_start_discard is not None):
+        pending_reaction = _PendingReaction(current_turn_safe_path, opp_turn_start_discard)
+    return me, opp, pending_reaction
 
 
 def parse_dominion_log(text: str, my_name: str, kingdom: list[str], num_players: int = 2) -> ParsedLog:
@@ -595,7 +708,7 @@ def parse_dominion_log(text: str, my_name: str, kingdom: list[str], num_players:
 
     if len(other_names) == 1:
         try:
-            me, opp = _replay_full_state(lines, my_full_name, other_names[0], resolve)
+            me, opp, pending_reaction = _replay_full_state(lines, my_full_name, other_names[0], resolve)
             # Every card is in exactly one of {supply, trash, mine, theirs} --
             # solved by elimination, the same trick reconstruct_game uses.
             total_sum = (
@@ -624,5 +737,8 @@ def parse_dominion_log(text: str, my_name: str, kingdom: list[str], num_players:
             result.opp_play_area = opp.play_area
             result.opp_hand_size = opp.hand_size
             result.opp_draw_pile_size = opp_draw_pile_size
+            if pending_reaction is not None:
+                result.pending_reaction_path = pending_reaction.path
+                result.pending_reaction_opp_discard = pending_reaction.opp_turn_start_discard
 
     return result

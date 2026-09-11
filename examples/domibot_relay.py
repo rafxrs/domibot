@@ -21,13 +21,20 @@ doesn't submit anything and just sits there until you press Enter).
 State is re-entered in full at every decision rather than tracked
 incrementally turn to turn -- more typing per query, but far less risk of
 this tool's internal state silently drifting from the real game's if a
-public event gets missed or mis-entered. Only covers your own phase-action
-decisions (what to play/buy) -- state is always reconstructed at a phase-
-action boundary, so a forced sub-decision (a trash/discard/topdeck choice)
-can't be represented here. For those, apply the same "keep the good stuff,
-give up junk" rule (see training/heuristics.py); Domibot itself searches
-sub-decisions by default when playing directly (see training/mcts.py), but
-this relay tool doesn't reach that path.
+public event gets missed or mis-entered. Mainly covers your own
+phase-action decisions (what to play/buy) -- state is normally
+reconstructed at a phase-action boundary, so a forced sub-decision (a
+trash/discard/topdeck choice) can't usually be represented here. The one
+exception: if you paste a log ending with the opponent having just played
+Militia and your forced discard not yet shown, this recognizes that a
+reaction is pending on you and recommends the discard directly, instead of
+a nonsense phase-action suggestion. Every other sub-decision (Bureaucrat/
+Bandit's forced reactions, Moat's reveal-or-not against them, or any of
+your own mid-turn choices like an unresolved Chapel trash) still falls
+back to the same "keep the good stuff, give up junk" rule (see
+training/heuristics.py); Domibot itself searches every sub-decision by
+default when playing directly (see training/mcts.py), but this relay tool
+only reaches that path for Militia's discard so far.
 
 At each query you paste in that game's dominion.games text log (the whole
 thing, fresh, every time -- it keeps growing) and press Enter once more on
@@ -74,15 +81,21 @@ from pathlib import Path
 
 import torch
 
-from domibot import Phase
+from domibot import Action, Phase
 from domibot.models import END_ACTIONS
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))  # training/ is a sibling of examples/, not on sys.path by default
 from training.log_parser import parse_dominion_log  # noqa: E402
-from training.mcts import run_mcts, select_action, visit_distribution  # noqa: E402
+from training.mcts import materialize, run_mcts, select_action, visit_distribution  # noqa: E402
 from training.network import DomibotNet, get_device  # noqa: E402
-from training.relay import CARD_ABBREVIATIONS, TableState, reconstruct_game, resolve_card_name  # noqa: E402
+from training.relay import (  # noqa: E402
+    CARD_ABBREVIATIONS,
+    TableState,
+    reconstruct_game,
+    reconstruct_opponent_turn_boundary,
+    resolve_card_name,
+)
 
 DEFAULT_CHECKPOINT = ROOT / "checkpoints" / "latest.pt"
 
@@ -266,6 +279,17 @@ def prompt_table_state(
     )
 
 
+def print_recommendation(root) -> None:
+    dist = visit_distribution(root)
+    ranked = sorted(dist.items(), key=lambda kv: -kv[1])
+
+    print("\nDomibot's read on this decision (share of search spent on each option):")
+    for action, share in ranked[:6]:
+        print(f"  {share * 100:5.1f}%  {action}")
+    best = select_action(root, temperature=0.0)
+    print(f"\n==> recommended: {best}\n")
+
+
 def recommend(state: TableState, network: torch.nn.Module, simulations: int, device: torch.device) -> None:
     game = reconstruct_game(state)
     # dominion.games itself auto-skips straight to the Buy phase (treasures
@@ -279,14 +303,28 @@ def recommend(state: TableState, network: torch.nn.Module, simulations: int, dev
         game.step(END_ACTIONS)
         print("(no action cards playable -- auto-ending your action phase)")
     root = run_mcts(game, network, simulations, device=device)
-    dist = visit_distribution(root)
-    ranked = sorted(dist.items(), key=lambda kv: -kv[1])
+    print_recommendation(root)
 
-    print("\nDomibot's read on this decision (share of search spent on each option):")
-    for action, share in ranked[:6]:
-        print(f"  {share * 100:5.1f}%  {action}")
-    best = select_action(root, temperature=0.0)
-    print(f"\n==> recommended: {best}\n")
+
+def recommend_pending_reaction(
+    state: TableState, opp_turn_start_discard: list[str], path: list[Action], network: torch.nn.Module,
+    simulations: int, device: torch.device,
+) -> None:
+    """Militia's forced discard only, for now (see log_parser's
+    _SUPPORTED_TERMINAL_ATTACKS) -- reuses the same replay-based search
+    training.mcts already does for self-play/DomibotAgent sub-decisions,
+    just from a boundary at the *opponent's* turn start instead of yours."""
+    boundary = reconstruct_opponent_turn_boundary(state, opp_turn_start_discard, path=path)
+    game = materialize(boundary, path)
+    if game.pending_decision is None:
+        print("(no reaction needed here -- paste more of the log once the opponent's turn continues)\n")
+        return
+    if game.pending_decision.player != 0:
+        print("(a decision is pending, but it's not yours -- paste more of the log)\n")
+        return
+    print(f"\n{game.pending_decision.prompt}")
+    root = run_mcts(boundary, network, simulations, device=device, path=path)
+    print_recommendation(root)
 
 
 def try_parse_log(kingdom: list[str], my_name: str):
@@ -367,6 +405,18 @@ def main() -> None:
             parsed = try_parse_log(kingdom, my_name)
             if parsed is not None:
                 supply = parsed.supply
+
+            if parsed is not None and parsed.pending_reaction_path is not None:
+                print("The opponent's turn is still open and a reaction is pending on you:")
+                state = state_from_parsed(kingdom, parsed, my_name)
+                try:
+                    recommend_pending_reaction(
+                        state, parsed.pending_reaction_opp_discard, parsed.pending_reaction_path,
+                        network, args.simulations, device,
+                    )
+                except ValueError as e:
+                    print(f"\nInput doesn't add up: {e}\n")
+                continue
 
             if parsed is not None and _fully_derived(parsed):
                 print("Everything needed was fully derived from the log -- here's the recommendation:")

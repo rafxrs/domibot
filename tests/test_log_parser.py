@@ -2,6 +2,7 @@ from collections import Counter
 
 import pytest
 
+from domibot import Action
 from domibot.models import END_ACTIONS
 from training.log_parser import parse_dominion_log
 
@@ -1378,3 +1379,127 @@ def test_throne_room_replays_bureaucrat_topdecking_twice():
     # by elimination), neither one incorrectly landing in discard.
     assert parsed.my_hand == ["Copper", "Copper", "Copper"]
     assert parsed.my_discard == []
+
+
+# --- pending_reaction_path: the opponent's Militia played, my forced
+# discard not yet shown -- the relay tool's core new capability. ---
+
+_PENDING_REACTION_KINGDOM = ["Militia", "Village", "Moat", "Smithy", "Workshop",
+                             "Chapel", "Council Room", "Throne Room", "Festival", "Library"]
+
+
+def _pending_reaction_log(opponent_turn_body: str) -> str:
+    """A minimal, otherwise-boring game up through 'Turn 2 - Lord
+    Rattington', with `opponent_turn_body` (already-indented log lines, no
+    trailing newline) appended as the rest of that still-open turn."""
+    return f"""Game #1, unrated.
+d starts with 7 Coppers.
+d starts with 3 Estates.
+L starts with 7 Coppers.
+L starts with 3 Estates.
+d shuffles their deck.
+L shuffles their deck.
+d draws 3 Coppers and 2 Estates.
+L draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d draws 3 Coppers and 2 Estates.
+Turn 1 - Lord Rattington
+L plays 4 Coppers. (+$4)
+L buys and gains a Village.
+L draws 5 cards.
+Turn 2 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d draws 3 Coppers and 2 Estates.
+Turn 2 - Lord Rattington
+{opponent_turn_body}"""
+
+
+def test_pending_reaction_detected_when_militia_discard_not_yet_logged():
+    parsed = parse_dominion_log(
+        _pending_reaction_log("L plays a Militia.\nL gets +$2."),
+        my_name="domibot_v1.4", kingdom=_PENDING_REACTION_KINGDOM,
+    )
+    assert parsed.pending_reaction_path == [Action("PLAY", "Militia")]
+    # Turn 1's cleanup already swept the opponent's played Coppers and
+    # bought Village into their discard before turn 2 (this pending one)
+    # even started.
+    assert Counter(parsed.pending_reaction_opp_discard) == Counter(["Copper"] * 4 + ["Village"])
+
+
+def test_pending_reaction_includes_an_earlier_safe_play():
+    parsed = parse_dominion_log(
+        _pending_reaction_log("L plays a Village.\nL draws a card.\nL gets +1 Action.\n"
+                               "L plays a Militia.\nL gets +$2."),
+        my_name="domibot_v1.4", kingdom=_PENDING_REACTION_KINGDOM,
+    )
+    assert parsed.pending_reaction_path == [Action("PLAY", "Village"), Action("PLAY", "Militia")]
+
+
+def test_pending_reaction_none_when_i_play_militia_myself():
+    # MILITIA_ANONYMOUS_DISCARD_LOG has *domibot_v1.4* play Militia, not the
+    # opponent -- there's nothing pending on the opponent to recommend.
+    parsed = parse_dominion_log(MILITIA_ANONYMOUS_DISCARD_LOG, my_name="domibot_v1.4",
+                                 kingdom=MILITIA_ANONYMOUS_DISCARD_KINGDOM)
+    assert parsed.pending_reaction_path is None
+
+
+def test_pending_reaction_none_once_my_discard_is_already_logged():
+    # The reaction already resolved (my discard is right there in the log)
+    # -- nothing left pending, even though the log still ends immediately
+    # after it with the opponent's turn technically still open.
+    parsed = parse_dominion_log(
+        _pending_reaction_log("L plays a Militia.\nL gets +$2.\nd discards a Copper and an Estate."),
+        my_name="domibot_v1.4", kingdom=_PENDING_REACTION_KINGDOM,
+    )
+    assert parsed.pending_reaction_path is None
+
+
+def test_pending_reaction_none_once_opponent_moves_on_past_the_resolved_discard():
+    parsed = parse_dominion_log(
+        _pending_reaction_log("L plays a Militia.\nL gets +$2.\nd discards a Copper and an Estate.\n"
+                               "L plays 3 Coppers. (+$3)\nL buys and gains a Silver."),
+        my_name="domibot_v1.4", kingdom=_PENDING_REACTION_KINGDOM,
+    )
+    assert parsed.pending_reaction_path is None
+
+
+def test_pending_reaction_none_when_i_block_with_moat():
+    # Unverified against a real log -- inferred from _REVEALS_LINE's
+    # general "X reveals Y." pattern, not observed dominion.games phrasing.
+    parsed = parse_dominion_log(
+        _pending_reaction_log("L plays a Militia.\nL gets +$2.\nd reveals a Moat."),
+        my_name="domibot_v1.4", kingdom=_PENDING_REACTION_KINGDOM,
+    )
+    assert parsed.pending_reaction_path is None
+
+
+def test_pending_reaction_none_after_throne_room_replayed_militia():
+    parsed = parse_dominion_log(
+        _pending_reaction_log("L plays a Throne Room.\nL plays a Militia.\nL gets +$2.\n"
+                               "d discards a Copper and an Estate.\nL plays a Militia again.\nL gets +$2."),
+        my_name="domibot_v1.4", kingdom=_PENDING_REACTION_KINGDOM,
+    )
+    assert parsed.pending_reaction_path is None
+
+
+def test_pending_reaction_none_after_opponent_plays_chapel_then_militia():
+    parsed = parse_dominion_log(
+        _pending_reaction_log("L plays a Chapel.\nL trashes 2 Coppers.\nL plays a Militia.\nL gets +$2."),
+        my_name="domibot_v1.4", kingdom=_PENDING_REACTION_KINGDOM,
+    )
+    assert parsed.pending_reaction_path is None
+
+
+def test_pending_reaction_none_after_opponent_plays_council_room_then_militia():
+    # Council Room silently draws *my* hand up by one as a side effect --
+    # excluded from the safe whitelist since nothing here re-derives a true
+    # turn-start snapshot of my hand to account for that.
+    parsed = parse_dominion_log(
+        _pending_reaction_log("L plays a Council Room.\nL gets +1 Buy.\nd draws a card.\n"
+                               "L plays a Militia.\nL gets +$2."),
+        my_name="domibot_v1.4", kingdom=_PENDING_REACTION_KINGDOM,
+    )
+    assert parsed.pending_reaction_path is None

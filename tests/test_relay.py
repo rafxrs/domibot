@@ -1,8 +1,15 @@
 import pytest
 
-from domibot import Game, KINGDOM_CARDS
-from domibot.enums import Phase
-from training.relay import CARD_ABBREVIATIONS, TableState, reconstruct_game, resolve_card_name
+from domibot import Action, Game, KINGDOM_CARDS
+from domibot.enums import DecisionKind, Phase
+from training.mcts import materialize, run_mcts, select_action
+from training.relay import (
+    CARD_ABBREVIATIONS,
+    TableState,
+    reconstruct_game,
+    reconstruct_opponent_turn_boundary,
+    resolve_card_name,
+)
 
 
 def _tiny_kingdom() -> list[str]:
@@ -133,3 +140,112 @@ def test_resolve_card_name_passes_through_full_names_and_is_case_insensitive():
 def test_resolve_card_name_rejects_unknown_tokens():
     with pytest.raises(ValueError, match="not a recognized card"):
         resolve_card_name("XYZ")
+
+
+# --- reconstruct_opponent_turn_boundary ---
+
+def _militia_kingdom() -> list[str]:
+    return ["Militia", "Moat", "Village", "Smithy", "Workshop",
+            "Chapel", "Bandit", "Council Room", "Festival", "Library"]
+
+
+def _militia_supply(militias_bought: int = 0, moats_bought: int = 0) -> dict[str, int]:
+    supply = dict(Game(_militia_kingdom(), num_players=2, seed=0).supply)
+    supply["Militia"] -= militias_bought
+    supply["Moat"] -= moats_bought
+    return supply
+
+
+def _militia_state(**overrides) -> TableState:
+    """A turn-one state where the opponent owns exactly one Militia (one
+    fewer in the supply than fresh, attributed to them by elimination).
+    opp_hand_size/opp_draw_pile_size here only need to sum to the
+    opponent's true total (11); reconstruct_opponent_turn_boundary ignores
+    their split and always reconstructs a true 5-card turn-start hand, then
+    forces every card named in `path` into it -- so tests below pass Militia's
+    play as `path` rather than relying on a lucky seed."""
+    defaults = dict(
+        kingdom=_militia_kingdom(), supply=_militia_supply(militias_bought=1),
+        opp_hand_size=11, opp_draw_pile_size=0,
+    )
+    defaults.update(overrides)
+    return _turn_one_state(**defaults)
+
+
+def test_reconstruct_opponent_turn_boundary_positions_opponent_to_act():
+    state = _turn_one_state(kingdom=_militia_kingdom(), supply=_militia_supply())
+    game = reconstruct_opponent_turn_boundary(state, opp_turn_start_discard=[], seed=1)
+
+    assert game.current_player == 1
+    assert game.phase == Phase.ACTION
+    assert game.pending_decision is None
+    assert len(game.players[1].hand) == 5
+    assert game.players[1].play_area == []
+
+
+def test_militia_forced_discard_materializes_for_me():
+    state = _militia_state(my_hand=["Copper"] * 4 + ["Estate"])
+    path = [Action("PLAY", "Militia")]
+    boundary = reconstruct_opponent_turn_boundary(state, opp_turn_start_discard=[], path=path, seed=2)
+
+    game = materialize(boundary, path)
+
+    assert game.pending_decision is not None
+    assert game.pending_decision.kind == DecisionKind.SELECT_CARD
+    assert game.pending_decision.player == 0
+
+
+def test_militia_forced_discard_forces_a_known_play_into_the_opponents_hand():
+    # regression: reconstruct_opponent_turn_boundary must not leave it to
+    # chance whether a card the log says the opponent just played actually
+    # lands in their randomly-reconstructed hand -- try every seed in a
+    # wide range; without the forcing fix, some of them would produce an
+    # "illegal action" in materialize().
+    state = _militia_state(my_hand=["Copper"] * 4 + ["Estate"])
+    path = [Action("PLAY", "Militia")]
+    for seed in range(20):
+        boundary = reconstruct_opponent_turn_boundary(state, opp_turn_start_discard=[], path=path, seed=seed)
+        game = materialize(boundary, path)
+        assert game.pending_decision is not None
+
+
+def test_militia_is_a_no_op_when_my_hand_has_three_or_fewer_cards():
+    state = _militia_state(my_hand=["Copper", "Copper", "Estate"])
+    path = [Action("PLAY", "Militia")]
+    boundary = reconstruct_opponent_turn_boundary(state, opp_turn_start_discard=[], path=path, seed=0)
+
+    game = materialize(boundary, path)
+
+    assert game.pending_decision is None
+
+
+def test_militia_offers_moat_reveal_when_i_hold_a_moat():
+    state = _militia_state(
+        my_hand=["Moat", "Copper", "Copper", "Estate", "Estate"],
+        my_total=["Copper"] * 7 + ["Estate"] * 3 + ["Moat"],
+        supply=_militia_supply(militias_bought=1, moats_bought=1),
+    )
+    path = [Action("PLAY", "Militia")]
+    boundary = reconstruct_opponent_turn_boundary(state, opp_turn_start_discard=[], path=path, seed=0)
+
+    game = materialize(boundary, path)
+
+    assert game.pending_decision is not None
+    assert game.pending_decision.kind == DecisionKind.REACT
+    assert game.pending_decision.player == 0
+
+
+def test_domibot_agent_can_search_from_an_opponent_turn_boundary():
+    from training.network import DomibotNet
+
+    net = DomibotNet()
+    net.eval()
+
+    state = _militia_state()
+    path = [Action("PLAY", "Militia")]
+    boundary = reconstruct_opponent_turn_boundary(state, opp_turn_start_discard=[], path=path, seed=0)
+
+    root = run_mcts(boundary, net, num_simulations=5, path=path)
+    action = select_action(root, temperature=0.0)
+
+    assert action in materialize(boundary, path).legal_actions()
