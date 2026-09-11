@@ -76,6 +76,12 @@ def main() -> None:
                          help="safety cap on decisions per self-play game, sub-decisions included, for an "
                               "undertrained policy that can otherwise stall indefinitely (default: "
                               "self_play.DEFAULT_MAX_MOVES)")
+    parser.add_argument("--min-sub-decision-cards", type=int, default=0,
+                         help="force at least this many of each self-play kingdom's 10 cards to come from "
+                              "self_play.SUB_DECISION_CARDS (cards with a real trash/discard/gain/topdeck "
+                              "judgment call), instead of plain uniform sampling -- boosts how often several "
+                              "judgment-heavy cards land in the same kingdom together, a rarer joint event under "
+                              "plain sampling than any one card's own frequency. 0 (default) disables this.")
     parser.add_argument("--train-steps-per-iter", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--buffer-capacity", type=int, default=200_000)
@@ -103,7 +109,8 @@ def main() -> None:
     device = torch.device(args.device) if args.device else get_device()
     self_play_device = torch.device(args.self_play_device) if args.self_play_device else device
     max_moves = args.max_moves if args.max_moves is not None else DEFAULT_MAX_MOVES
-    print(f"device: {device}  |  self-play device: {self_play_device}  |  max_moves: {max_moves}")
+    print(f"device: {device}  |  self-play device: {self_play_device}  |  max_moves: {max_moves}  |  "
+          f"min_sub_decision_cards: {args.min_sub_decision_cards}")
 
     network = DomibotNet.load(args.checkpoint, map_location=device).to(device) if args.checkpoint else DomibotNet().to(device)
     if args.checkpoint:
@@ -139,7 +146,8 @@ def main() -> None:
             chunk = min(args.parallel_games, remaining)
             games_examples = play_self_play_games_batch(
                 self_play_network, chunk, args.simulations, action_bias=args.action_bias,
-                max_moves=max_moves, device=self_play_device, seed=rng.randrange(2**31),
+                max_moves=max_moves, min_sub_decision_cards=args.min_sub_decision_cards,
+                device=self_play_device, seed=rng.randrange(2**31),
             )
             for examples in games_examples:
                 buffer.add_game(examples)

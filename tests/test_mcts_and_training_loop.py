@@ -8,7 +8,14 @@ from training.evaluate import play_game
 from training.heuristics import heuristic_reaction
 from training.mcts import materialize, run_mcts, run_mcts_batch, select_action, terminal_value, visit_distribution
 from training.network import DomibotNet
-from training.self_play import Example, ReplayBuffer, play_self_play_game, play_self_play_games_batch
+from training.self_play import (
+    Example,
+    ReplayBuffer,
+    SUB_DECISION_CARDS,
+    _sample_kingdom,
+    play_self_play_game,
+    play_self_play_games_batch,
+)
 from training.train import train_step
 
 
@@ -333,3 +340,22 @@ def test_domibot_agent_ablation_matches_heuristic():
     net.eval()
     agent = DomibotAgent(net, num_simulations=4, search_sub_decisions=False)
     assert agent.act(game) == heuristic_reaction(game)
+
+
+def test_sample_kingdom_default_matches_plain_random_sample():
+    # min_sub_decision_cards=0 (the default for every existing caller) must
+    # be byte-for-byte identical to plain rng.sample -- no behavior change
+    # for anything that doesn't opt in.
+    import random as random_module
+    rng_a, rng_b = random_module.Random(7), random_module.Random(7)
+    assert _sample_kingdom(rng_a) == rng_b.sample(list(KINGDOM_CARDS), 10)
+
+
+def test_sample_kingdom_curriculum_guarantees_minimum_density():
+    import random as random_module
+    rng = random_module.Random(3)
+    for _ in range(20):
+        kingdom = _sample_kingdom(rng, min_sub_decision_cards=6)
+        assert len(kingdom) == 10
+        assert len(set(kingdom)) == 10  # no duplicates
+        assert sum(1 for c in kingdom if c in SUB_DECISION_CARDS) >= 6

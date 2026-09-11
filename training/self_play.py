@@ -25,6 +25,22 @@ from . import encoding
 from .heuristics import advance_to_next_phase_action
 from .mcts import materialize, run_mcts, run_mcts_batch, select_action, terminal_value, visit_distribution
 
+# Cards with a genuine trash/discard/gain/topdeck/keep-or-not judgment call
+# for whoever plays them (as opposed to a plain cantrip or a no-choice
+# attack like Witch). Used by `_sample_kingdom`'s curriculum mode: plain
+# random 10-of-26 sampling makes several of these landing in the *same*
+# kingdom a much rarer joint event than any one of them individually (each
+# shows up in ~38% of kingdoms on its own), and that co-occurrence is where
+# a real weakness showed up worst -- over-trashing good cards via Chapel,
+# most severe in kingdoms already juggling several other demanding
+# decisions at once, since credit assignment for any one of them gets
+# harder the more of them are simultaneously in play.
+SUB_DECISION_CARDS = frozenset({
+    "Cellar", "Chapel", "Harbinger", "Workshop", "Bureaucrat", "Militia",
+    "Moneylender", "Poacher", "Remodel", "Throne Room", "Bandit", "Library",
+    "Mine", "Sentry", "Artisan",
+})
+
 DEFAULT_C_PUCT = 1.5
 DEFAULT_TEMPERATURE_MOVES = 15  # phase-action decisions before switching to near-greedy play
 # Safety cap for an undertrained/near-random policy that can stall
@@ -50,6 +66,25 @@ class Example:
     value_target: float = field(default=0.0)
 
 
+def _sample_kingdom(rng: random.Random, min_sub_decision_cards: int = 0) -> list[str]:
+    """A plain uniform 10-of-26 kingdom by default (`min_sub_decision_cards
+    <= 0`) -- identical to `rng.sample(list(KINGDOM_CARDS), 10)`, so this is
+    a no-op change for every existing caller. With `min_sub_decision_cards
+    > 0`, forces that many of the 10 slots to come from `SUB_DECISION_CARDS`
+    (the rest filled normally), directly boosting how often several
+    judgment-heavy cards land in the same kingdom together -- see
+    `SUB_DECISION_CARDS`'s comment for why that specific co-occurrence is
+    the actual gap worth training more on."""
+    if min_sub_decision_cards <= 0:
+        return rng.sample(list(KINGDOM_CARDS), 10)
+    pool = list(SUB_DECISION_CARDS)
+    forced = rng.sample(pool, min(min_sub_decision_cards, len(pool)))
+    remaining = [c for c in KINGDOM_CARDS if c not in forced]
+    kingdom = forced + rng.sample(remaining, 10 - len(forced))
+    rng.shuffle(kingdom)
+    return kingdom
+
+
 def play_self_play_game(
     network: torch.nn.Module,
     num_simulations: int,
@@ -62,6 +97,7 @@ def play_self_play_game(
     seed: int | None = None,
     search_sub_decisions: bool = True,
     sub_decision_simulations: int | None = None,
+    min_sub_decision_cards: int = 0,
 ) -> list[Example]:
     if not search_sub_decisions:
         return _play_self_play_game_phase_actions_only(
@@ -71,7 +107,7 @@ def play_self_play_game(
     py_rng = random.Random(seed)
     np_rng = np.random.default_rng(seed)
     if kingdom is None:
-        kingdom = py_rng.sample(list(KINGDOM_CARDS), 10)
+        kingdom = _sample_kingdom(py_rng, min_sub_decision_cards)
     game = Game(kingdom, num_players=num_players, seed=seed)
 
     boundary: Game = game
@@ -192,6 +228,7 @@ def play_self_play_games_batch(
     seed: int | None = None,
     search_sub_decisions: bool = True,
     sub_decision_simulations: int | None = None,
+    min_sub_decision_cards: int = 0,
 ) -> list[list[Example]]:
     """Root-parallel version of `play_self_play_game`: plays `num_games`
     independent games side by side, one decision at a time, so every
@@ -212,7 +249,7 @@ def play_self_play_games_batch(
     np_rngs: list[np.random.Generator] = []
     for _ in range(num_games):
         g_seed = master_rng.randrange(2**31)
-        game_kingdom = kingdom if kingdom is not None else random.Random(g_seed).sample(list(KINGDOM_CARDS), 10)
+        game_kingdom = kingdom if kingdom is not None else _sample_kingdom(random.Random(g_seed), min_sub_decision_cards)
         boundaries.append(Game(game_kingdom, num_players=num_players, seed=g_seed))
         paths.append([])
         np_rngs.append(np.random.default_rng(g_seed))
