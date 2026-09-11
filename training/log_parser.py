@@ -136,16 +136,21 @@ def _parse_card_list(text: str) -> list[str]:
     return cards
 
 
-_ANON_SEGMENT_RE = re.compile(r"^(\d+)\s+other\s+cards?$", re.IGNORECASE)
+# "N other cards" (Cellar discarding several unnamed cards alongside a
+# named one) and the singular "a card" (Militia's forced discard down to 3,
+# e.g. "discards a card and a Copper") -- dominion.games drops "other" in
+# the one-card case rather than saying "1 other card".
+_ANON_SEGMENT_RE = re.compile(r"^(?:(\d+)\s+other\s+cards?|an?\s+card)$", re.IGNORECASE)
 
 
 def _parse_card_list_with_anonymous(text: str) -> tuple[list[str], int]:
-    """Like `_parse_card_list`, but also tolerates one or more 'N other
-    card(s)' segments -- dominion.games' placeholder for cards it won't
-    name from a hidden hand (e.g. Cellar discarding a mix of named and
-    unnamed cards: 'discards 3 other cards and a Copper') -- returned
-    separately as a count rather than real names, since we don't (and, for
-    an opponent's hidden hand, can't) know which cards those were."""
+    """Like `_parse_card_list`, but also tolerates one or more anonymous
+    segments (`_ANON_SEGMENT_RE`) -- dominion.games' placeholder for cards
+    it won't name from a hidden hand (e.g. Cellar discarding a mix of named
+    and unnamed cards: 'discards 3 other cards and a Copper', or Militia's
+    forced discard: 'discards a card and a Copper') -- returned separately
+    as a count rather than real names, since we don't (and, for an
+    opponent's hidden hand, can't) know which cards those were."""
     text = text.strip().rstrip(".")
     if not text:
         return [], 0
@@ -158,7 +163,7 @@ def _parse_card_list_with_anonymous(text: str) -> tuple[list[str], int]:
             continue
         anon_match = _ANON_SEGMENT_RE.match(segment)
         if anon_match:
-            anonymous += int(anon_match.group(1))
+            anonymous += int(anon_match.group(1)) if anon_match.group(1) else 1
             continue
         m = _SEGMENT_RE.match(segment)
         if not m:

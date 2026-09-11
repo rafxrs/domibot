@@ -263,13 +263,15 @@ def test_ambiguous_first_letters_raise():
         parse_dominion_log(log, my_name="dave", kingdom=KINGDOM)
 
 
-def test_my_hand_not_derived_when_log_ends_mid_turn():
-    # REAL_LOG ends partway through lololololo's turn 11, not at the start
-    # of domibot_v1.4's own turn -- too many possible in-between states to
-    # safely reconstruct, so this should fall back to manual entry.
+def test_my_hand_still_derived_when_log_ends_mid_opponents_turn():
+    # REAL_LOG ends partway through lololololo's turn 11 (mid-Sentry, cut
+    # off before the reveal even happens) -- but that's entirely the
+    # opponent's own turn and never touches domibot_v1.4's hand, so it
+    # doesn't block deriving *my* state, which is still exactly what it was
+    # at the end of my own last turn (10)'s draw.
     parsed = parse_dominion_log(REAL_LOG, my_name="domibot_v1.4", kingdom=KINGDOM)
-    assert parsed.my_hand is None
-    assert parsed.my_phase is None
+    assert sorted(parsed.my_hand) == sorted(["Copper", "Silver", "Gold", "Estate", "Artisan"])
+    assert parsed.my_phase == "ACTION"
 
 
 FRESH_TURN_LOG = """
@@ -1292,6 +1294,45 @@ def test_cellar_anonymous_discard_does_not_crash_the_replay():
     # discarded (-3) from a 5-card hand -- the unnamed cards must still
     # count against hand size even though we can't name them.
     assert parsed.opp_hand_size == 0
+
+
+# Real dominion.games log where Militia's forced discard mixes a single
+# unnamed card with a named one -- "discards a card and a Copper." --
+# dominion.games drops "other" for the one-card case rather than saying
+# "1 other card", so this didn't match the Cellar fix's "N other cards"
+# pattern and still crashed trying to parse the segment "a card".
+MILITIA_ANONYMOUS_DISCARD_KINGDOM = ["Militia", "Village", "Moat", "Smithy", "Workshop",
+                                     "Chapel", "Bandit", "Council Room", "Festival", "Library"]
+MILITIA_ANONYMOUS_DISCARD_LOG = """Game #1, unrated.
+d starts with 7 Coppers.
+d starts with 3 Estates.
+L starts with 7 Coppers.
+L starts with 3 Estates.
+d shuffles their deck.
+L shuffles their deck.
+d draws 4 Coppers and an Estate.
+L draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Militia.
+d draws 2 Coppers, 2 Estates, and a Militia.
+Turn 1 - Lord Rattington
+L plays 4 Coppers. (+$4)
+L buys and gains a Silver.
+L draws 5 cards.
+Turn 2 - domibot_v1.4
+d plays a Militia.
+d gets +$2.
+L discards a card and a Copper."""
+
+
+def test_militia_singular_anonymous_discard_does_not_crash_the_replay():
+    parsed = parse_dominion_log(MILITIA_ANONYMOUS_DISCARD_LOG, my_name="domibot_v1.4",
+                                 kingdom=MILITIA_ANONYMOUS_DISCARD_KINGDOM)
+    assert parsed.my_phase == "ACTION"
+    assert "Copper" in parsed.opp_discard
+    # 5-card hand, minus 1 unnamed and 1 named Copper discarded.
+    assert parsed.opp_hand_size == 3
 
 
 # Throne Room replaying Bureaucrat twice: each hit forces domibot to reveal
