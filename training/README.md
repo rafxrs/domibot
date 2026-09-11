@@ -307,6 +307,28 @@ snapshots:
   reach for the harder, more valuable lines yet. Promoted as
   `domibot_v3.2.pt` (the final iteration, per the tie-breaker above);
   `domibot_v2.2.pt` remains the strongest checkpoint for actual play.
+- **v3.3**: resumed from v3.2 for 200 more iterations (301-500), same
+  settings. `policy_loss` stopped declining and settled around ~0.64-0.67
+  for most of the run -- v3.2's steady improvement has leveled off. Eval
+  vs BigMoney stayed in a healthy, stable 44-68% range throughout. A
+  4-way, 80-game round-robin between `domibot_v2.2.pt` and the three
+  most promising in-training checkpoints (iter_450, iter_480, iter_500)
+  found a clear (not tied, unlike v3.2's) internal winner -- **iter_480
+  beat both iter_450 (42-33-5) and iter_500 (42-36-2)** -- but all three
+  still lost to v2.2 roughly 80-85% of the time (64-16-0 for iter_480,
+  the best showing). That puts v3.3's best candidate at roughly 20%
+  against v2.2, only a modest gain over v3.2's ~17% -- a decelerating
+  improvement curve after v3.1's initial ~2%, across three successive
+  200-iteration continuations (500 total). Consistent with the earlier
+  gameplay inspection: without learning to actually chain the enabler
+  cards it's been avoiding, more iterations of the same self-play regime
+  buys diminishing returns. Promoted `iter_480` (not the final iteration
+  this time -- the round-robin gave a clear, non-tied answer) as
+  `domibot_v3.3.pt`; `domibot_v2.2.pt` remains the checkpoint to actually
+  use. Worth considering before another straight continuation: whether
+  something in the setup itself (network capacity, simulation count,
+  self-play diversity) needs to change rather than just running more
+  iterations of the same regime.
 
 ## What's still missing
 
