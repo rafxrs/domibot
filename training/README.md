@@ -329,14 +329,51 @@ snapshots:
   something in the setup itself (network capacity, simulation count,
   self-play diversity) needs to change rather than just running more
   iterations of the same regime.
+- **v3.4**: resumed from v3.3 for 100 more iterations (501-600), but with
+  `--min-sub-decision-cards 6` -- a curriculum change, not just more of
+  the same regime, aimed directly at a miscalibration found by inspecting
+  MCTS search internals: with judgment-heavy cards (Chapel especially)
+  sparse across random kingdoms, the *visit-count* distribution that
+  becomes each iteration's training target had drifted to favor
+  `TRASH(Gold)` above every other Chapel option -- worse the more such
+  cards co-occurred in one kingdom, a joint event too rare under plain
+  random sampling to get corrected by ordinary training volume.
+  `min_sub_decision_cards` forces at least that many sub-decision cards
+  into every sampled kingdom, directly inflating how often the
+  self-play buffer actually contains examples of this failure mode being
+  searched. `policy_loss` held flat around ~0.65-0.68 (no regression from
+  the forced kingdom shift); in-training eval vs `domibot_v2.2.pt` ranged
+  6-13/50 across the run, peaking at iter_560. A 4-way, 80-game
+  round-robin between `domibot_v2.2.pt` and the three highest-scoring
+  in-training checkpoints (iter_550, iter_560, iter_590) found no clean
+  internal winner this time -- a genuine three-way cycle (iter_560 beat
+  iter_550 42-34, iter_550 beat iter_590 50-30, iter_590 beat iter_560
+  47-31), unlike v3.3's clear iter_480. But against the fixed benchmark
+  that actually matters, **iter_560 had the best showing of the three:
+  22/80 (27.5%) against v2.2**, versus iter_590's 20/80 (25.0%) and
+  iter_550's 16/80 (20.0%) -- a real, if modest, improvement over v3.3's
+  best (20%) and v3.2's (~17%), consistent with (not proof of) the
+  curriculum change addressing the miscalibration it targeted. Promoted
+  `iter_560` as `domibot_v3.4.pt`, picked on that v2.2 showing rather than
+  the ambiguous internal cycle, since performance against the fixed
+  benchmark is what every prior promotion in this lineage has actually
+  been decided on. `domibot_v2.2.pt` remains the checkpoint to actually
+  use. Worth another continuation at this same curriculum setting before
+  concluding much either way -- 100 iterations is a short run to separate
+  a real effect from noise (the internal round-robin's own cycle is a
+  reminder of how much variance 80 games still carries).
 
 ## What's still missing
 
 Card-effect sub-decisions are now searched and learned (see `mcts.py`
-above), not just play/buy. What's still missing: extending
-`examples/domibot_relay.py`/`training/relay.py` to also recommend
-sub-decisions (`reconstruct_game` only ever produces boundary states
-today); extending `mcts.run_mcts_batch`'s root-parallel batching to
+above), not just play/buy. What's still missing: `examples/domibot_relay.py`/
+`training/relay.py` only recommend sub-decisions for one case so far --
+Militia's forced discard (`reconstruct_opponent_turn_boundary`), when a
+pasted log ends with the opponent having just played it. Every other
+sub-decision (Bureaucrat/Bandit's own forced reactions, and your own
+mid-turn choices like an unresolved Chapel trash) still falls back to
+manual entry. Also missing: extending `mcts.run_mcts_batch`'s root-parallel
+batching to
 heterogeneous per-root simulation budgets (sub-decisions now consume
 search budget that used to be free, so a kingdom with lots of them needs
 more total decision points for the same amount of real game); and
