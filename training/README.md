@@ -362,6 +362,30 @@ snapshots:
   concluding much either way -- 100 iterations is a short run to separate
   a real effect from noise (the internal round-robin's own cycle is a
   reminder of how much variance 80 games still carries).
+- **v3.5**: resumed from v3.4 for 300 more iterations (601-900), same
+  `--min-sub-decision-cards 6` curriculum setting. First launch of this
+  run silently defaulted to `--simulations 100` instead of `500` (the
+  setting every checkpoint since v2.1 has actually used) -- a copy-paste
+  omission, caught by comparing self-play throughput against v3.4's log
+  (buffer growth per wall-clock second was ~5x faster, matching a 500->100
+  simulations drop almost exactly) before any checkpoint from that bad
+  run was promoted or even seriously looked at. Killed after 20 iterations
+  and relaunched correctly from `domibot_v3.4.pt`; nothing from the bad
+  run persisted (only the disposable `latest.pt`/`iter_610.pt`/`iter_620.pt`
+  scratch files, since `domibot_v3.4.pt` itself is never overwritten by
+  `train.py`). The corrected run's `policy_loss` held flat around
+  ~0.62-0.65, similar to v3.4; in-training eval vs `domibot_v2.2.pt`
+  trended upward in the back half, peaking at iter_870 (19/50), iter_810
+  (18/50), and iter_830 (17/50). A 4-way, 80-game round-robin between
+  those three and `domibot_v2.2.pt` found a clean internal winner this
+  time (unlike v3.4's cycle): **iter_830 beat both iter_810 (44-35-1) and
+  iter_870 (43-35-2)** -- and also had the best showing against v2.2:
+  **25/80 (31.25%)**, versus iter_870's 23/80 (28.75%) and iter_810's
+  15/80 (18.75%). That's a real continuation of the upward trend across
+  the curriculum-sampling lineage (20% -> 27.5% -> 31.25%), on top of a
+  3x longer run than v3.4's. Promoted `iter_830` as `domibot_v3.5.pt`;
+  `domibot_v2.2.pt` remains the checkpoint to actually use, though the
+  gap is visibly narrowing.
 
 ## What's still missing
 
