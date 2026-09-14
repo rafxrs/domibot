@@ -386,6 +386,45 @@ snapshots:
   3x longer run than v3.4's. Promoted `iter_830` as `domibot_v3.5.pt`;
   `domibot_v2.2.pt` remains the checkpoint to actually use, though the
   gap is visibly narrowing.
+- **v3.6**: resumed from v3.5 for 300 more iterations (901-1200), same
+  curriculum setting -- no round-robin, not promoted. `policy_loss`
+  climbed steadily for the entire back half of the run (~0.622 at iter 920
+  to ~0.658 at iter 1200), not noise settling, a real regression rather
+  than a plateau; in-training eval vs `domibot_v2.2.pt` stayed flat on
+  average (~26.9%, no better than v3.5's ~25.1%) despite the extra
+  iterations. Most likely cause: `train.py` uses a flat `lr=1e-3` with no
+  decay schedule across what's now 1200+ cumulative iterations. This
+  diagnostic finding is what motivated the bigger architectural question
+  addressed next, rather than just adding LR decay and continuing --
+  discussing *why* the whole v3.x lineage improves so slowly against v2.2
+  surfaced a deeper mismatch: every self-play MCTS search explores
+  hypothetical continuations against the one concrete hidden deal that
+  game actually has (see `mcts.py`'s new module content below), a known
+  "strategy fusion" problem in imperfect-info game AI.
+- **v3.7**: resumed from v3.5 (not v3.6 -- not worth building on a run
+  that regressed) for 300 more iterations (1201-1500), with the new
+  `--determinization-ensemble-size 4` (`mcts.redeal_hidden_info`/
+  `run_mcts_ensemble`): instead of every self-play tree searching the one
+  true hidden deal, each phase-action decision now searches 4 independently
+  redealt hidden-info samples and merges their visit counts -- the
+  standard multi-determinization form of PIMC. Same curriculum setting and
+  `--simulations 500` as before; `policy_loss` still climbed similarly to
+  v3.6 (~0.606 to ~0.651), confirming the LR-decay issue is real and
+  independent of this fix -- not addressed here. Despite that, in-training
+  eval vs `domibot_v2.2.pt` averaged noticeably higher than any prior run
+  (~30.7% vs v3.6's ~26.9%) and hit a new peak (22/50 = 44% at iter 1400).
+  A 4-way, 80-game round-robin between `domibot_v2.2.pt` and the three
+  best in-training checkpoints (iter_1400, iter_1470, iter_1480) found a
+  clean winner: **iter_1480 beat both iter_1400 (44-33-3) and iter_1470
+  (40-39-1)**, and had the best showing against v2.2: **28/80 (35.0%)** --
+  the best result anywhere in the v3.x lineage (20% -> 27.5% -> 31.25% ->
+  **35.0%**), on a run with a known-unaddressed optimization problem still
+  present. Promoted `iter_1480` as `domibot_v3.7.pt`; `domibot_v2.2.pt`
+  remains the stronger checkpoint for actual play, but the gap keeps
+  narrowing, now with a plausible causal story (not just more iterations)
+  for the last jump. Worth doing next: add the LR decay schedule and run
+  another ensemble continuation -- the two fixes address independent
+  problems and neither has been tried with the other in place yet.
 
 ## What's still missing
 
