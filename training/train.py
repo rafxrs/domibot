@@ -82,6 +82,16 @@ def main() -> None:
                               "judgment call), instead of plain uniform sampling -- boosts how often several "
                               "judgment-heavy cards land in the same kingdom together, a rarer joint event under "
                               "plain sampling than any one card's own frequency. 0 (default) disables this.")
+    parser.add_argument("--determinization-ensemble-size", type=int, default=1,
+                         help="for each plain phase-action decision during self-play, search this many "
+                              "independently-redealt hidden-info samples (mcts.redeal_hidden_info) instead of the "
+                              "one true (but actually hidden, from the deciding player's own point of view) deal, "
+                              "and merge their visit counts -- a multi-determinization form of PIMC that averages "
+                              "the search over several plausible opponent hands instead of committing the whole "
+                              "tree to whichever one the self-play game actually has. --simulations is split "
+                              "evenly across the ensemble (at least 1 each), so a bigger value trades search depth "
+                              "per world for world diversity at a fixed simulation budget. 1 (default) disables "
+                              "this, identical to today's behavior. Does not apply to sub-decision searches yet.")
     parser.add_argument("--train-steps-per-iter", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--buffer-capacity", type=int, default=200_000)
@@ -110,7 +120,8 @@ def main() -> None:
     self_play_device = torch.device(args.self_play_device) if args.self_play_device else device
     max_moves = args.max_moves if args.max_moves is not None else DEFAULT_MAX_MOVES
     print(f"device: {device}  |  self-play device: {self_play_device}  |  max_moves: {max_moves}  |  "
-          f"min_sub_decision_cards: {args.min_sub_decision_cards}")
+          f"min_sub_decision_cards: {args.min_sub_decision_cards}  |  "
+          f"determinization_ensemble_size: {args.determinization_ensemble_size}")
 
     network = DomibotNet.load(args.checkpoint, map_location=device).to(device) if args.checkpoint else DomibotNet().to(device)
     if args.checkpoint:
@@ -147,6 +158,7 @@ def main() -> None:
             games_examples = play_self_play_games_batch(
                 self_play_network, chunk, args.simulations, action_bias=args.action_bias,
                 max_moves=max_moves, min_sub_decision_cards=args.min_sub_decision_cards,
+                determinization_ensemble_size=args.determinization_ensemble_size,
                 device=self_play_device, seed=rng.randrange(2**31),
             )
             for examples in games_examples:

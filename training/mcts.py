@@ -37,6 +37,7 @@ a node and its child, not on every single edge.
 from __future__ import annotations
 
 import math
+import random
 from typing import Optional
 
 import numpy as np
@@ -85,6 +86,35 @@ def materialize(boundary: Game, path: list[Action]) -> Game:
     for a in path:
         game.step(a)
     return game
+
+
+def redeal_hidden_info(game: Game, from_player: int, rng: random.Random) -> Game:
+    """A clone of `game` with every *other* player's hand+deck contents
+    reshuffled and re-split (sizes preserved), leaving `from_player`'s own
+    hand/deck and every public zone (discard, play_area, set_aside, supply,
+    trash) exactly as they truly are. Samples one plausible world consistent
+    with what `from_player` can actually observe, instead of the one true
+    (but to `from_player`, unknown) deal -- see `run_mcts_ensemble`.
+
+    Only meaningful at a real phase-action boundary (`from_player`'s own
+    hand must not itself be mid-effect); does not attempt to keep a
+    subsequent `path` replay consistent with the redeal (a path that
+    consumes specific cards from a redealt player's hand could then find
+    them missing) -- callers must only use this where `path == []`."""
+    clone = game.clone()
+    for i, player in enumerate(clone.players):
+        if i == from_player:
+            continue
+        pool = player.hand + player.deck
+        rng.shuffle(pool)
+        hand_size = len(player.hand)
+        player.hand = pool[:hand_size]
+        player.deck = pool[hand_size:]
+    # Game.clone() copies the exact rng state, so without this every redeal
+    # of the same boundary would see identical future chance events (draws,
+    # reshuffles) despite having different hidden hands.
+    clone.rng.seed(rng.getrandbits(64))
+    return clone
 
 
 def _make_node(boundary: Game, path: list[Action]) -> MCTSNode:
@@ -407,6 +437,64 @@ def run_mcts(
     for _ in range(num_simulations):
         _simulate(root, network, device, c_puct, action_bias)
     return root
+
+
+def merge_ensemble_roots(roots: list[MCTSNode]) -> MCTSNode:
+    """Combines several ensemble members' root nodes (same `legal_actions`
+    by construction -- see `redeal_hidden_info`) into one, by summing visit
+    counts into `roots[0]`. `visit_distribution`/`select_action` need
+    nothing else -- they only ever read `.N`/`.legal_actions`."""
+    merged = roots[0]
+    for other in roots[1:]:
+        for a in merged.legal_actions:
+            merged.N[a] += other.N[a]
+    return merged
+
+
+def run_mcts_ensemble(
+    root_game: Game,
+    network: torch.nn.Module,
+    num_simulations: int,
+    ensemble_size: int = 1,
+    c_puct: float = C_PUCT,
+    device: Optional[torch.device] = None,
+    add_noise: bool = False,
+    dirichlet_alpha: float = 0.3,
+    dirichlet_epsilon: float = 0.25,
+    action_bias: float = 0.0,
+    rng: Optional[np.random.Generator] = None,
+    py_rng: Optional[random.Random] = None,
+) -> MCTSNode:
+    """Like `run_mcts`, but searches `ensemble_size` independently redealt
+    hidden-info samples (`redeal_hidden_info`) instead of the one true deal,
+    then merges their visit counts -- a multi-determinization form of PIMC
+    that averages the search over several plausible opponent hands instead
+    of committing the whole tree to whichever one this game actually has
+    (see module docstring). `ensemble_size <= 1` delegates straight to
+    `run_mcts`, a true no-op so every existing caller stays exactly
+    reproducible with the default.
+
+    Only valid at a plain phase-action boundary (same requirement as
+    `run_mcts` with `path=None`) -- `redeal_hidden_info`'s docstring covers
+    why this doesn't extend to sub-decision searches yet. `num_simulations`
+    is split evenly across the ensemble (at least 1 each), so a bigger
+    `ensemble_size` trades search depth per world for world diversity at a
+    fixed total budget."""
+    if ensemble_size <= 1:
+        return run_mcts(
+            root_game, network, num_simulations, c_puct=c_puct, device=device, add_noise=add_noise,
+            dirichlet_alpha=dirichlet_alpha, dirichlet_epsilon=dirichlet_epsilon, action_bias=action_bias, rng=rng,
+        )
+    py_rng = py_rng or random.Random()
+    decider = root_game.current_decider()
+    redealt = [redeal_hidden_info(root_game, decider, py_rng) for _ in range(ensemble_size)]
+    sims_per_member = max(1, num_simulations // ensemble_size)
+    rngs = [rng if rng is not None else np.random.default_rng() for _ in redealt]
+    roots = run_mcts_batch(
+        redealt, network, sims_per_member, c_puct=c_puct, device=device, add_noise=add_noise,
+        dirichlet_alpha=dirichlet_alpha, dirichlet_epsilon=dirichlet_epsilon, action_bias=action_bias, rngs=rngs,
+    )
+    return merge_ensemble_roots(roots)
 
 
 def visit_distribution(root: MCTSNode) -> dict[Action, float]:

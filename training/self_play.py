@@ -23,7 +23,17 @@ from domibot import Action, Game, KINGDOM_CARDS
 
 from . import encoding
 from .heuristics import advance_to_next_phase_action
-from .mcts import materialize, run_mcts, run_mcts_batch, select_action, terminal_value, visit_distribution
+from .mcts import (
+    materialize,
+    merge_ensemble_roots,
+    redeal_hidden_info,
+    run_mcts,
+    run_mcts_batch,
+    run_mcts_ensemble,
+    select_action,
+    terminal_value,
+    visit_distribution,
+)
 
 # Cards with a genuine trash/discard/gain/topdeck/keep-or-not judgment call
 # for whoever plays them (as opposed to a plain cantrip or a no-choice
@@ -98,6 +108,7 @@ def play_self_play_game(
     search_sub_decisions: bool = True,
     sub_decision_simulations: int | None = None,
     min_sub_decision_cards: int = 0,
+    determinization_ensemble_size: int = 1,
 ) -> list[Example]:
     if not search_sub_decisions:
         return _play_self_play_game_phase_actions_only(
@@ -116,10 +127,20 @@ def play_self_play_game(
     move_number = 0
     while not (not path and boundary.is_game_over()) and move_number < max_moves:
         sims = num_simulations if not path else (sub_decision_simulations or num_simulations)
-        root = run_mcts(
-            boundary, network, sims, c_puct=c_puct, add_noise=True,
-            action_bias=action_bias, rng=np_rng, path=path,
-        )
+        # Determinization ensembles (see mcts.redeal_hidden_info) only apply
+        # to plain phase-action boundaries -- a non-empty path is an
+        # in-progress sub-decision, out of scope for now.
+        used_ensemble = not path and determinization_ensemble_size > 1
+        if used_ensemble:
+            root = run_mcts_ensemble(
+                boundary, network, sims, determinization_ensemble_size, c_puct=c_puct, add_noise=True,
+                action_bias=action_bias, rng=np_rng, py_rng=py_rng,
+            )
+        else:
+            root = run_mcts(
+                boundary, network, sims, c_puct=c_puct, add_noise=True,
+                action_bias=action_bias, rng=np_rng, path=path,
+            )
         decider = root.decider
         dist = visit_distribution(root)
 
@@ -142,12 +163,21 @@ def play_self_play_game(
         # Never step `root.game`/`root.boundary` directly: for a root that's
         # itself a fresh boundary, `_make_node` aliases boundary=game to
         # avoid a redundant clone, so mutating one would corrupt the other.
-        child = root.children.get(action)
-        child_game = child.game if child is not None else materialize(root.boundary, root.path + [action])
-        if child_game.pending_decision is None:
-            boundary, path = child_game, []
+        if used_ensemble:
+            # root.boundary/.children point at a *hypothetical* redealt
+            # clone, not the real game -- step the true `boundary` directly.
+            child_game = materialize(boundary, [action])
+            if child_game.pending_decision is None:
+                boundary, path = child_game, []
+            else:
+                path = [action]
         else:
-            boundary, path = root.boundary, root.path + [action]
+            child = root.children.get(action)
+            child_game = child.game if child is not None else materialize(root.boundary, root.path + [action])
+            if child_game.pending_decision is None:
+                boundary, path = child_game, []
+            else:
+                boundary, path = root.boundary, root.path + [action]
         move_number += 1
 
     final_game = boundary if not path else materialize(boundary, path)
@@ -229,6 +259,7 @@ def play_self_play_games_batch(
     search_sub_decisions: bool = True,
     sub_decision_simulations: int | None = None,
     min_sub_decision_cards: int = 0,
+    determinization_ensemble_size: int = 1,
 ) -> list[list[Example]]:
     """Root-parallel version of `play_self_play_game`: plays `num_games`
     independent games side by side, one decision at a time, so every
@@ -247,12 +278,14 @@ def play_self_play_games_batch(
     boundaries: list[Game] = []
     paths: list[list[Action]] = []
     np_rngs: list[np.random.Generator] = []
+    py_rngs: list[random.Random] = []
     for _ in range(num_games):
         g_seed = master_rng.randrange(2**31)
         game_kingdom = kingdom if kingdom is not None else _sample_kingdom(random.Random(g_seed), min_sub_decision_cards)
         boundaries.append(Game(game_kingdom, num_players=num_players, seed=g_seed))
         paths.append([])
         np_rngs.append(np.random.default_rng(g_seed))
+        py_rngs.append(random.Random(g_seed))
 
     examples_per_game: list[list[Example]] = [[] for _ in range(num_games)]
     move_numbers = [0] * num_games
@@ -266,17 +299,51 @@ def play_self_play_games_batch(
         # sim count in its own batched call -- almost always one call
         # (uniform sims) since sub_decision_simulations defaults to None.
         roots: list = [None] * len(idxs)
+        # Positions searched via a redealt ensemble this round -- their
+        # root.boundary/.children point at a *hypothetical* redealt clone,
+        # not the real game, so advancing the real game below must bypass
+        # them and step the true `boundaries[i]` directly instead.
+        ensemble_positions: set[int] = set()
         for sim_count in sorted(set(sims)):
             group = [pos for pos, s in enumerate(sims) if s == sim_count]
-            group_roots = run_mcts_batch(
-                [boundaries[idxs[pos]] for pos in group], network, sim_count, c_puct=c_puct,
-                add_noise=True, action_bias=action_bias, device=device,
-                rngs=[np_rngs[idxs[pos]] for pos in group], paths=[paths[idxs[pos]] for pos in group],
-            )
-            for pos, root in zip(group, group_roots):
-                roots[pos] = root
+            # Determinization ensembles (see mcts.redeal_hidden_info) only
+            # apply to plain phase-action boundaries -- a non-empty path is
+            # an in-progress sub-decision, out of scope for now, so those
+            # positions always fall back to the plain (unensembled) call.
+            ensemble_group = [pos for pos in group
+                               if determinization_ensemble_size > 1 and not paths[idxs[pos]]]
+            plain_group = [pos for pos in group if pos not in ensemble_group]
+            ensemble_positions.update(ensemble_group)
 
-        for i, root in zip(idxs, roots):
+            if plain_group:
+                plain_roots = run_mcts_batch(
+                    [boundaries[idxs[pos]] for pos in plain_group], network, sim_count, c_puct=c_puct,
+                    add_noise=True, action_bias=action_bias, device=device,
+                    rngs=[np_rngs[idxs[pos]] for pos in plain_group],
+                    paths=[paths[idxs[pos]] for pos in plain_group],
+                )
+                for pos, root in zip(plain_group, plain_roots):
+                    roots[pos] = root
+
+            if ensemble_group:
+                sims_per_member = max(1, sim_count // determinization_ensemble_size)
+                flat_games, flat_rngs = [], []
+                for pos in ensemble_group:
+                    i = idxs[pos]
+                    for _ in range(determinization_ensemble_size):
+                        flat_games.append(redeal_hidden_info(
+                            boundaries[i], boundaries[i].current_decider(), py_rngs[i]))
+                        flat_rngs.append(np_rngs[i])
+                flat_roots = run_mcts_batch(
+                    flat_games, network, sims_per_member, c_puct=c_puct, add_noise=True,
+                    action_bias=action_bias, device=device, rngs=flat_rngs,
+                )
+                for j, pos in enumerate(ensemble_group):
+                    chunk = flat_roots[j * determinization_ensemble_size:(j + 1) * determinization_ensemble_size]
+                    roots[pos] = merge_ensemble_roots(chunk)
+
+        for pos, i in enumerate(idxs):
+            root = roots[pos]
             decider = root.decider
             dist = visit_distribution(root)
 
@@ -293,12 +360,19 @@ def play_self_play_games_batch(
 
             temperature = 1.0 if move_numbers[i] < temperature_moves else 0.0
             action = select_action(root, temperature, rng=np_rngs[i])
-            child = root.children.get(action)
-            child_game = child.game if child is not None else materialize(root.boundary, root.path + [action])
-            if child_game.pending_decision is None:
-                boundaries[i], paths[i] = child_game, []
+            if pos in ensemble_positions:
+                child_game = materialize(boundaries[i], [action])
+                if child_game.pending_decision is None:
+                    boundaries[i], paths[i] = child_game, []
+                else:
+                    boundaries[i], paths[i] = boundaries[i], [action]
             else:
-                boundaries[i], paths[i] = root.boundary, root.path + [action]
+                child = root.children.get(action)
+                child_game = child.game if child is not None else materialize(root.boundary, root.path + [action])
+                if child_game.pending_decision is None:
+                    boundaries[i], paths[i] = child_game, []
+                else:
+                    boundaries[i], paths[i] = root.boundary, root.path + [action]
             move_numbers[i] += 1
             terminal = not paths[i] and boundaries[i].is_game_over()
             if terminal or move_numbers[i] >= max_moves:

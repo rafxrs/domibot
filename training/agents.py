@@ -15,7 +15,7 @@ from domibot import Action, Game, Phase
 from domibot.models import END_ACTIONS, END_BUY
 
 from .heuristics import heuristic_reaction
-from .mcts import run_mcts, select_action
+from .mcts import run_mcts, run_mcts_ensemble, select_action
 
 
 class Agent(Protocol):
@@ -93,6 +93,7 @@ class DomibotAgent:
         device: Optional[torch.device] = None,
         search_sub_decisions: bool = True,
         sub_decision_simulations: Optional[int] = None,
+        determinization_ensemble_size: int = 1,
     ):
         self.network = network
         self.num_simulations = num_simulations
@@ -101,6 +102,7 @@ class DomibotAgent:
         self.device = device or next(network.parameters()).device
         self.search_sub_decisions = search_sub_decisions
         self.sub_decision_simulations = sub_decision_simulations
+        self.determinization_ensemble_size = determinization_ensemble_size
         self._boundary: Optional[Game] = None
         self._boundary_log_len = 0
 
@@ -118,8 +120,19 @@ class DomibotAgent:
             boundary = self._boundary
 
         sims = self.num_simulations if not path else (self.sub_decision_simulations or self.num_simulations)
-        root = run_mcts(boundary, self.network, sims, c_puct=self.c_puct, device=self.device, path=path)
+        if not path and self.determinization_ensemble_size > 1:
+            root = run_mcts_ensemble(
+                boundary, self.network, sims, self.determinization_ensemble_size,
+                c_puct=self.c_puct, device=self.device,
+            )
+            # root.game here is one hypothetical redealt clone (see
+            # mcts.redeal_hidden_info), not the real position -- cache a
+            # clone of the true `boundary` instead.
+            new_boundary = boundary.clone()
+        else:
+            root = run_mcts(boundary, self.network, sims, c_puct=self.c_puct, device=self.device, path=path)
+            new_boundary = root.game  # run_mcts's own clone -- no extra clone needed
         if game.pending_decision is None:
-            self._boundary = root.game  # run_mcts's own clone -- no extra clone needed
+            self._boundary = new_boundary
             self._boundary_log_len = len(game.action_log)
         return select_action(root, self.temperature)

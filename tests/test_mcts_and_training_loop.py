@@ -1,3 +1,5 @@
+from collections import Counter
+
 import numpy as np
 import torch
 
@@ -6,7 +8,16 @@ from domibot.models import END_ACTIONS
 from training.agents import DomibotAgent
 from training.evaluate import play_game
 from training.heuristics import heuristic_reaction
-from training.mcts import materialize, run_mcts, run_mcts_batch, select_action, terminal_value, visit_distribution
+from training.mcts import (
+    materialize,
+    redeal_hidden_info,
+    run_mcts,
+    run_mcts_batch,
+    run_mcts_ensemble,
+    select_action,
+    terminal_value,
+    visit_distribution,
+)
 from training.network import DomibotNet
 from training.self_play import (
     Example,
@@ -359,3 +370,148 @@ def test_sample_kingdom_curriculum_guarantees_minimum_density():
         assert len(kingdom) == 10
         assert len(set(kingdom)) == 10  # no duplicates
         assert sum(1 for c in kingdom if c in SUB_DECISION_CARDS) >= 6
+
+
+# --- determinization ensembles (redeal_hidden_info / run_mcts_ensemble) ---
+
+def test_redeal_hidden_info_preserves_from_players_own_hand_and_deck():
+    import random as random_module
+    game = Game(_tiny_kingdom(), num_players=2, seed=1)
+    game.players[0].hand = ["Copper", "Copper", "Estate"]
+    game.players[0].deck = ["Silver", "Gold"]
+    original_hand, original_deck = list(game.players[0].hand), list(game.players[0].deck)
+
+    redealt = redeal_hidden_info(game, from_player=0, rng=random_module.Random(1))
+
+    assert redealt.players[0].hand == original_hand
+    assert redealt.players[0].deck == original_deck
+    assert game.players[0].hand == original_hand  # original untouched by the redeal
+
+
+def test_redeal_hidden_info_preserves_sizes_total_ownership_and_public_zones():
+    import random as random_module
+    game = Game(_tiny_kingdom(), num_players=2, seed=1)
+    p1 = game.players[1]
+    p1.hand = ["Copper", "Copper", "Estate", "Estate", "Silver"]
+    p1.deck = ["Copper", "Copper", "Estate"]
+    p1.discard = ["Gold"]
+    p1.play_area = ["Village"]
+    p1.set_aside = ["Moat"]
+    original_total = Counter(p1.all_cards())
+
+    redealt = redeal_hidden_info(game, from_player=0, rng=random_module.Random(2))
+    rp1 = redealt.players[1]
+
+    assert len(rp1.hand) == len(p1.hand)
+    assert len(rp1.deck) == len(p1.deck)
+    assert Counter(rp1.all_cards()) == original_total
+    assert rp1.discard == p1.discard
+    assert rp1.play_area == p1.play_area
+    assert rp1.set_aside == p1.set_aside
+
+
+def test_redeal_hidden_info_reshuffles_other_players_hidden_contents():
+    import random as random_module
+    game = Game(_tiny_kingdom(), num_players=2, seed=1)
+    p1 = game.players[1]
+    p1.hand = ["Copper", "Estate", "Silver", "Gold", "Village"]
+    p1.deck = ["Copper", "Estate", "Smithy", "Market", "Workshop"]
+
+    redealt_hands = [
+        tuple(sorted(redeal_hidden_info(game, from_player=0, rng=random_module.Random(seed)).players[1].hand))
+        for seed in range(10)
+    ]
+    # 10 distinct cards split 5/5 -- different seeds should produce at
+    # least *some* different hands (not asserting every pair differs, a
+    # coincidence is possible, just that it's not always identical).
+    assert len(set(redealt_hands)) > 1
+
+
+def test_redeal_hidden_info_decorrelates_rng_across_redeals():
+    import random as random_module
+    game = Game(_tiny_kingdom(), num_players=2, seed=1)
+    driver = random_module.Random(5)
+    a = redeal_hidden_info(game, from_player=0, rng=driver)
+    b = redeal_hidden_info(game, from_player=0, rng=driver)
+    # Game.clone() copies the exact rng state; without reseeding, two
+    # redeals of the same boundary would see identical future chance events.
+    assert a.rng.getstate() != b.rng.getstate()
+
+
+def test_run_mcts_ensemble_size_one_matches_run_mcts():
+    game = Game(_tiny_kingdom(), num_players=2, seed=2)
+    net = DomibotNet()
+    net.eval()
+    root = run_mcts_ensemble(game, net, num_simulations=10, ensemble_size=1)
+    assert sum(root.N.values()) == 10
+    assert set(root.N.keys()) == set(game.legal_actions())
+    assert root.decider == game.current_decider()
+
+
+def test_run_mcts_ensemble_merges_visit_counts_across_members():
+    game = Game(_tiny_kingdom(), num_players=2, seed=2)
+    net = DomibotNet()
+    net.eval()
+    root = run_mcts_ensemble(game, net, num_simulations=20, ensemble_size=4)
+    assert sum(root.N.values()) == 20  # 5 sims/member x 4 members
+    assert set(root.N.keys()) == set(game.legal_actions())
+
+
+def test_run_mcts_ensemble_root_legal_actions_match_true_game():
+    game = Game(_tiny_kingdom(), num_players=2, seed=9)
+    net = DomibotNet()
+    net.eval()
+    root = run_mcts_ensemble(game, net, num_simulations=6, ensemble_size=3)
+    # The invariant self_play.py's merge relies on: redeal never touches the
+    # deciding player's own hand, so every ensemble member -- and therefore
+    # the merged root -- has exactly the true game's legal actions.
+    assert set(root.legal_actions) == set(game.legal_actions())
+
+
+def test_play_self_play_game_with_ensemble_produces_valid_examples():
+    net = DomibotNet()
+    net.eval()
+    examples = play_self_play_game(
+        net, num_simulations=8, kingdom=_tiny_kingdom(), seed=3, determinization_ensemble_size=4,
+    )
+    assert len(examples) > 0
+    for ex in examples:
+        assert ex.obs.shape == (net.obs_dim,)
+        assert ex.mask.shape == (net.num_actions,)
+        assert abs(ex.policy_target.sum() - 1.0) < 1e-5
+        assert np.all(ex.policy_target[~ex.mask] == 0.0)
+        assert -1.0 <= ex.value_target <= 1.0
+
+
+def test_play_self_play_games_batch_with_ensemble_produces_valid_examples():
+    net = DomibotNet()
+    net.eval()
+    games_examples = play_self_play_games_batch(
+        net, num_games=3, num_simulations=8, kingdom=_tiny_kingdom(), seed=3, determinization_ensemble_size=4,
+    )
+    assert len(games_examples) == 3
+    for examples in games_examples:
+        assert len(examples) > 0
+        for ex in examples:
+            assert ex.obs.shape == (net.obs_dim,)
+            assert ex.mask.shape == (net.num_actions,)
+            assert abs(ex.policy_target.sum() - 1.0) < 1e-5
+            assert np.all(ex.policy_target[~ex.mask] == 0.0)
+            assert -1.0 <= ex.value_target <= 1.0
+
+
+def test_play_self_play_games_batch_with_ensemble_completes_across_several_seeds():
+    # Regression: run_mcts_ensemble's root.boundary/.children point at a
+    # *hypothetical* redealt clone, not the real game -- self_play.py's
+    # ensemble_positions handling must advance the real game from the true
+    # boundary instead. If it didn't, the real game would silently start
+    # simulating a wrong hidden reality, which (given enough moves) would
+    # plausibly surface as an illegal-action crash somewhere.
+    net = DomibotNet()
+    net.eval()
+    for seed in range(5):
+        games_examples = play_self_play_games_batch(
+            net, num_games=2, num_simulations=6, kingdom=_tiny_kingdom(),
+            seed=seed, max_moves=30, determinization_ensemble_size=3,
+        )
+        assert len(games_examples) == 2
