@@ -31,6 +31,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from . import encoding
 from .agents import BigMoneyAgent, DomibotAgent
 from .evaluate import play_match
 from .network import DomibotNet, get_device
@@ -170,7 +171,16 @@ def main() -> None:
 
     reference_agent = None
     if args.reference_checkpoint:
-        reference_net = DomibotNet.load(args.reference_checkpoint, map_location=device).to(device)
+        stale = (f"--reference-checkpoint {args.reference_checkpoint} predates the observation/network "
+                 f"change (this encoder produces {encoding.OBS_DIM} features) and cannot be played "
+                 f"against the current code. Drop --reference-checkpoint and use the BigMoney eval for "
+                 f"in-training progress; compare against the older lineage separately.")
+        try:
+            reference_net = DomibotNet.load(args.reference_checkpoint, map_location=device).to(device)
+        except RuntimeError as e:  # state_dict shape/key mismatch
+            raise SystemExit(f"{stale}\n  (underlying error: {e.args[0].splitlines()[0]})")
+        if reference_net.obs_dim != encoding.OBS_DIM:
+            raise SystemExit(stale)
         reference_net.eval()
         reference_agent = DomibotAgent(reference_net, num_simulations=args.eval_simulations, device=device)
         print(f"reference opponent: {args.reference_checkpoint}")
