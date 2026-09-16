@@ -28,15 +28,23 @@ def get_device() -> torch.device:
 
 
 class _ResidualBlock(nn.Module):
+    """Pre-norm residual block. The norm is what makes a stack of these
+    trainable at a fixed learning rate; the residual stream is deliberately
+    left *unclamped* (no ReLU after the add), since clamping it non-negative
+    at every block throws away half the representable directions and
+    compounds over depth."""
+
     def __init__(self, dim: int):
         super().__init__()
+        self.norm = nn.LayerNorm(dim)
         self.fc1 = nn.Linear(dim, dim)
         self.fc2 = nn.Linear(dim, dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        h = F.relu(self.fc1(x))
+        h = self.norm(x)
+        h = F.relu(self.fc1(h))
         h = self.fc2(h)
-        return F.relu(x + h)
+        return x + h
 
 
 class DomibotNet(nn.Module):
@@ -45,8 +53,13 @@ class DomibotNet(nn.Module):
         super().__init__()
         self.obs_dim = obs_dim
         self.num_actions = num_actions
+        # The observation mixes raw pile counts (Copper starts at 46) with
+        # 0/1 one-hots, a ~46x scale spread that badly conditions the first
+        # layer; this normalizes it before anything learns from it.
+        self.input_norm = nn.LayerNorm(obs_dim)
         self.input = nn.Linear(obs_dim, hidden_dim)
         self.blocks = nn.ModuleList(_ResidualBlock(hidden_dim) for _ in range(num_blocks))
+        self.head_norm = nn.LayerNorm(hidden_dim)
         self.policy_head = nn.Linear(hidden_dim, num_actions)
         self.value_head = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
@@ -59,9 +72,10 @@ class DomibotNet(nn.Module):
         """obs: (batch, obs_dim). Returns (policy_logits: (batch, num_actions),
         value: (batch,)), both raw — masking/softmax happens in the caller,
         since only the caller knows which actions are legal right now."""
-        h = F.relu(self.input(obs))
+        h = F.relu(self.input(self.input_norm(obs)))
         for block in self.blocks:
             h = block(h)
+        h = self.head_norm(h)  # pre-norm blocks leave the stream unnormalized
         return self.policy_head(h), self.value_head(h).squeeze(-1)
 
     def save(self, path: str | Path) -> None:

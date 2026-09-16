@@ -89,3 +89,61 @@ def test_play_game_runs_kingdom_to_completion():
     kingdom = list(KINGDOM_CARDS)[:10]
     game = play_game(BigMoneyAgent(), BigMoneyAgent(), kingdom, seed=9)
     assert game.is_game_over()
+
+
+# --- observation must disambiguate what a sub-decision is actually about ---
+
+def test_source_card_distinguishes_same_kind_decisions():
+    # Chapel ("dump junk") and Remodel ("give up your best card to upgrade
+    # it") both raise SELECT_CARD with TRASH options over the same hand. If
+    # the observation can't tell them apart, no policy can answer both --
+    # the action mask is applied to the output, never seen as input.
+    from domibot import Action, Game
+
+    kingdom = ["Chapel", "Remodel", "Cellar", "Militia", "Village",
+               "Smithy", "Market", "Moat", "Workshop", "Festival"]
+
+    def obs_after_playing(card):
+        game = Game(kingdom, num_players=2, seed=4)
+        p = game.players[0]
+        p.hand = ["Estate", "Copper", "Gold", "Estate", card]
+        p.discard = ["Remodel" if card == "Chapel" else "Chapel"]  # owns both
+        p.deck = ["Copper", "Copper"]
+        game.step(Action("PLAY", card))
+        return game, encoding.encode_observation(game, game.current_decider())
+
+    chapel_game, chapel_obs = obs_after_playing("Chapel")
+    remodel_game, remodel_obs = obs_after_playing("Remodel")
+
+    assert chapel_game.pending_decision.source_card == "Chapel"
+    assert remodel_game.pending_decision.source_card == "Remodel"
+    assert not np.array_equal(chapel_obs, remodel_obs)
+
+
+def test_set_aside_cards_are_visible_in_the_observation():
+    # Sentry's two revealed cards live in set_aside while the trash/discard/
+    # reorder decisions are pending -- they are literally what's being
+    # decided about, so they have to be in the observation.
+    from domibot import Action, Game
+
+    game = Game(["Sentry", "Chapel", "Remodel", "Cellar", "Militia",
+                 "Village", "Smithy", "Market", "Moat", "Festival"], num_players=2, seed=4)
+    p = game.players[0]
+    p.hand = ["Sentry", "Copper", "Copper", "Estate", "Estate"]
+    p.deck = ["Gold", "Curse", "Copper", "Copper"]
+    game.step(Action("PLAY", "Sentry"))
+
+    assert len(p.set_aside) == 2
+    obs = encoding.encode_observation(game, game.current_decider())
+    block = obs[encoding.NUM_CARDS * 4:encoding.NUM_CARDS * 5]
+    for card in p.set_aside:
+        assert block[encoding.CARD_INDEX[card]] >= 1
+
+
+def test_no_source_card_encoded_at_a_plain_phase_action():
+    from domibot import Game
+
+    game = Game(list(KINGDOM_CARDS)[:10], num_players=2, seed=1)
+    assert game.pending_decision is None
+    obs = encoding.encode_observation(game, 0)
+    assert not obs[encoding.NUM_CARDS * 5:encoding.NUM_CARDS * 6].any()

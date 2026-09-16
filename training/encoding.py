@@ -39,9 +39,10 @@ MAX_OPPONENTS = 3  # the base set supports up to 4 players, i.e. up to 3 opponen
 
 _DECISION_KINDS = (DecisionKind.PHASE_ACTION, DecisionKind.SELECT_CARD, DecisionKind.YES_NO, DecisionKind.REACT)
 
-# supply + trash + my hand + my total + MAX_OPPONENTS * (discard + play_area + hand_size + deck_size + active)
+# supply + trash + my hand + my total + my set_aside + source card
+# + MAX_OPPONENTS * (discard + play_area + [hand_size, draw_pile_size, set_aside_size, active])
 # + scalars (phase(2) + my counters(3) + my_turn_number(1) + is_my_turn(1) + decision_kind(4))
-OBS_DIM = NUM_CARDS * 4 + MAX_OPPONENTS * (NUM_CARDS * 2 + 3) + 11
+OBS_DIM = NUM_CARDS * 6 + MAX_OPPONENTS * (NUM_CARDS * 2 + 4) + 11
 
 
 def action_to_index(action: Action) -> int:
@@ -68,6 +69,16 @@ def _card_counts(names) -> np.ndarray:
     return counts
 
 
+def _source_card_onehot(game: Game) -> np.ndarray:
+    """Which card's effect raised the pending decision (all zeros at a
+    plain phase-action boundary, where nothing is being resolved)."""
+    counts = np.zeros(NUM_CARDS, dtype=np.float32)
+    decision = game.pending_decision
+    if decision is not None and decision.source_card is not None:
+        counts[CARD_INDEX[decision.source_card]] = 1.0
+    return counts
+
+
 def _supply_counts(supply: dict[str, int]) -> np.ndarray:
     counts = np.zeros(NUM_CARDS, dtype=np.float32)
     for name, count in supply.items():
@@ -79,14 +90,25 @@ def encode_observation(game: Game, player_idx: int) -> np.ndarray:
     """Encode `game` from `player_idx`'s point of view. Respects hidden
     information: only `player_idx`'s own hand/deck composition is fully
     known; opponents expose only what's actually public in Dominion (their
-    discard pile and play area, plus hand/deck *sizes* — never hand or
-    deck *contents*)."""
+    discard pile and play area, plus hand/draw-pile/set-aside *sizes* —
+    never hand or deck *contents*).
+
+    Includes the card whose effect raised the pending decision. Without it
+    a "trash a card" prompt from Chapel (dump junk) and from Remodel (give
+    up your best card to upgrade it) are byte-identical inputs, so no
+    policy can answer both correctly — the options differ but the action
+    mask is applied to the *output*, never seen as input."""
     me = game.players[player_idx]
     parts = [
         _supply_counts(game.supply),
         _card_counts(game.trash),
         _card_counts(me.hand),
         _card_counts(me.all_cards()),
+        # Cards staged mid-effect (Sentry's two revealed cards, Library's
+        # skipped Actions) -- for those decisions these *are* the cards
+        # being decided about.
+        _card_counts(me.set_aside),
+        _source_card_onehot(game),
     ]
 
     opponents = game.other_players_in_order(player_idx)
@@ -95,11 +117,12 @@ def encode_observation(game: Game, player_idx: int) -> np.ndarray:
             opp = game.players[opponents[slot]]
             parts.append(_card_counts(opp.discard))
             parts.append(_card_counts(opp.play_area))
-            parts.append(np.array([len(opp.hand), opp.deck_size(), 1.0], dtype=np.float32))
+            parts.append(np.array(
+                [len(opp.hand), len(opp.deck), len(opp.set_aside), 1.0], dtype=np.float32))
         else:
             parts.append(np.zeros(NUM_CARDS, dtype=np.float32))
             parts.append(np.zeros(NUM_CARDS, dtype=np.float32))
-            parts.append(np.zeros(3, dtype=np.float32))
+            parts.append(np.zeros(4, dtype=np.float32))
 
     phase_onehot = np.array([1.0 if game.phase == Phase.ACTION else 0.0,
                               1.0 if game.phase == Phase.BUY else 0.0], dtype=np.float32)
