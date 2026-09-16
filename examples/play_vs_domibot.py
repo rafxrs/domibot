@@ -53,7 +53,7 @@ def print_state(game: Game) -> None:
     print(f"Your hand:      {sorted(p.hand)}")
     if p.play_area:
         print(f"Your play area: {p.play_area}")
-    print(f"Domibot: {len(opp.hand)} cards in hand, {opp.deck_size() - len(opp.hand)} elsewhere")
+    print(f"Domibot: {len(opp.hand)} cards in hand, {opp.total_cards() - len(opp.hand)} elsewhere")
     supply = ", ".join(f"{n}:{c}" for n, c in sorted(game.supply.items()) if c > 0)
     print(f"Supply: {supply}")
     if game.trash:

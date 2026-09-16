@@ -75,6 +75,9 @@ class Game:
 
         self.pending_gen: Optional[Generator[Decision, Action, None]] = None
         self.pending_decision: Optional[Decision] = None
+        # Stack of cards currently mid-resolution, innermost last -- see
+        # `_stamp_source`. Nests via Throne Room and Vassal.
+        self._resolving: list[str] = []
         self.action_log: list[LogEntry] = []
 
     # ------------------------------------------------------------ query ---
@@ -144,6 +147,7 @@ class Game:
         new.turn_silver_played = self.turn_silver_played
         new.pending_gen = None
         new.pending_decision = None
+        new._resolving = list(self._resolving)  # always empty here (no live generator), copied for safety
         new.action_log = []  # search clones don't need history
         return new
 
@@ -162,12 +166,18 @@ class Game:
         else:
             self._handle_phase_action(action)
 
-        if self.pending_gen is None:
-            self._maybe_end_game()
+    def _stamp_source(self) -> None:
+        """Tag the decision that just surfaced with the card whose effect
+        raised it. `_resolving` is a stack, so a Throne Room replaying a
+        Militia, or a Vassal playing a Sentry, attributes the choice to the
+        inner card actually asking the question."""
+        if self.pending_decision is not None and self._resolving:
+            self.pending_decision.source_card = self._resolving[-1]
 
     def _resume_generator(self, action: Action) -> None:
         try:
             self.pending_decision = self.pending_gen.send(action)
+            self._stamp_source()
         except StopIteration:
             self.pending_gen = None
             self.pending_decision = None
@@ -176,6 +186,7 @@ class Game:
         self.pending_gen = gen
         try:
             self.pending_decision = next(gen)
+            self._stamp_source()
         except StopIteration:
             self.pending_gen = None
             self.pending_decision = None
@@ -220,15 +231,19 @@ class Game:
         normal PLAY, and by Throne Room / Vassal replaying a card."""
         card = self.cards[card_name]
         player = self.players[player_idx]
-        player.actions += card.plus_actions
-        player.buys += card.plus_buys
-        player.coins += card.plus_coins
-        if card.plus_cards:
-            player.draw(card.plus_cards, self.rng)
-        if card.effect is not None:
-            result = card.effect(self, player_idx)
-            if inspect.isgenerator(result):
-                yield from result
+        self._resolving.append(card_name)
+        try:
+            player.actions += card.plus_actions
+            player.buys += card.plus_buys
+            player.coins += card.plus_coins
+            if card.plus_cards:
+                player.draw(card.plus_cards, self.rng)
+            if card.effect is not None:
+                result = card.effect(self, player_idx)
+                if inspect.isgenerator(result):
+                    yield from result
+        finally:
+            self._resolving.pop()
 
     def play_treasure(self, player_idx: int, card_name: str) -> None:
         player = self.players[player_idx]
@@ -271,6 +286,16 @@ class Game:
         player.coins = 0
         player.turns_taken += 1
 
+        # Real Dominion evaluates the end condition during Cleanup, once the
+        # turn is fully over -- not the instant a pile empties mid-turn.
+        # Checking here (rather than after every step) is what lets the
+        # player who empties the last pile actually finish their turn: spend
+        # remaining buys, and have this turn counted in `turns_taken`, which
+        # drives winners()' fewest-turns tie-break.
+        if self._game_over_condition_met():
+            self.phase = Phase.GAME_OVER
+            return
+
         self.current_player = (self.current_player + 1) % len(self.players)
         self.turn_number += 1
         self.turn_merchant_bonus = 0
@@ -281,12 +306,9 @@ class Game:
         next_player.actions = 1
         next_player.buys = 1
 
-    def _maybe_end_game(self) -> None:
-        if self.phase == Phase.GAME_OVER:
-            return
+    def _game_over_condition_met(self) -> bool:
+        """The Province pile is gone, or any three supply piles are. Only
+        meaningful during Cleanup -- see `_cleanup_and_advance`."""
         if self.supply.get("Province", 0) == 0:
-            self.phase = Phase.GAME_OVER
-            return
-        empty_piles = sum(1 for count in self.supply.values() if count == 0)
-        if empty_piles >= 3:
-            self.phase = Phase.GAME_OVER
+            return True
+        return sum(1 for count in self.supply.values() if count == 0) >= 3

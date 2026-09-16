@@ -248,7 +248,7 @@ class DominionGUI:
         whose_turn = "your" if self.game.current_player == self.human_seat else "Domibot's"
         text = (
             f"Domibot -- hand: {len(opp.hand)} cards, "
-            f"{opp.deck_size() - len(opp.hand)} elsewhere -- "
+            f"{opp.total_cards() - len(opp.hand)} elsewhere -- "
             f"turn {self.game.current_turn_number}, "
             f"{whose_turn} turn "
             f"({self.game.phase.name})"

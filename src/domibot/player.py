@@ -36,7 +36,10 @@ class PlayerState:
     def all_cards(self) -> list[str]:
         return self.deck + self.hand + self.discard + self.play_area + self.set_aside
 
-    def deck_size(self) -> int:
+    def total_cards(self) -> int:
+        """Every card this player owns, in any zone -- NOT the draw pile
+        (that is `len(self.deck)`). Named `deck_size` until it turned out
+        the RL encoder was reading it as a draw-pile count."""
         return len(self.all_cards())
 
     def victory_points(self, card_lookup) -> int:

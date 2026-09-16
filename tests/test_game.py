@@ -30,7 +30,7 @@ def test_setup_two_player():
     assert game.supply["Curse"] == 10
     for p in game.players:
         assert len(p.hand) == 5
-        assert p.deck_size() == 10
+        assert p.total_cards() == 10
     assert game.phase == Phase.ACTION
     assert game.players[0].actions == 1
     assert game.players[0].buys == 1
@@ -254,28 +254,33 @@ def test_merchant_bonus_on_first_silver_only():
 
 
 # ------------------------------------------------------------------ Gardens
-def test_gardens_vp_scales_with_deck_size():
+def test_gardens_vp_scales_with_total_cards():
     game = make_game(["Gardens"], seed=14)
     p = game.players[0]
     p.deck = ["Copper"] * 27  # plus 5 in hand + 3 estates already there from setup
-    total_cards = p.deck_size()
+    total_cards = p.total_cards()
     gardens_card = game.cards["Gardens"]
     expected = total_cards // 10
     assert gardens_card.vp_value(p) == expected
 
 
 # ---------------------------------------------------------------- Game end
-def test_game_ends_when_provinces_run_out():
+# The end condition is evaluated during Cleanup, not the instant a pile
+# empties: the player whose turn it is finishes that turn first (and has it
+# counted in turns_taken, which drives winners()' fewest-turns tie-break).
+def test_game_ends_at_cleanup_when_provinces_run_out():
     game = make_game(["Village"], num_players=2, seed=15)
     game.supply["Province"] = 0
     game.step(END_ACTIONS)
+    assert not game.is_game_over()  # still mid-turn: the Buy phase is owed
+    game.step(END_BUY)
     assert game.is_game_over()
     assert game.legal_actions() == []
     with pytest.raises(RuntimeError):
         game.step(END_BUY)
 
 
-def test_game_ends_when_three_piles_empty():
+def test_game_ends_at_cleanup_when_three_piles_empty():
     game = make_game(["Village"], num_players=2, seed=16)
     for name in list(game.supply):
         if name != "Province":
@@ -283,7 +288,29 @@ def test_game_ends_when_three_piles_empty():
         if sum(1 for c in game.supply.values() if c == 0) >= 3:
             break
     game.step(END_ACTIONS)
+    assert not game.is_game_over()
+    game.step(END_BUY)
     assert game.is_game_over()
+
+
+def test_ending_the_game_still_counts_that_turn_and_leaves_buys_usable():
+    # Regression: the end condition used to fire mid-turn, which truncated
+    # the turn (forfeiting remaining buys) and skipped turns_taken += 1,
+    # inverting the fewest-turns tie-break in every tied game.
+    game = make_game(["Village"], num_players=2, seed=17)
+    game.supply["Province"] = 1
+    me = game.players[0]
+    me.hand = ["Gold", "Gold", "Gold", "Gold", "Copper"]
+    me.buys = 2
+    game.step(END_ACTIONS)
+    game.step(Action("BUY", "Province"))
+    assert not game.is_game_over()          # turn continues
+    assert me.buys == 1
+    game.step(Action("BUY", "Silver"))      # second buy is not forfeited
+    assert "Silver" in me.discard
+    game.step(END_BUY)
+    assert game.is_game_over()
+    assert [p.turns_taken for p in game.players] == [1, 0]
 
 
 # ------------------------------------------------------------- full replay

@@ -48,3 +48,9 @@ class Decision:
     player: int
     prompt: str
     options: list[Action] = field(default_factory=list)
+    # Which card's effect raised this choice, stamped by Game as the
+    # decision surfaces (see Game._stamp_source). Without it, "Chapel:
+    # trash junk" and "Remodel: trash your best card to upgrade it" are
+    # indistinguishable to anything reading the state -- same kind, same
+    # options -- so no observer, human or network, can tell them apart.
+    source_card: Optional[str] = None

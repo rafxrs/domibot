@@ -93,13 +93,20 @@ def vassal_effect(game, p):
     if top is None:
         return
     player.deck.pop()
+    # Staged in set_aside rather than held only in this generator's locals:
+    # while the Decision below is pending the card must still live in a real
+    # zone, or every state query (all_cards, total_cards, and therefore the
+    # RL observation) silently under-counts the player's deck.
+    player.set_aside.append(top)
     card = game.cards[top]
     if CardType.ACTION in card.types:
         play_it = yield from yes_no(p, f"Vassal discarded {top}. Play it?")
         if play_it:
+            player.set_aside.remove(top)
             player.play_area.append(top)
             yield from game.resolve_action(p, top)
             return
+    player.set_aside.remove(top)
     player.discard.append(top)
 
 
@@ -266,6 +273,7 @@ def _bandit_hit(game, opp):
             break
         player.deck.pop()
         revealed.append(top)
+        player.set_aside.append(top)  # a real zone while the Decision is pending
     targets = [c for c in revealed if CardType.TREASURE in game.cards[c].types and c != "Copper"]
     if targets:
         # Always routed through choose_one, even with a single distinct
@@ -277,8 +285,10 @@ def _bandit_hit(game, opp):
             game, opp, targets, "TRASH", "Bandit: choose a Treasure to trash.", allow_none=False
         )
         revealed.remove(choice)
+        player.set_aside.remove(choice)
         game.trash.append(choice)
     for c in revealed:
+        player.set_aside.remove(c)
         player.discard.append(c)
 
 
@@ -316,14 +326,17 @@ def library_effect(game, p):
         if top is None:
             break
         player.deck.pop()
+        player.set_aside.append(top)  # a real zone while the Decision is pending
         card = game.cards[top]
         if CardType.ACTION in card.types:
             keep = yield from yes_no(p, f"Library: draw {top} into your hand? (No sets it aside instead)")
             if not keep:
-                set_aside.append(top)
+                set_aside.append(top)  # stays in player.set_aside until cleanup below
                 continue
+        player.set_aside.remove(top)
         player.hand.append(top)
     for c in set_aside:
+        player.set_aside.remove(c)
         player.discard.append(c)
 
 
@@ -368,6 +381,7 @@ def sentry_effect(game, p):
             break
         player.deck.pop()
         revealed.append(top)
+        player.set_aside.append(top)  # a real zone while the Decisions are pending
     if not revealed:
         return
 
@@ -377,6 +391,7 @@ def sentry_effect(game, p):
     )
     for c in to_trash:
         remaining.remove(c)
+        player.set_aside.remove(c)
         game.trash.append(c)
 
     to_discard = yield from choose_cards(
@@ -384,6 +399,7 @@ def sentry_effect(game, p):
     )
     for c in to_discard:
         remaining.remove(c)
+        player.set_aside.remove(c)
         player.discard.append(c)
 
     order: list[str] = []
@@ -397,6 +413,7 @@ def sentry_effect(game, p):
         pool.remove(choice)
         order.append(choice)
     for c in order:
+        player.set_aside.remove(c)
         player.deck.append(c)
 
 
