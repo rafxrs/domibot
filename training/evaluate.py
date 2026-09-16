@@ -33,14 +33,24 @@ def play_game(agent_p0: Agent, agent_p1: Agent, kingdom: list[str], seed: int) -
     return game
 
 
-def play_match(agent_a: Agent, agent_b: Agent, n_games: int, seed: int = 0) -> dict:
-    """Alternates who goes first each game, to cancel out first-player
-    advantage, then reports how often each agent wins."""
+def play_match(agent_a: Agent, agent_b: Agent, n_games: int, seed: int = 0, paired: bool = True) -> dict:
+    """Plays `n_games` and reports how often each agent wins.
+
+    `paired` (default) plays every kingdom+seed **twice**, once with each
+    agent going first, so the two agents face literally the same positions
+    with the seats swapped. Unpaired alternation also cancels first-player
+    advantage on average, but leaves the kingdom draw as pure noise between
+    the two agents -- and kingdom luck dominates Dominion, so an unpaired
+    50-game match carries a ~+-13pp confidence interval, wide enough to
+    swamp the differences these evals are asked to resolve."""
     rng = random.Random(seed)
     wins_a = wins_b = ties = 0
     for i in range(n_games):
-        kingdom = rng.sample(list(KINGDOM_CARDS), 10)
-        game_seed = rng.randrange(1_000_000)
+        # in paired mode the odd game replays the previous kingdom/seed
+        # with the seats swapped, so draw a new one only on even games
+        if not paired or i % 2 == 0:
+            kingdom = rng.sample(list(KINGDOM_CARDS), 10)
+            game_seed = rng.randrange(1_000_000)
         a_first = i % 2 == 0
         game = play_game(agent_a, agent_b, kingdom, game_seed) if a_first \
             else play_game(agent_b, agent_a, kingdom, game_seed)

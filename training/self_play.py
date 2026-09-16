@@ -74,6 +74,12 @@ class Example:
     policy_target: np.ndarray  # length NUM_ACTIONS, mass only on that state's legal actions
     decider: int
     value_target: float = field(default=0.0)
+    # False when the game hit max_moves without finishing, so no real
+    # outcome exists. 0.0 is not "unknown" -- it is the exact tanh margin
+    # of a perfect tie -- so training the value head on it teaches
+    # "dead even" about positions that were simply never resolved. The
+    # policy target from those states is still valid and kept.
+    value_known: bool = field(default=True)
 
 
 def _sample_kingdom(rng: random.Random, min_sub_decision_cards: int = 0) -> list[str]:
@@ -183,9 +189,9 @@ def play_self_play_game(
     final_game = boundary if not path else materialize(boundary, path)
     game_over = not path and final_game.is_game_over()
     for ex in examples:
-        # a margin-based value from each example's own decider's perspective;
-        # 0.0 for the rare case of hitting max_moves without a real result
+        # a margin-based value from each example's own decider's perspective
         ex.value_target = terminal_value(final_game, ex.decider) if game_over else 0.0
+        ex.value_known = game_over
     return examples
 
 
@@ -238,9 +244,9 @@ def _play_self_play_game_phase_actions_only(
 
     game_over = game.is_game_over()
     for ex in examples:
-        # a margin-based value from each example's own decider's perspective;
-        # 0.0 for the rare case of hitting max_moves without a real result
+        # a margin-based value from each example's own decider's perspective
         ex.value_target = terminal_value(game, ex.decider) if game_over else 0.0
+        ex.value_known = game_over
     return examples
 
 
@@ -383,6 +389,7 @@ def play_self_play_games_batch(
         game_over = not paths[i] and final_game.is_game_over()
         for ex in examples_per_game[i]:
             ex.value_target = terminal_value(final_game, ex.decider) if game_over else 0.0
+            ex.value_known = game_over
     return examples_per_game
 
 
@@ -458,6 +465,7 @@ def _play_self_play_games_batch_phase_actions_only(
         game_over = game.is_game_over()
         for ex in examples_per_game[i]:
             ex.value_target = terminal_value(game, ex.decider) if game_over else 0.0
+            ex.value_known = game_over
     return examples_per_game
 
 

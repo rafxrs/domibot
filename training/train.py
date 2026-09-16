@@ -39,21 +39,35 @@ from .self_play import DEFAULT_MAX_MOVES, ReplayBuffer, play_self_play_games_bat
 CHECKPOINT_DIR = Path(__file__).resolve().parent.parent / "checkpoints"
 
 
-def train_step(network: DomibotNet, optimizer: torch.optim.Optimizer, batch, device: torch.device) -> tuple[float, float]:
+def train_step(network: DomibotNet, optimizer: torch.optim.Optimizer, batch, device: torch.device,
+               value_loss_weight: float = 1.0, grad_clip: float = 0.0) -> tuple[float, float]:
     obs = torch.from_numpy(np.stack([e.obs for e in batch])).to(device)
     mask = torch.from_numpy(np.stack([e.mask for e in batch])).to(device)
     policy_target = torch.from_numpy(np.stack([e.policy_target for e in batch])).to(device)
     value_target = torch.tensor([e.value_target for e in batch], dtype=torch.float32, device=device)
 
+    value_known = torch.tensor([e.value_known for e in batch], dtype=torch.bool, device=device)
+
     policy_logits, value_pred = network(obs)
     masked_logits = policy_logits.masked_fill(~mask, -1e9)
     log_probs = F.log_softmax(masked_logits, dim=-1)
     policy_loss = -(policy_target * log_probs).sum(dim=-1).mean()
-    value_loss = F.mse_loss(value_pred, value_target)
-    loss = policy_loss + value_loss
+    # Examples from games that hit max_moves carry no real outcome, so they
+    # are excluded from the value term (their policy target still counts).
+    if value_known.any():
+        value_loss = F.mse_loss(value_pred[value_known], value_target[value_known])
+    else:
+        value_loss = value_pred.sum() * 0.0
+    # Weighted, because the two terms are not on comparable scales: policy
+    # cross-entropy sits near its target-entropy floor (~0.6) while value
+    # MSE on tanh-squashed margins is far smaller, so an unweighted sum
+    # hands the value head only a few percent of the gradient.
+    loss = policy_loss + value_loss_weight * value_loss
 
     optimizer.zero_grad()
     loss.backward()
+    if grad_clip > 0:
+        torch.nn.utils.clip_grad_norm_(network.parameters(), grad_clip)
     optimizer.step()
     return float(policy_loss.item()), float(value_loss.item())
 
@@ -96,6 +110,18 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--buffer-capacity", type=int, default=200_000)
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--lr-final-frac", type=float, default=1.0,
+                         help="cosine-decay the learning rate from --lr down to this fraction of it over the "
+                              "run's --iterations (1.0, the default, keeps the old flat-LR behavior). E.g. 0.1 "
+                              "decays 1e-3 -> 1e-4. On a resume the schedule restarts, so set --lr to wherever "
+                              "the previous run left off rather than expecting it to continue the curve.")
+    parser.add_argument("--value-loss-weight", type=float, default=1.0,
+                         help="multiplier on the value MSE term in the joint loss. The two terms are not on "
+                              "comparable scales (policy cross-entropy floors near the target distribution's own "
+                              "entropy, ~0.6; value MSE on tanh-squashed margins is much smaller), so 1.0 gives "
+                              "the value head only a few percent of the gradient.")
+    parser.add_argument("--grad-clip", type=float, default=0.0,
+                         help="clip gradient norm to this value (0 disables)")
     parser.add_argument("--eval-every", type=int, default=5, help="iterations between eval checks")
     parser.add_argument("--eval-games", type=int, default=20, help="games per eval opponent (BigMoney and, if set, --reference-checkpoint)")
     parser.add_argument("--eval-simulations", type=int, default=100, help="MCTS simulations per move during eval")
@@ -122,11 +148,17 @@ def main() -> None:
     print(f"device: {device}  |  self-play device: {self_play_device}  |  max_moves: {max_moves}  |  "
           f"min_sub_decision_cards: {args.min_sub_decision_cards}  |  "
           f"determinization_ensemble_size: {args.determinization_ensemble_size}")
+    print(f"games_per_iter: {args.games_per_iter}  |  train_steps_per_iter: {args.train_steps_per_iter}  |  "
+          f"batch_size: {args.batch_size}  |  simulations: {args.simulations}  |  "
+          f"lr: {args.lr} -> {args.lr * args.lr_final_frac:g}  |  value_loss_weight: {args.value_loss_weight}")
 
     network = DomibotNet.load(args.checkpoint, map_location=device).to(device) if args.checkpoint else DomibotNet().to(device)
     if args.checkpoint:
         print(f"resumed from {args.checkpoint}")
     optimizer = torch.optim.Adam(network.parameters(), lr=args.lr)
+    scheduler = (torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=max(args.iterations, 1), eta_min=args.lr * args.lr_final_frac)
+        if args.lr_final_frac < 1.0 else None)
     buffer = ReplayBuffer(args.buffer_capacity)
     rng = random.Random(args.seed)
 
@@ -153,6 +185,7 @@ def main() -> None:
             self_play_network.eval()
         t0 = time.time()
         remaining = args.games_per_iter
+        games_this_iter = truncated_this_iter = 0
         while remaining > 0:
             chunk = min(args.parallel_games, remaining)
             games_examples = play_self_play_games_batch(
@@ -163,6 +196,9 @@ def main() -> None:
             )
             for examples in games_examples:
                 buffer.add_game(examples)
+                games_this_iter += 1
+                if examples and not examples[0].value_known:
+                    truncated_this_iter += 1
             remaining -= chunk
         self_play_time = time.time() - t0
 
@@ -172,15 +208,23 @@ def main() -> None:
             if len(buffer) < args.batch_size:
                 break
             batch = buffer.sample(args.batch_size, rng)
-            pl, vl = train_step(network, optimizer, batch, device)
+            pl, vl = train_step(network, optimizer, batch, device,
+                                value_loss_weight=args.value_loss_weight, grad_clip=args.grad_clip)
             policy_losses.append(pl)
             value_losses.append(vl)
+        if scheduler is not None:
+            scheduler.step()
 
         network.save(CHECKPOINT_DIR / "latest.pt")
 
         msg = f"iter {iteration}/{end_iteration}  buffer={len(buffer)}  self_play={self_play_time:.1f}s"
         if policy_losses:
             msg += f"  policy_loss={sum(policy_losses) / len(policy_losses):.4f}  value_loss={sum(value_losses) / len(value_losses):.4f}"
+        # Truncation rate is the one number that says whether the value
+        # targets are real: a capped game has no outcome at all.
+        msg += f"  truncated={truncated_this_iter}/{games_this_iter}"
+        if scheduler is not None:
+            msg += f"  lr={optimizer.param_groups[0]['lr']:.2e}"
         print(msg, flush=True)
 
         if iteration % args.eval_every == 0:

@@ -52,11 +52,15 @@ C_PUCT = 1.5
 
 # Squashes a final-score margin (this player's score minus the average of
 # everyone else's) into (-1, 1) for use as a value target/terminal backup.
-# 20 VP is roughly "a solid, clear win" by the games seen so far (a few
-# Provinces' worth of margin) without being an extreme blowout, so it sits
-# at tanh(1) ~= 0.76 rather than saturating near +-1 immediately -- a bare
-# win and a blowout should still be distinguishable in the training signal.
-MARGIN_SCALE = 20.0
+# A bare win and a blowout should still be distinguishable, so this stays
+# well short of an immediate +-1 saturation -- but it was 20.0, and
+# measured margins between competent players are median 3 VP / mean 4.8,
+# which 20.0 squashed into |target| ~ 0.15. That wasted almost the whole
+# output range, shrank MSE (and so the value head's share of an unweighted
+# joint loss) by ~4x, and left Q too small to compete with PUCT's
+# exploration term. At 10.0 the median lands near 0.29 with only ~8% of
+# games saturating past 0.9.
+MARGIN_SCALE = 10.0
 
 
 class MCTSNode:
