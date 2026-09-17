@@ -425,6 +425,74 @@ snapshots:
   for the last jump. Worth doing next: add the LR decay schedule and run
   another ensemble continuation -- the two fixes address independent
   problems and neither has been tried with the other in place yet.
+- **v4.1**: a *fresh* network from scratch, not a v3.x continuation --
+  forced, not discretionary, because this pass fixed the observation
+  encoding itself (`OBS_DIM` 350 -> 419: source-card one-hot + set-aside
+  card counts, see `encoding.py`), which changes the input layer's shape
+  and makes every prior checkpoint structurally incompatible. Bundles
+  everything found in a full-codebase audit: three engine correctness
+  bugs (game-end now evaluated at Cleanup instead of mid-turn the instant
+  a pile empties; `Decision.source_card` + a `_resolving` card stack so
+  same-shape decisions from different source cards are distinguishable;
+  Vassal/Bandit/Library/Sentry now stage popped cards in `set_aside`
+  instead of resolving them invisibly), a normalized network (pre-norm
+  residual blocks, `LayerNorm` on the input and before the heads),
+  and a rebalanced training signal (`MARGIN_SCALE` 20 -> 10,
+  `value_loss_weight=2.0`, `grad_clip=1.0`, cosine LR decay 1e-3 -> 1e-4
+  across the run instead of v3.6/v3.7's flat rate, and `value_known`
+  masking so a truncated game's fabricated value target doesn't corrupt
+  the loss). Per the user's call, the curriculum
+  (`--min-sub-decision-cards`) is dropped entirely for this lineage --
+  every sub-decision is searchable from iteration 1, uniform kingdoms
+  throughout. `--determinization-ensemble-size 2` throughout (v3.7's
+  fix, carried forward).
+
+  First launch used `--games-per-iter 20 --train-steps-per-iter 24`,
+  chosen to target v2.2's replay ratio via two independent levers without
+  checking that cutting gradient steps adds no independent-label
+  diversity -- the same root cause (over-replay of a thin, correlated
+  data pool) this run was meant to fix. Caught before it went far
+  (~20 iterations in): measured buffer staleness was ~49 iterations vs
+  v2.2's proven ~19, and only 20 independent games/iter vs v2.2's ~100.
+  Restarted clean at **`--games-per-iter 50 --train-steps-per-iter 40`**
+  (~15,000 fresh examples/iter, replay ratio <1, buffer capacity 200k
+  reached by iteration 15) -- matching or beating v2.2 on every replay
+  axis except independent games/iter (50 vs ~100), left as a lever for a
+  future continuation if the value head stalls again.
+
+  200 iterations, self-play on CPU / training+eval on CUDA, ~500s/iter.
+  In-training eval vs BigMoney (60 games/check) climbed from 0/60
+  (iterations 10-40) to a noisy but real back-half cluster: 7, 6, 2, 1,
+  6, 6, 4, 5, **9**, 7, 4, **11**, **9** (iterations 80-200) -- the four
+  best scores of the whole run land in iterations 160-200. `value_loss`
+  dropped cleanly from 0.30 to a minimum of 0.08 by iteration 34, then
+  climbed to ~0.17 and *plateaued* there (oscillating 0.15-0.18) for the
+  entire back half rather than continuing to diverge -- read as benign
+  (self-play games getting more contested as the policy improves raises
+  the intrinsic difficulty of value prediction) rather than a training
+  problem, since `policy_loss` and the BigMoney eval kept improving
+  concurrently rather than degrading. A 4-way, 100-game round-robin
+  between the four best late checkpoints (iter_130, iter_160, iter_190,
+  iter_200) found a clean winner with no internal contradictions:
+  **iter_200 beat all three others in direct play** (55-43-2 vs iter_130,
+  55-39-6 vs iter_160, 50-42-8 vs iter_190), taking the standings at
+  53.3% combined win rate vs iter_190's 51.0%, iter_130's 44.0%, and
+  iter_160's 41.0% -- the final checkpoint, after full LR decay, is
+  genuinely the strongest, unlike v2.2's iter_180 in-training-eval red
+  herring. Promoted `iter_200` as `domibot_v4.1.pt`.
+
+  Not yet directly comparable to `domibot_v2.2.pt` in a round-robin --
+  the old checkpoint's 350-dim input is incompatible with the fixed
+  419-dim encoder (this is what `train.py`'s fail-fast guard on
+  `--reference-checkpoint` now catches instead of crashing). In absolute
+  terms 11/60 vs BigMoney is still far below v2.1's fresh-network
+  baseline (35/40), so this checkpoint is likely still behind v2.2 in
+  real play -- the point of this run was fixing the underlying regime
+  (game-end bug, sub-decision representability, over-replay, missing LR
+  decay, imperfect-info search) that every prior lineage trained through,
+  not beating v2.2 in one 200-iteration shot. Worth doing next: build a
+  comparison shim so v2.2 can play against the new encoding, to get a
+  real read on how much of the gap these fixes closed.
 
 ## What's still missing
 
