@@ -493,6 +493,33 @@ snapshots:
   not beating v2.2 in one 200-iteration shot. Worth doing next: build a
   comparison shim so v2.2 can play against the new encoding, to get a
   real read on how much of the gap these fixes closed.
+- **v4.2**: resumed from `domibot_v4.1.pt` for 200 more iterations
+  (201-400), same settings, but with a **fresh warm-restart LR cycle**
+  (`--lr 1e-3 --lr-final-frac 0.1` again instead of continuing flat at
+  v4.1's terminal 1e-4) rather than a literal continuation -- v4.1's
+  `value_loss` had plateaued for its entire back half, and `train.py`'s
+  cosine scheduler restarts its `T_max` window from whatever `--iterations`
+  is passed on each launch, so this is a deliberate SGDR-style warm
+  restart, not an oversight. It worked: in-training eval vs BigMoney rose
+  from v4.1's best of 11/60 to a run peak of **28/60 at iteration 370**,
+  with the back half (iterations 340-400: 22, 16, 19, 28, 17, 22, 22)
+  clearly and durably above the first half's typical 10-16 band, not just
+  a single spike. `value_loss` again plateaued around 0.12 for most of
+  the run before drifting back up to 0.148 by iteration 400 -- the same
+  late-run pattern as v4.1, and read the same way (harder, more
+  contested self-play games as the policy improves, not divergence),
+  since win rate held up at the same time rather than degrading.
+
+  A 4-way, 100-game round-robin between the four best late checkpoints
+  (iter_340, iter_370, iter_390, iter_400) again found a clean winner,
+  and again contradicted the in-training numbers: iter_370 had the
+  *highest* single eval score (28/60) but placed **third** in the
+  round-robin, while **iter_400 beat all three others in direct play**
+  (68-30 vs iter_340, 54-42 vs iter_370, 47-46-7 vs iter_390) for 56.3%
+  combined -- vs iter_390's 48.3%, iter_370's 44.0%, iter_340's 42.3%.
+  Same lesson as v2.2's iter_180 and v4.1's own round-robin: never
+  promote off the in-training number alone. Promoted `iter_400` as
+  `domibot_v4.2.pt`.
 
 ## What's still missing
 
