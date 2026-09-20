@@ -521,6 +521,50 @@ snapshots:
   promote off the in-training number alone. Promoted `iter_400` as
   `domibot_v4.2.pt`.
 
+  A qualitative look at `domibot_v4.2.pt`'s actual play (20 games vs
+  BigMoney on a fixed kingdom stocked with engine pieces, trashing, an
+  attack, and defense -- Village/Laboratory/Market/Festival/Smithy/
+  Council Room/Chapel/Witch/Militia/Moat) found a genuinely strong but
+  narrow strategy: Big Money + Witch, and *nothing* else. Zero buys of
+  any of the six engine pieces across all 20 games, and the
+  action-cards-played-per-turn histogram has exactly one bucket -- it
+  has never once played two action cards in the same turn. Chapel was
+  bought 8 times but played only 3, trashing just 1-2 cards each time
+  rather than the aggressive early-game trash-down that makes it strong.
+  Likely explanation: multi-step engine payoffs are a long-horizon
+  strategy that's hard for MCTS to stumble into via self-play unless the
+  search is regularly deep/wide enough to see the payoff several turns
+  out, whereas Big Money + Witch is a short, locally-greedy strategy
+  that's easy to reinforce. Worth checking again on a later checkpoint --
+  if it never starts chaining actions, that's a stronger signal of a
+  real ceiling than the loss curves alone.
+- **v4.3**: resumed from `domibot_v4.2.pt` for 200 more iterations
+  (401-600), same settings and another warm-restart LR cycle
+  (`--lr 1e-3 --lr-final-frac 0.1`). The usual post-restart dip appeared
+  (eval fell from 28/60 to a low of 21/60 by iteration 440) and fully
+  recovered, then went on to set a new run peak of **35/60 at iteration
+  490** -- clearing v4.2's best (28/60) by a real margin -- and settled
+  into a 27-33/60 band for the back half, clearly above v4.2's 22-28
+  band. Both loss curves improved alongside the eval number rather than
+  just cycling in place: `value_loss` bottomed at 0.086 (iteration 509,
+  the best of the whole v4.x lineage so far) before its usual late-cycle
+  climb back up to 0.135 by iteration 600 -- still below v4.1/v4.2's
+  ~0.15-0.18 plateau, i.e. the ceiling itself is dropping across legs,
+  not just cycling. `policy_loss` similarly settled a touch lower
+  (~0.57-0.59 vs the earlier ~0.60-0.65 floor).
+
+  A 4-way, 100-game round-robin between the four best late checkpoints
+  (iter_490, iter_530, iter_590, iter_600) was, for the first time, a
+  genuine toss-up -- all four landed within 47.7%-50.0%, essentially
+  indistinguishable at this sample size (contrast v4.1's and v4.2's
+  round-robins, where one checkpoint had a clear double-digit-point
+  lead). **iter_590 narrowly took the standings at 50.0%** with two
+  direct wins (56-43 vs iter_600, 51-46 vs iter_530) and a near-tie loss
+  to iter_490 (48-49). Promoted `iter_590` as `domibot_v4.3.pt` on that
+  basis, though given how close the standings were, this pick is weaker
+  evidence than the last two promotions -- any of the four would have
+  been a defensible choice.
+
 ## What's still missing
 
 Card-effect sub-decisions are now searched and learned (see `mcts.py`
