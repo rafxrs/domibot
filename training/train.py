@@ -32,7 +32,7 @@ import torch
 import torch.nn.functional as F
 
 from . import encoding
-from .agents import BigMoneyAgent, DomibotAgent
+from .agents import BigMoneyAgent, BigMoneyTerminalAgent, DomibotAgent
 from .evaluate import play_match
 from .network import DomibotNet, get_device
 from .self_play import DEFAULT_MAX_MOVES, ReplayBuffer, play_cross_play_games, play_self_play_games_batch
@@ -156,6 +156,10 @@ def main() -> None:
     parser.add_argument("--eval-every", type=int, default=5, help="iterations between eval checks")
     parser.add_argument("--eval-games", type=int, default=20, help="games per eval opponent (BigMoney and, if set, --reference-checkpoint)")
     parser.add_argument("--eval-simulations", type=int, default=100, help="MCTS simulations per move during eval")
+    parser.add_argument("--eval-bm-terminal", action="store_true",
+                         help="also eval against BigMoneyTerminalAgent (Big Money plus the best terminal Action the "
+                              "kingdom offers) -- a harder yardstick than plain BigMoney that still works on any "
+                              "random kingdom")
     parser.add_argument("--checkpoint", type=str, default=None, help="resume from this checkpoint file")
     parser.add_argument("--reference-checkpoint", type=str, default=None,
                          help="if set, also eval every --eval-every iterations against this fixed checkpoint "
@@ -309,6 +313,9 @@ def main() -> None:
             agent = DomibotAgent(network, num_simulations=args.eval_simulations, device=device)
             result = play_match(agent, BigMoneyAgent(), n_games=args.eval_games, seed=iteration)
             print(f"  eval vs BigMoney: {result['agent_a_wins']}/{result['games']} wins, {result['ties']} ties", flush=True)
+            if args.eval_bm_terminal:
+                bmt = play_match(agent, BigMoneyTerminalAgent(), n_games=args.eval_games, seed=iteration)
+                print(f"  eval vs BigMoney+terminal: {bmt['agent_a_wins']}/{bmt['games']} wins, {bmt['ties']} ties", flush=True)
             if reference_agent is not None:
                 ref_result = play_match(agent, reference_agent, n_games=args.eval_games, seed=iteration)
                 print(f"  eval vs {Path(args.reference_checkpoint).stem}: "

@@ -4,7 +4,7 @@ import numpy as np
 
 from domibot import Game, KINGDOM_CARDS
 from training import encoding
-from training.agents import BigMoneyAgent, RandomAgent
+from training.agents import BigMoneyAgent, BigMoneyTerminalAgent, RandomAgent
 from training.env import DominionEnv
 from training.evaluate import play_game, play_match
 
@@ -147,3 +147,25 @@ def test_no_source_card_encoded_at_a_plain_phase_action():
     assert game.pending_decision is None
     obs = encoding.encode_observation(game, 0)
     assert not obs[encoding.NUM_CARDS * 5:encoding.NUM_CARDS * 6].any()
+
+
+def test_big_money_terminal_agent_plays_legally_and_adapts_to_the_kingdom():
+    from domibot import Game
+    from training.evaluate import play_game
+
+    # no terminal on offer -> plain Big Money: never buys an Action card
+    plain = ["Village", "Market", "Festival", "Laboratory", "Chapel",
+             "Cellar", "Moat", "Workshop", "Gardens", "Remodel"]
+    game = play_game(BigMoneyTerminalAgent(), BigMoneyTerminalAgent(), plain, seed=3)
+    assert game.is_game_over()
+    for player in game.players:
+        assert not any(c in ("Witch", "Smithy", "Council Room", "Library", "Militia", "Bandit")
+                       for c in player.all_cards())
+
+    # with Smithy on offer it buys and plays it, and beats plain Big Money
+    smithy_kingdom = ["Smithy", "Village", "Market", "Festival", "Chapel",
+                      "Cellar", "Moat", "Workshop", "Gardens", "Remodel"]
+    result = play_match(BigMoneyTerminalAgent(), BigMoneyAgent(), n_games=40, seed=5)
+    assert result["agent_a_wins"] > result["agent_b_wins"]
+    game = play_game(BigMoneyTerminalAgent(), BigMoneyAgent(), smithy_kingdom, seed=7)
+    assert "Smithy" in game.players[0].all_cards()

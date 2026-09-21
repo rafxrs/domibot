@@ -565,6 +565,47 @@ snapshots:
   evidence than the last two promotions -- any of the four would have
   been a defensible choice.
 
+- **v4.4 (diagnostics, then `domibot_v4.4.pt`)**: v4.4 proper (601-800)
+  was paused at iteration ~645 after a strategy check found the network
+  *never plays two action cards in one turn* at `iter_640` (Big Money +
+  Witch only, no engine buys). Two cheap diagnostics followed, each
+  ~40 iterations resumed from `iter_640` under out-of-band iteration
+  numbers (so they can't collide with the real lineage's files):
+  1. `--action-bias 0.55` (up from 0.2): no change in behavior.
+  2. `--td-lambda 0.5 --opponent-pool-size 5 --opponent-pool-frac 0.3`
+     (new this pass, all off by default): `self_play._backfill_value_targets`
+     blends the true outcome with the network's own search-improved value
+     the next time the same decider acts, so a deferred-payoff card isn't
+     judged only by a game-final outcome dozens of turns later (and
+     truncated games stop being wasted); `play_cross_play_games` plays
+     30% of games against a frozen recent checkpoint, whose decisions
+     produce no examples. Multi-action turns still did not appear, but
+     playing strength jumped.
+
+  **Measured on random kingdoms (60 paired games, 100 sims):**
+  v4.1 20% vs BigMoney / 7% vs BigMoney+terminal; v4.3 48% / 38%;
+  **`iter_91040` 67% / 60%**. Promoted `iter_91040` as `domibot_v4.4.pt`.
+  `BigMoneyTerminalAgent` (Big Money plus the best terminal Action the
+  kingdom offers; needs no particular card) was added as the harder
+  yardstick, with `--eval-bm-terminal` to log it during training.
+
+  **Caveats, in the order they were discovered:** (a) my earlier claim
+  that v4.1 "never showed engine play" was wrong -- v4.1 (iter 200) does
+  chain actions (2-5 plays in 22 turns; Market/Village/Council Room buys)
+  but loses 1-19 to BigMoney doing so, and later checkpoints abandon it,
+  which supports "engines were found, then trained out because a
+  half-built engine loses to Big Money" over "engines can't be found".
+  (b) The fixed test kingdom contained Witch, one of the strongest Big
+  Money enablers, so abandoning engines there may be correct play. On a
+  Witch-free engine kingdom `iter_91040` goes 2-18 vs BigMoney (no action
+  buys, ~107 Duchies vs 50 Provinces -- it greens too early) and v4.1
+  0-20. (c) The 90% vs BigMoney seen on the Witch kingdom is not a
+  general strength number. The reduced `value_loss` (~0.02-0.03) under
+  TD targets is not comparable to earlier legs' (partly self-referential
+  targets). A fresh-network run with the same TD + pool settings
+  (`--start-iteration 92001`) is in progress to test whether the
+  resumed network's entrenchment was hiding an engine effect.
+
 ## What's still missing
 
 Card-effect sub-decisions are now searched and learned (see `mcts.py`

@@ -65,6 +65,63 @@ class BigMoneyAgent:
         return END_BUY
 
 
+# Best-first: the single terminal Action a Big Money deck is most helped by,
+# among whichever ones this kingdom actually offers. No kingdom is ever
+# required to contain any of them -- with none present the agent below
+# simply plays plain Big Money.
+TERMINAL_PRIORITY = ("Witch", "Smithy", "Council Room", "Library", "Militia", "Bandit")
+
+
+class BigMoneyTerminalAgent:
+    """Big Money plus the best terminal Action this kingdom happens to have
+    (`TERMINAL_PRIORITY`): a harder yardstick than `BigMoneyAgent` that
+    still adapts to whatever kingdom it's dealt instead of demanding a
+    specific card. Buys the first available terminal it can afford while
+    it owns few of them (one, or two once the deck has 16+ cards; a Witch
+    opening allows two), plays one whenever it holds one, and otherwise
+    follows Big Money -- with the standard late-game greening tweaks
+    (Duchy at <=5 Provinces left, Estate at <=2). Sub-decisions use the
+    shared `heuristic_reaction`, same as `BigMoneyAgent`."""
+
+    def act(self, game: Game) -> Action:
+        if game.pending_decision is not None:
+            return heuristic_reaction(game)
+        actions = game.legal_actions()
+        if game.phase == Phase.ACTION:
+            for card in TERMINAL_PRIORITY:
+                if Action("PLAY", card) in actions:
+                    return Action("PLAY", card)
+            return END_ACTIONS
+        return self._choose_buy(game, actions)
+
+    def _choose_buy(self, game: Game, actions: list[Action]) -> Action:
+        player = game.players[game.current_decider()]
+        coins = player.coins
+        provinces_left = game.supply.get("Province", 0)
+        owned = player.all_cards()
+
+        if coins >= 8 and Action("BUY", "Province") in actions:
+            return Action("BUY", "Province")
+        if provinces_left <= 5 and coins >= 5 and Action("BUY", "Duchy") in actions:
+            return Action("BUY", "Duchy")
+        if provinces_left <= 2 and 2 <= coins <= 4 and Action("BUY", "Estate") in actions:
+            return Action("BUY", "Estate")
+
+        terminals_owned = sum(owned.count(c) for c in TERMINAL_PRIORITY)
+        best = next((c for c in TERMINAL_PRIORITY if Action("BUY", c) in actions), None)
+        if best is not None:
+            cap = 2 if (best == "Witch" or len(owned) >= 16) else 1
+            # at 6+ coins Gold is normally better, except for a first terminal
+            if terminals_owned < cap and (coins <= 5 or terminals_owned == 0):
+                return Action("BUY", best)
+
+        if coins >= 6 and Action("BUY", "Gold") in actions:
+            return Action("BUY", "Gold")
+        if coins >= 3 and Action("BUY", "Silver") in actions:
+            return Action("BUY", "Silver")
+        return END_BUY
+
+
 class DomibotAgent:
     """A trained policy/value network driving MCTS at every decision --
     phase actions *and* card-effect sub-decisions alike (Chapel's trash
