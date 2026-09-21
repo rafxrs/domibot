@@ -35,7 +35,7 @@ from . import encoding
 from .agents import BigMoneyAgent, DomibotAgent
 from .evaluate import play_match
 from .network import DomibotNet, get_device
-from .self_play import DEFAULT_MAX_MOVES, ReplayBuffer, play_self_play_games_batch
+from .self_play import DEFAULT_MAX_MOVES, ReplayBuffer, play_cross_play_games, play_self_play_games_batch
 
 CHECKPOINT_DIR = Path(__file__).resolve().parent.parent / "checkpoints"
 
@@ -107,6 +107,36 @@ def main() -> None:
                               "evenly across the ensemble (at least 1 each), so a bigger value trades search depth "
                               "per world for world diversity at a fixed simulation budget. 1 (default) disables "
                               "this, identical to today's behavior. Does not apply to sub-decision searches yet.")
+    parser.add_argument("--td-lambda", type=float, default=0.0,
+                         help="blend weight toward a TD-bootstrapped value target instead of the full-game "
+                              "Monte-Carlo outcome (see self_play._backfill_value_targets): 0.0 (default) is "
+                              "today's behavior unchanged -- every value target is the true final-game outcome. "
+                              "> 0 blends in the network's own search-improved value estimate the next time (or "
+                              "--td-turns-ahead-th time) this decider gets to act, shortening the distance between "
+                              "a decision and its learning signal -- the fix for a card whose payoff is entirely "
+                              "deferred (e.g. Village) getting buried under a whole game's worth of noise. Also "
+                              "recovers value-learning signal from truncated (max_moves-capped) games, which "
+                              "otherwise contribute nothing. Higher values trust the network's own (possibly still "
+                              "noisy) value estimates more.")
+    parser.add_argument("--td-turns-ahead", type=int, default=1,
+                         help="how many of the deciding player's own future turns ahead to look for the "
+                              "TD-bootstrap target (only consulted when --td-lambda > 0). 1 (default) means 'the "
+                              "next time it's this decider's turn'; raise it if engine payoffs need more than one "
+                              "turn to compound.")
+    parser.add_argument("--opponent-pool-size", type=int, default=0,
+                         help="keep this many of the most recently saved checkpoints from *this run* (plus the "
+                              "--checkpoint resumed from, if any) as eligible opponents for --opponent-pool-frac "
+                              "of self-play games (see self_play.play_cross_play_games). 0 (default) disables "
+                              "this -- self-play is always the current network vs itself, as before. Exists "
+                              "because pure self-play optimizes toward 'beat the version of myself I'm currently "
+                              "playing against', which can make a partially-executed complex strategy look like a "
+                              "regression against the current population even when a well-executed version of it "
+                              "would win -- facing a genuinely different, historical strategy some of the time "
+                              "breaks that self-reinforcement.")
+    parser.add_argument("--opponent-pool-frac", type=float, default=0.0,
+                         help="fraction of --games-per-iter played as cross-play against a sampled opponent-pool "
+                              "checkpoint instead of pure self-play (only meaningful when --opponent-pool-size > "
+                              "0). Only the current network's own seat produces training examples in these games.")
     parser.add_argument("--train-steps-per-iter", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--buffer-capacity", type=int, default=200_000)
@@ -152,6 +182,8 @@ def main() -> None:
     print(f"games_per_iter: {args.games_per_iter}  |  train_steps_per_iter: {args.train_steps_per_iter}  |  "
           f"batch_size: {args.batch_size}  |  simulations: {args.simulations}  |  "
           f"lr: {args.lr} -> {args.lr * args.lr_final_frac:g}  |  value_loss_weight: {args.value_loss_weight}")
+    print(f"td_lambda: {args.td_lambda}  |  td_turns_ahead: {args.td_turns_ahead}  |  "
+          f"opponent_pool_size: {args.opponent_pool_size}  |  opponent_pool_frac: {args.opponent_pool_frac}")
 
     network = DomibotNet.load(args.checkpoint, map_location=device).to(device) if args.checkpoint else DomibotNet().to(device)
     if args.checkpoint:
@@ -187,6 +219,11 @@ def main() -> None:
 
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Opponent pool: checkpoints from *this run* only (plus the resume
+    # checkpoint, if any) -- never scans disk for older/unrelated lineages'
+    # saved files. Populated as iter_N.pt snapshots are saved below.
+    recent_checkpoint_paths: list[Path] = [Path(args.checkpoint)] if args.checkpoint else []
+
     end_iteration = args.start_iteration + args.iterations - 1
     for iteration in range(args.start_iteration, end_iteration + 1):
         network.eval()
@@ -194,14 +231,42 @@ def main() -> None:
             self_play_network.load_state_dict(network.state_dict())
             self_play_network.eval()
         t0 = time.time()
-        remaining = args.games_per_iter
         games_this_iter = truncated_this_iter = 0
+
+        pool_games = 0
+        opponent_network = None
+        if args.opponent_pool_size > 0 and args.opponent_pool_frac > 0 and recent_checkpoint_paths:
+            pool_games = round(args.games_per_iter * args.opponent_pool_frac)
+        if pool_games > 0:
+            opponent_path = rng.choice(recent_checkpoint_paths)
+            opponent_network = DomibotNet.load(opponent_path, map_location=self_play_device).to(self_play_device)
+            opponent_network.eval()
+
+        remaining = args.games_per_iter - pool_games
         while remaining > 0:
             chunk = min(args.parallel_games, remaining)
             games_examples = play_self_play_games_batch(
                 self_play_network, chunk, args.simulations, action_bias=args.action_bias,
                 max_moves=max_moves, min_sub_decision_cards=args.min_sub_decision_cards,
                 determinization_ensemble_size=args.determinization_ensemble_size,
+                td_lambda=args.td_lambda, td_turns_ahead=args.td_turns_ahead,
+                device=self_play_device, seed=rng.randrange(2**31),
+            )
+            for examples in games_examples:
+                buffer.add_game(examples)
+                games_this_iter += 1
+                if examples and not examples[0].value_known:
+                    truncated_this_iter += 1
+            remaining -= chunk
+
+        remaining = pool_games
+        while remaining > 0:
+            chunk = min(args.parallel_games, remaining)
+            games_examples = play_cross_play_games(
+                self_play_network, opponent_network, chunk, args.simulations, action_bias=args.action_bias,
+                max_moves=max_moves, min_sub_decision_cards=args.min_sub_decision_cards,
+                determinization_ensemble_size=args.determinization_ensemble_size,
+                td_lambda=args.td_lambda, td_turns_ahead=args.td_turns_ahead,
                 device=self_play_device, seed=rng.randrange(2**31),
             )
             for examples in games_examples:
@@ -233,6 +298,8 @@ def main() -> None:
         # Truncation rate is the one number that says whether the value
         # targets are real: a capped game has no outcome at all.
         msg += f"  truncated={truncated_this_iter}/{games_this_iter}"
+        if pool_games > 0:
+            msg += f"  pool_games={pool_games}({Path(opponent_path).stem})"
         if scheduler is not None:
             msg += f"  lr={optimizer.param_groups[0]['lr']:.2e}"
         print(msg, flush=True)
@@ -246,7 +313,11 @@ def main() -> None:
                 ref_result = play_match(agent, reference_agent, n_games=args.eval_games, seed=iteration)
                 print(f"  eval vs {Path(args.reference_checkpoint).stem}: "
                       f"{ref_result['agent_a_wins']}/{ref_result['games']} wins, {ref_result['ties']} ties", flush=True)
-            network.save(CHECKPOINT_DIR / f"iter_{iteration}.pt")
+            iter_path = CHECKPOINT_DIR / f"iter_{iteration}.pt"
+            network.save(iter_path)
+            if args.opponent_pool_size > 0:
+                recent_checkpoint_paths.append(iter_path)
+                del recent_checkpoint_paths[:-args.opponent_pool_size]
 
 
 if __name__ == "__main__":

@@ -446,12 +446,18 @@ def run_mcts(
 def merge_ensemble_roots(roots: list[MCTSNode]) -> MCTSNode:
     """Combines several ensemble members' root nodes (same `legal_actions`
     by construction -- see `redeal_hidden_info`) into one, by summing visit
-    counts into `roots[0]`. `visit_distribution`/`select_action` need
-    nothing else -- they only ever read `.N`/`.legal_actions`."""
+    counts (and backed-up values) into `roots[0]`. `visit_distribution`/
+    `select_action` only ever read `.N`/`.legal_actions`, but summing `.W`
+    too makes the merged root's own `sum(W)/sum(N)` a statistically valid
+    pooled value estimate across every world actually searched -- used by
+    `self_play.py`'s TD-bootstrap targets. Purely additive: nothing reads
+    `.W` off a merged root otherwise (no further simulations are ever run
+    against it), so this changes no existing behavior."""
     merged = roots[0]
     for other in roots[1:]:
         for a in merged.legal_actions:
             merged.N[a] += other.N[a]
+            merged.W[a] += other.W[a]
     return merged
 
 

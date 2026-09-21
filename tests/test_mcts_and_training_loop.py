@@ -1,3 +1,4 @@
+import random
 from collections import Counter
 
 import numpy as np
@@ -10,6 +11,7 @@ from training.evaluate import play_game
 from training.heuristics import heuristic_reaction
 from training.mcts import (
     materialize,
+    merge_ensemble_roots,
     redeal_hidden_info,
     run_mcts,
     run_mcts_batch,
@@ -23,7 +25,9 @@ from training.self_play import (
     Example,
     ReplayBuffer,
     SUB_DECISION_CARDS,
+    _backfill_value_targets,
     _sample_kingdom,
+    play_cross_play_games,
     play_self_play_game,
     play_self_play_games_batch,
 )
@@ -515,3 +519,138 @@ def test_play_self_play_games_batch_with_ensemble_completes_across_several_seeds
             seed=seed, max_moves=30, determinization_ensemble_size=3,
         )
         assert len(games_examples) == 2
+
+
+def _dummy_examples(deciders):
+    return [Example(obs=np.zeros(1), mask=np.zeros(1, dtype=bool), policy_target=np.zeros(1), decider=d)
+            for d in deciders]
+
+
+def test_merge_ensemble_roots_sums_W_and_N_across_members():
+    game = Game(_tiny_kingdom(), num_players=2, seed=2)
+    net = DomibotNet()
+    net.eval()
+    redealt = [redeal_hidden_info(game, from_player=game.current_decider(), rng=random.Random(i))
+               for i in range(3)]
+    roots = run_mcts_batch(redealt, net, num_simulations=6)
+    expected_N = {a: sum(r.N[a] for r in roots) for a in roots[0].legal_actions}
+    expected_W = {a: sum(r.W[a] for r in roots) for a in roots[0].legal_actions}
+    merged = merge_ensemble_roots(roots)
+    for a in merged.legal_actions:
+        assert merged.N[a] == expected_N[a]
+        assert abs(merged.W[a] - expected_W[a]) < 1e-9
+
+
+def test_backfill_value_targets_lambda_zero_matches_terminal_only():
+    # td_lambda=0.0 must reproduce the original terminal-only backfill byte
+    # for byte, regardless of what root_values/turn_numbers contain.
+    game = Game(_tiny_kingdom(), num_players=2, seed=0)
+    deciders = [0, 1, 0, 1]
+    examples = _dummy_examples(deciders)
+    root_values = [0.9, -0.9, 0.9, -0.9]  # must be entirely ignored at lambda=0
+    turn_numbers = [1, 1, 2, 2]
+    _backfill_value_targets(examples, root_values, turn_numbers, game, game_over=True, td_lambda=0.0)
+    for ex, d in zip(examples, deciders):
+        assert ex.value_known is True
+        assert abs(ex.value_target - terminal_value(game, d)) < 1e-9
+
+    truncated_examples = _dummy_examples([0, 1])
+    _backfill_value_targets(truncated_examples, [0.5, 0.5], [1, 1], game, game_over=False, td_lambda=0.0)
+    for ex in truncated_examples:
+        assert ex.value_known is False
+        assert ex.value_target == 0.0
+
+
+def test_backfill_value_targets_pure_bootstrap_uses_next_own_turn():
+    game = Game(_tiny_kingdom(), num_players=2, seed=0)
+    # decider 0 gets two decisions in its own turn 1 (indices 0, 2) before
+    # its turn 2 (index 4); decider 1 likewise (indices 1, 3, then 5).
+    deciders = [0, 1, 0, 1, 0, 1]
+    turn_numbers = [1, 1, 1, 1, 2, 2]
+    root_values = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
+    examples = _dummy_examples(deciders)
+    _backfill_value_targets(examples, root_values, turn_numbers, game, game_over=True,
+                             td_lambda=1.0, td_turns_ahead=1)
+    # Both of decider 0's turn-1 examples bootstrap from its turn-2 example (index 4).
+    assert abs(examples[0].value_target - 0.5) < 1e-9
+    assert abs(examples[2].value_target - 0.5) < 1e-9
+    # Both of decider 1's turn-1 examples bootstrap from its turn-2 example (index 5).
+    assert abs(examples[1].value_target - 0.6) < 1e-9
+    assert abs(examples[3].value_target - 0.6) < 1e-9
+    # The last recorded turn for each decider has no later same-decider turn
+    # to bootstrap from, so it falls back to the true terminal outcome.
+    assert examples[4].value_known is True
+    assert abs(examples[4].value_target - terminal_value(game, 0)) < 1e-9
+    assert examples[5].value_known is True
+    assert abs(examples[5].value_target - terminal_value(game, 1)) < 1e-9
+
+
+def test_backfill_value_targets_recovers_truncated_game_examples():
+    # The real point of td_lambda>0: a truncated game (game_over=False) used
+    # to waste every example's value signal. Now only the tail (no later
+    # same-decider turn recorded) should be unrecoverable.
+    game = Game(_tiny_kingdom(), num_players=2, seed=0)
+    deciders = [0, 0, 0]
+    turn_numbers = [1, 2, 3]
+    root_values = [0.1, 0.2, 0.3]
+    examples = _dummy_examples(deciders)
+    _backfill_value_targets(examples, root_values, turn_numbers, game, game_over=False, td_lambda=1.0)
+    assert examples[0].value_known is True
+    assert abs(examples[0].value_target - 0.2) < 1e-9
+    assert examples[1].value_known is True
+    assert abs(examples[1].value_target - 0.3) < 1e-9
+    assert examples[2].value_known is False
+    assert examples[2].value_target == 0.0
+
+
+def test_backfill_value_targets_blends_terminal_and_bootstrap():
+    game = Game(_tiny_kingdom(), num_players=2, seed=0)
+    turn_numbers = [1, 2]
+    root_values = [0.0, 0.8]
+    examples = _dummy_examples([0, 0])
+    _backfill_value_targets(examples, root_values, turn_numbers, game, game_over=True, td_lambda=0.5)
+    terminal = terminal_value(game, 0)
+    assert abs(examples[0].value_target - (0.5 * terminal + 0.5 * 0.8)) < 1e-9
+    assert examples[0].value_known is True
+
+
+def test_play_cross_play_games_only_current_seat_produces_examples():
+    net_a = DomibotNet()
+    net_a.eval()
+    net_b = DomibotNet()
+    net_b.eval()
+    seats_seen: set[int] = set()
+    for seed in range(8):
+        games_examples = play_cross_play_games(
+            net_a, net_b, num_games=2, num_simulations=6, kingdom=_tiny_kingdom(),
+            seed=seed, max_moves=30,
+        )
+        assert len(games_examples) == 2
+        for examples in games_examples:
+            assert len(examples) > 0
+            deciders = {ex.decider for ex in examples}
+            assert len(deciders) == 1  # only the assigned current_seat ever produces examples
+            seats_seen |= deciders
+            for ex in examples:
+                assert ex.obs.shape == (net_a.obs_dim,)
+                assert ex.mask.shape == (net_a.num_actions,)
+                assert abs(ex.policy_target.sum() - 1.0) < 1e-5
+                assert np.all(ex.policy_target[~ex.mask] == 0.0)
+                assert -1.0 <= ex.value_target <= 1.0
+    assert seats_seen == {0, 1}  # both seat assignments actually occurred
+
+
+def test_play_cross_play_games_with_td_lambda_and_ensemble_completes():
+    net_a = DomibotNet()
+    net_a.eval()
+    net_b = DomibotNet()
+    net_b.eval()
+    for seed in range(3):
+        games_examples = play_cross_play_games(
+            net_a, net_b, num_games=2, num_simulations=6, kingdom=_tiny_kingdom(),
+            seed=seed, max_moves=30, determinization_ensemble_size=2,
+            td_lambda=0.5, td_turns_ahead=1,
+        )
+        assert len(games_examples) == 2
+        for examples in games_examples:
+            assert len(examples) > 0
