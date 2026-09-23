@@ -234,7 +234,7 @@ git log / prior commit messages; this table is the durable summary.
 | v4.3 | +200 iters, warm-restart LR cycle | 35/60 peak |
 | v4.4 | `action_bias` x2.75 (no effect); TD-bootstrap + opponent pool | 67%/60% vs BigMoney/+terminal; still never chains actions |
 | (unpromoted) | same TD+pool recipe, fresh network from scratch | 35%/25%, still no chaining -- rules out entrenchment as the cause |
-| **domibot2_v1** | **new algorithm: PPO + GAE, no tree search** (see below) | **95-100% vs BigMoney on fixed kingdoms; real multi-action engine turns** |
+| **domibot2.1** | **new algorithm: PPO + GAE, no tree search** (see below) | **95-100% vs BigMoney on fixed kingdoms; real multi-action engine turns** |
 
 **The handful of decisions that actually mattered**, in order:
 1. **v1→v2**: `_apply_action_continuation_bias` tested at various
@@ -272,6 +272,13 @@ git log / prior commit messages; this table is the durable summary.
    to blame. Five separate conditions, one conclusion: this needed a
    different algorithm, not another patch.
 7. **domibot 2**: see below.
+
+**Naming, from domibot 2 on**: promoted checkpoints are `domibotN.M.pt`
+(`domibot2.1.pt`, `domibot2.2.pt`, ...) -- no `v`, no underscore,
+replacing the `domibot_vX.Y.pt` style the MCTS lineage used. Logs and
+checkpoints are also split by lineage: `logs/domibot1/` /
+`checkpoints/` (the `domibot_vX.Y.pt` files, `vX.Y_run/` snapshot
+folders) for MCTS, `logs/domibot2/` / `checkpoints/domibot2_run/` for PPO.
 
 ## domibot 2: PPO self-play
 
@@ -326,14 +333,14 @@ buried the more important difference: `iter_400` (the final checkpoint)
 chains actions far more than `iter_300` does (see below). Promoted
 `iter_400` on that basis instead, confirmed with a direct 60-game match
 against `domibot_v4.4.pt` (its real MCTS search, 100 sims, vs.
-`domibot2_v1.pt`'s raw policy, no search at all): **`domibot2_v1.pt` won
+`domibot2.1.pt`'s raw policy, no search at all): **`domibot2.1.pt` won
 30-28-2** -- a narrower margin than `iter_300` would have given (which
 beat `domibot_v4.4.pt` 33-26-1 in the same test), but still a real win,
 on the checkpoint that actually shows the behavior this project has been
 chasing.
 
 The result that mattered: on the fixed engine-rich kingdom used
-throughout this project's diagnostics, `domibot2_v1.pt` (raw policy, no
+throughout this project's diagnostics, `domibot2.1.pt` (raw policy, no
 search) goes 100% single-action on the Witch kingdom (**19-1 vs
 BigMoney**; Witch alone judged good enough there, the same call every
 strong MCTS checkpoint made) but on the same kingdom with Witch removed,

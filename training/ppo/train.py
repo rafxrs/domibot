@@ -193,7 +193,7 @@ def main() -> None:
         )
         update_time = time.time() - t0 - rollout_time
 
-        network.save(CHECKPOINT_DIR / "ppo_latest.pt")
+        network.save(CHECKPOINT_DIR / "domibot2_latest.pt")
         print(f"iter {iteration}/{end_iteration}  transitions={len(transitions)}  "
               f"rollout={rollout_time:.1f}s  update={update_time:.1f}s  "
               f"policy_loss={pl:.4f}  value_loss={vl:.4f}  entropy={ent:.4f}", flush=True)
@@ -210,7 +210,7 @@ def main() -> None:
                 ref_result = play_match(agent, reference_agent, n_games=args.eval_games, seed=iteration)
                 print(f"  eval vs {Path(args.eval_reference_checkpoint).stem}: "
                       f"{ref_result['agent_a_wins']}/{ref_result['games']} wins, {ref_result['ties']} ties", flush=True)
-            network.save(CHECKPOINT_DIR / f"ppo_iter_{iteration}.pt")
+            network.save(CHECKPOINT_DIR / f"domibot2_iter_{iteration}.pt")
 
 
 if __name__ == "__main__":
