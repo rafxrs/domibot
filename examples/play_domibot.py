@@ -2,8 +2,8 @@
 save every game's log.
 
     python examples/play_domibot.py --games 20 --players 2
-    python examples/play_domibot.py --games 10 --players 4 --checkpoint checkpoints/iter_140.pt --save-logs
-    python examples/play_domibot.py --games 10 --checkpoints checkpoints/iter_100.pt checkpoints/iter_140.pt
+    python examples/play_domibot.py --games 10 --players 4 --checkpoint checkpoints/domibot_v4.4.pt --save-logs
+    python examples/play_domibot.py --games 10 --checkpoints checkpoints/domibot_v4.3.pt checkpoints/domibot_v4.4.pt
 
 The last example loads a *different* checkpoint per seat (length must match
 --players) -- handy for checking whether a later checkpoint actually beats
