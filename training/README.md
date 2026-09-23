@@ -319,31 +319,32 @@ iteration, since there's no simulation budget to pay for at all. Eval vs
 `domibot_v4.4.pt` (via `DomibotAgent`, real MCTS search) climbed from
 2/20 to a peak of 17/20, settling in a noisy 9-17/20 band. A 4-way,
 100-game round-robin among the best late checkpoints (iter_300/320/380/
-400) found `iter_300` and `iter_320` essentially tied at the top
-(50.7%/49.7%, `iter_400` and `iter_380` behind at ~45%) -- the same
-"final checkpoint isn't always best" lesson every promotion in this
-project has needed a round-robin to catch. Promoted `iter_300` as
-`domibot2_v1.pt`, confirmed with a direct 60-game match against
-`domibot_v4.4.pt` (its actual MCTS search active, 100 sims, against
-`domibot2_v1.pt`'s raw policy, no search at all): **`domibot2_v1.pt`
-won 33-26-1 (55%)** -- a real, fair-fight win against the strongest
-checkpoint five prior MCTS conditions ever produced.
+400) found `iter_300` and `iter_320` on top by win rate (50.7%/49.7%,
+`iter_400` and `iter_380` behind at ~45%) -- but win rate among four
+checkpoints from a one-hour run isn't the actual goal here, and it
+buried the more important difference: `iter_400` (the final checkpoint)
+chains actions far more than `iter_300` does (see below). Promoted
+`iter_400` on that basis instead, confirmed with a direct 60-game match
+against `domibot_v4.4.pt` (its real MCTS search, 100 sims, vs.
+`domibot2_v1.pt`'s raw policy, no search at all): **`domibot2_v1.pt` won
+30-28-2** -- a narrower margin than `iter_300` would have given (which
+beat `domibot_v4.4.pt` 33-26-1 in the same test), but still a real win,
+on the checkpoint that actually shows the behavior this project has been
+chasing.
 
 The result that mattered: on the fixed engine-rich kingdom used
 throughout this project's diagnostics, `domibot2_v1.pt` (raw policy, no
-search) goes **20-0 vs BigMoney** with 17/254 turns (6.7%) multi-action
-(up to 3 plays), and **14-6** on the same kingdom with Witch removed,
-with 22/117 turns (18.8%) multi-action (up to 4 plays) -- genuine,
-non-trivial chaining on *both* kingdoms, something no MCTS checkpoint
-ever showed after `domibot_v4.2.pt`. A less-trained checkpoint from the
-same run (`iter_400`, which lost the round-robin) showed an even more
-pronounced version of the same thing: 100% single-action on the Witch
-kingdom (Witch alone judged good enough there) but 28% multi-action,
-up to 5 plays deep, buying Laboratory 26 times, on the Witch-free one --
-so the *degree* of chaining varies checkpoint to checkpoint (this is a
-one-hour, 400-iteration run, not a converged lineage), but real
-multi-action engine play showed up in multiple independent checkpoints
-from the very first real PPO run, not as a fluke.
+search) goes 100% single-action on the Witch kingdom (**19-1 vs
+BigMoney**; Witch alone judged good enough there, the same call every
+strong MCTS checkpoint made) but on the same kingdom with Witch removed,
+**20-0 vs BigMoney with 62/218 turns (28%) multi-action, up to 5 plays
+deep**, buying Laboratory 26 times and visibly chaining it into further
+plays -- something no MCTS checkpoint ever showed after `domibot_v4.2.pt`.
+`iter_300` shows the same pattern far more weakly (17/254 and 22/117
+turns respectively) -- real, but a fraction of `iter_400`'s, which is
+exactly why it's the better pick despite the lower win-rate-among-
+siblings: on the actual objective, `iter_400` is doing more of what
+matters, more clearly.
 
 **Not yet done**: Stage 2 (privileged critic), Stage 3 (opponent pool
 ported to PPO), Stage 4 (inference-time search for the relay tool);
