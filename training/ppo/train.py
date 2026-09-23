@@ -152,6 +152,13 @@ def main() -> None:
                          help="also eval against this checkpoint (e.g. checkpoints/domibot_v4.4.pt) via "
                               "agents.DomibotAgent, for a same-footing comparison against the MCTS lineage")
     parser.add_argument("--eval-reference-simulations", type=int, default=100)
+    parser.add_argument("--eval-reference-every", type=int, default=None,
+                         help="if set, only run --eval-reference-checkpoint's eval every this many iterations "
+                              "instead of every --eval-every (must be a multiple of --eval-every). The reference "
+                              "eval uses real MCTS search and is far slower than the search-free BigMoney/"
+                              "BigMoney+terminal evals (which still run every --eval-every) -- decoupling lets "
+                              "you monitor cheaply and validate against the real bar less often. Default: same "
+                              "cadence as --eval-every, i.e. no behavior change from leaving this unset.")
     parser.add_argument("--checkpoint", type=str, default=None, help="resume from this checkpoint file")
     parser.add_argument("--start-iteration", type=int, default=1)
     parser.add_argument("--seed", type=int, default=0)
@@ -221,7 +228,8 @@ def main() -> None:
             bmt_result = play_match(agent, BigMoneyTerminalAgent(), n_games=args.eval_games, seed=iteration)
             print(f"  eval vs BigMoney+terminal: {bmt_result['agent_a_wins']}/{bmt_result['games']} wins, "
                   f"{bmt_result['ties']} ties", flush=True)
-            if reference_agent is not None:
+            ref_every = args.eval_reference_every or args.eval_every
+            if reference_agent is not None and iteration % ref_every == 0:
                 ref_result = play_match(agent, reference_agent, n_games=args.eval_games, seed=iteration)
                 print(f"  eval vs {Path(args.eval_reference_checkpoint).stem}: "
                       f"{ref_result['agent_a_wins']}/{ref_result['games']} wins, {ref_result['ties']} ties", flush=True)
