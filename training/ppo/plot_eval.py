@@ -1,9 +1,17 @@
-"""Parse a domibot 2 (PPO) training log and plot eval win rates vs.
-iteration -- BigMoney, BigMoney+terminal, and (if present) a reference
+"""Parse one or more domibot 2 (PPO) training logs and plot eval win rates
+vs. iteration -- BigMoney, BigMoney+terminal, and (if present) a reference
 checkpoint, e.g. `domibot_v4.4.pt`.
 
     python -m training.ppo.plot_eval logs/domibot2/domibot2_stage1_run2.log
     python -m training.ppo.plot_eval logs/domibot2/domibot2_stage1_run2.log --out eval.png
+
+Pass multiple logs to see one continuous history across resumed runs
+(e.g. run1 = iterations 1-400, run2 resumed from run1's checkpoint =
+401-2400) -- each series is merged by label and sorted by iteration, so
+it reads as one training run even though it was launched in stages:
+
+    python -m training.ppo.plot_eval logs/domibot2/domibot2_stage1_run1.log \\
+        logs/domibot2/domibot2_stage1_run2.log
 
 Reads the exact lines `training/ppo/train.py` prints (see `main`'s
 `  eval vs ...:` prints): each eval block is preceded by an `iter N/M`
@@ -50,6 +58,26 @@ def parse_eval_log(path: str | Path) -> dict[str, tuple[list[int], list[float]]]
                 iters.append(current_iter)
                 rates.append(100.0 * wins / games)
     return series
+
+
+def merge_series(
+    per_file: list[dict[str, tuple[list[int], list[float]]]],
+) -> dict[str, tuple[list[int], list[float]]]:
+    """Combines several `parse_eval_log` results into one series per label
+    (concatenated in file order, then sorted by iteration) -- e.g. a run
+    resumed partway through from an earlier run's checkpoint, so the two
+    logs' iteration numbers are naturally contiguous but live in separate
+    files. A single-file input is a no-op pass-through."""
+    merged: dict[str, tuple[list[int], list[float]]] = {}
+    for series in per_file:
+        for label, (iters, rates) in series.items():
+            all_iters, all_rates = merged.setdefault(label, ([], []))
+            all_iters.extend(iters)
+            all_rates.extend(rates)
+    for label, (iters, rates) in merged.items():
+        order = sorted(range(len(iters)), key=lambda i: iters[i])
+        merged[label] = ([iters[i] for i in order], [rates[i] for i in order])
+    return merged
 
 
 def linear_trend(iters: list[int], rates: list[float]) -> tuple[float, float, float]:
@@ -99,17 +127,21 @@ def plot(series: dict[str, tuple[list[int], list[float]]], title: str, out: Path
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("log_file", help="a domibot2 training log, e.g. logs/domibot2/domibot2_stage1_run2.log")
+    parser.add_argument("log_files", nargs="+",
+                         help="one or more domibot2 training logs, e.g. logs/domibot2/domibot2_stage1_run1.log "
+                              "logs/domibot2/domibot2_stage1_run2.log -- multiple logs are merged into one "
+                              "continuous history per eval label, sorted by iteration")
     parser.add_argument("--out", type=str, default=None,
-                         help="output image path (default: <log_file stem>_eval.png next to the log)")
+                         help="output image path (default: <first log's stem>_eval.png, or "
+                              "combined_<stem1>+<stem2>+..._eval.png for multiple logs, next to the first log)")
     parser.add_argument("--no-trend", action="store_true",
                          help="skip the least-squares trendline (see linear_trend) overlaid on each series")
     args = parser.parse_args()
 
-    log_path = Path(args.log_file)
-    series = parse_eval_log(log_path)
+    log_paths = [Path(p) for p in args.log_files]
+    series = merge_series([parse_eval_log(p) for p in log_paths])
     if not series:
-        raise SystemExit(f"no 'eval vs ...' lines found in {log_path}")
+        raise SystemExit(f"no 'eval vs ...' lines found in {', '.join(str(p) for p in log_paths)}")
 
     for label, (iters, rates) in series.items():
         line = (f"{label}: {len(iters)} eval points, iter {iters[0]}-{iters[-1]}, "
@@ -119,8 +151,14 @@ def main() -> None:
             line += f"  |  trend: {slope * 100:+.2f} pp/100 iter, r2={r_squared:.2f}"
         print(line)
 
-    out = Path(args.out) if args.out else log_path.with_name(log_path.stem + "_eval.png")
-    plot(series, title=f"domibot2 eval win rate -- {log_path.name}", out=out, trend=not args.no_trend)
+    if args.out:
+        out = Path(args.out)
+    elif len(log_paths) == 1:
+        out = log_paths[0].with_name(log_paths[0].stem + "_eval.png")
+    else:
+        out = log_paths[0].with_name("combined_" + "+".join(p.stem for p in log_paths) + "_eval.png")
+    title = f"domibot2 eval win rate -- {'+'.join(p.name for p in log_paths)}"
+    plot(series, title=title, out=out, trend=not args.no_trend)
 
 
 if __name__ == "__main__":
