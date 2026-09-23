@@ -134,6 +134,12 @@ def main() -> None:
     parser.add_argument("--epochs-per-update", type=int, default=4, help="minibatch passes over each rollout batch")
     parser.add_argument("--minibatch-size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--lr-final-frac", type=float, default=1.0,
+                         help="cosine-decay the learning rate from --lr down to this fraction of it over the "
+                              "run's --iterations (1.0, the default, keeps the old flat-LR behavior -- see "
+                              "train.train.py's identical flag). On a resume the schedule restarts, so set "
+                              "--lr to wherever the previous run left off (or higher, for a deliberate warm "
+                              "restart) rather than expecting it to continue the curve.")
     parser.add_argument("--value-loss-weight", type=float, default=0.5)
     parser.add_argument("--entropy-coef", type=float, default=0.01,
                          help="entropy bonus weight -- PPO's exploration driver, replacing the MCTS lineage's "
@@ -156,13 +162,17 @@ def main() -> None:
     max_moves = args.max_moves if args.max_moves is not None else DEFAULT_MAX_MOVES
     print(f"device: {device}  |  max_moves: {max_moves}  |  min_sub_decision_cards: {args.min_sub_decision_cards}")
     print(f"games_per_iter: {args.games_per_iter}  |  epochs_per_update: {args.epochs_per_update}  |  "
-          f"minibatch_size: {args.minibatch_size}  |  lr: {args.lr}  |  gamma: {args.gamma}  |  "
-          f"gae_lambda: {args.gae_lambda}  |  clip_eps: {args.clip_eps}  |  entropy_coef: {args.entropy_coef}")
+          f"minibatch_size: {args.minibatch_size}  |  lr: {args.lr} -> {args.lr * args.lr_final_frac:g}  |  "
+          f"gamma: {args.gamma}  |  gae_lambda: {args.gae_lambda}  |  clip_eps: {args.clip_eps}  |  "
+          f"entropy_coef: {args.entropy_coef}")
 
     network = DomibotNet.load(args.checkpoint, map_location=device).to(device) if args.checkpoint else DomibotNet().to(device)
     if args.checkpoint:
         print(f"resumed from {args.checkpoint}")
     optimizer = torch.optim.Adam(network.parameters(), lr=args.lr)
+    scheduler = (torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=max(args.iterations, 1), eta_min=args.lr * args.lr_final_frac)
+        if args.lr_final_frac < 1.0 else None)
 
     reference_agent = None
     if args.eval_reference_checkpoint:
@@ -191,12 +201,17 @@ def main() -> None:
             clip_eps=args.clip_eps, epochs=args.epochs_per_update, minibatch_size=args.minibatch_size,
             value_loss_weight=args.value_loss_weight, entropy_coef=args.entropy_coef, grad_clip=args.grad_clip,
         )
+        if scheduler is not None:
+            scheduler.step()
         update_time = time.time() - t0 - rollout_time
 
         network.save(CHECKPOINT_DIR / "domibot2_latest.pt")
-        print(f"iter {iteration}/{end_iteration}  transitions={len(transitions)}  "
-              f"rollout={rollout_time:.1f}s  update={update_time:.1f}s  "
-              f"policy_loss={pl:.4f}  value_loss={vl:.4f}  entropy={ent:.4f}", flush=True)
+        msg = (f"iter {iteration}/{end_iteration}  transitions={len(transitions)}  "
+               f"rollout={rollout_time:.1f}s  update={update_time:.1f}s  "
+               f"policy_loss={pl:.4f}  value_loss={vl:.4f}  entropy={ent:.4f}")
+        if scheduler is not None:
+            msg += f"  lr={optimizer.param_groups[0]['lr']:.2e}"
+        print(msg, flush=True)
 
         if iteration % args.eval_every == 0:
             network.eval()
