@@ -606,6 +606,80 @@ snapshots:
   (`--start-iteration 92001`) is in progress to test whether the
   resumed network's entrenchment was hiding an engine effect.
 
+## domibot 2: PPO self-play
+
+The v4.4 entrenchment question was closed with a from-scratch,
+200-iteration run under identical TD+pool settings
+(`--start-iteration 92001`): still zero multi-action turns on either the
+Witch or Witch-free fixed kingdom, and its random-kingdom strength (35%
+vs BigMoney / 25% vs BigMoney+terminal) landed *below* plain-MC v4.3 (48%
+/ 38%) despite the better recipe -- TD-bootstrapping needs a reasonably
+competent value function to bootstrap *against*; it isn't a good way to
+train one from nothing. `domibot_v4.4.pt` remains the strongest
+checkpoint, confirmed by direct head-to-head against the rest of the
+lineage: beats v4.3 34-23-3, v4.2 42-18-0.
+
+That's five separate conditions now (plain MCTS self-play, `action_bias`
+raised 2.75x, TD-bootstrapped value targets, an opponent pool, and TD+pool
+from scratch) without ever producing durable engine play. The diagnosis:
+every value target in the MCTS pipeline is a Monte-Carlo return (or a
+short TD-bootstrap of one), and pure self-play only ever has to beat
+itself -- a half-built engine reliably loses to tuned Big Money, so
+nothing rewards crossing that valley to reach a well-executed one. Rather
+than keep patching the MCTS lineage, **domibot 2 is a PPO-based training
+algorithm**, built alongside (not replacing) `training/train.py` -- see
+the approved design plan for the full reasoning and staging. GAE fixes
+the credit-assignment problem structurally (dense, bootstrapped credit to
+every decision from a real value function, not just a 1-turn TD hop's
+reach) and needs no tree search at data-generation time at all.
+
+**What's reused unchanged**: the `domibot` engine, `training/encoding.py`
+(same `OBS_DIM`/`NUM_ACTIONS` vocab), `training/network.py`'s
+`DomibotNet` (a plain `(obs) -> (policy_logits, value)` residual MLP,
+nothing MCTS-specific about it -- PPO reuses the class as-is),
+`training/env.py`'s `DominionEnv` (already existed, already unused by the
+MCTS pipeline, and is exactly the Gym-shaped interface PPO needs -- it
+gained one small, backward-compatible addition, an optional `reward_fn`
+so `mcts.terminal_value`'s margin-based reward can be used instead of
+plain +1/-1/0), and `training/evaluate.py`/`training/agents.py` for
+eval, so every number is directly comparable to the MCTS lineage's.
+`training/mcts.py` stays too, repurposed as an *inference-only* search
+layer for the relay tool once a PPO checkpoint is strong enough (Stage
+4) -- since the network signature never changed, `DomibotAgent`/
+`run_mcts` can point at a PPO-trained network with zero code changes.
+
+**Stage 1 (core PPO loop) is implemented**, in a new `training/ppo/`
+subpackage:
+- `gae.py` -- `compute_gae` reuses the exact "extract this decider's own
+  ordered subsequence from the interleaved trajectory" pattern
+  `self_play._backfill_value_targets` proved out for TD-bootstrapping,
+  generalized to full GAE. A truncated episode's last transition
+  bootstraps from its own value estimate rather than being discarded, the
+  same "recover signal from a capped game" idea `td_lambda` introduced.
+- `rollout.py` -- `collect_rollouts` steps `N` `DominionEnv` instances
+  side by side, one batched network forward pass per round (the same
+  root-parallel idea as `run_mcts_batch`, minus the tree -- no
+  `boundary`/`path`/`materialize` needed anywhere, since PPO only ever
+  advances the one real game). Every decision, phase action and
+  sub-decision alike, produces one `Transition`.
+- `train.py` -- the PPO loop (clipped surrogate, value MSE, entropy
+  bonus, advantage normalization), CLI mirroring `training/train.py`'s
+  conventions, eval against `BigMoneyAgent`/`BigMoneyTerminalAgent` and
+  optionally a reference checkpoint (e.g. `domibot_v4.4.pt`) via the
+  existing `DomibotAgent`. Checkpoints land in `checkpoints/` as
+  `ppo_latest.pt` / `ppo_iter_N.pt`.
+
+7 new tests in `tests/test_ppo.py` (full suite: 158 passed). Verified
+with a real, if tiny, end-to-end smoke run (`--iterations 3
+--games-per-iter 8 --max-moves 40`) -- rollout, GAE, PPO update, eval,
+and checkpointing all completed without error. **Not yet done**: a real
+training run at a comparable compute budget to `domibot_v4.4.pt`, the
+fixed-kingdom multi-action-turn check, and the random-kingdom baseline
+comparison that would actually answer whether PPO solves the engine-
+building problem -- plus Stages 2-4 (privileged critic, opponent pool,
+inference-time search), each gated on Stage 1 producing a real result
+first.
+
 ## What's still missing
 
 Card-effect sub-decisions are now searched and learned (see `mcts.py`

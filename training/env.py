@@ -22,7 +22,7 @@ successive observation to whichever policy controls that seat.
 from __future__ import annotations
 
 import random
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -34,9 +34,17 @@ Observation = dict  # {"observation": np.ndarray[OBS_DIM], "action_mask": np.nda
 
 
 class DominionEnv:
-    def __init__(self, num_players: int = 2, max_steps: int = 100_000):
+    def __init__(self, num_players: int = 2, max_steps: int = 100_000,
+                 reward_fn: Optional[Callable[[Game, int], float]] = None):
+        """`reward_fn(game, player_idx)`, called only at a terminal step,
+        overrides the default +1/-1/0 win/loss/tie reward -- e.g. pass
+        `mcts.terminal_value` for a margin-based reward that still
+        distinguishes a nail-biter from a blowout, the way the MCTS
+        lineage's value targets already do. Leave unset for the original
+        behavior."""
         self.num_players = num_players
         self.max_steps = max_steps
+        self.reward_fn = reward_fn
         self.game: Optional[Game] = None
         self._steps = 0
 
@@ -72,9 +80,11 @@ class DominionEnv:
         return self._observe(), reward, terminated, truncated, info
 
     def _reward_for(self, player_idx: int) -> float:
-        """Sparse terminal reward from `player_idx`'s perspective: +1 win,
-        -1 loss, 0 tie. Reward is 0 on every non-terminal step; dense
-        shaping (e.g. victory-point deltas) can be layered on later."""
+        """Sparse terminal reward from `player_idx`'s perspective. Reward
+        is 0 on every non-terminal step regardless. Default: +1 win, -1
+        loss, 0 tie; overridden by `self.reward_fn` if set."""
+        if self.reward_fn is not None:
+            return self.reward_fn(self.game, player_idx)
         winners = self.game.winners()
         if len(winners) != 1:
             return 0.0
