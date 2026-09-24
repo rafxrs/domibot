@@ -228,6 +228,35 @@ by side sharing one batched forward pass per round -- no MCTS tree, so no
 value MSE, entropy bonus, advantage normalization). 7 tests in
 `tests/test_ppo.py`.
 
+**Running it**:
+
+```bash
+python -m training.ppo.train
+```
+
+Key flags (see `python -m training.ppo.train --help`): `--iterations`,
+`--games-per-iter`, `--lr`/`--lr-final-frac` (cosine LR decay),
+`--entropy-coef` (PPO's exploration driver, the closest analogue to MCTS's
+`--action-bias`), `--opponent-pool-size`/`--opponent-pool-frac`,
+`--eval-every`/`--eval-games`, `--eval-reference-checkpoint <path>` (a
+fixed MCTS checkpoint as a second eval opponent, via real search --
+`--eval-reference-every` lets it run less often than the cheap BigMoney
+evals, since it dominates wall-clock time otherwise), `--checkpoint <path>`
+to resume. Checkpoints land in `checkpoints/domibot2/` as
+`domibot2_latest.pt` plus a snapshot every eval.
+
+A longer run, resumed from the current strongest checkpoint and
+backgrounded with its output logged to a file:
+
+```bash
+python -m training.ppo.train \
+    --iterations 4000 --games-per-iter 64 \
+    --checkpoint checkpoints/domibot2/domibot2.1.pt \
+    --eval-every 20 --eval-games 20 \
+    --eval-reference-checkpoint checkpoints/domibot_v4.4.pt --eval-reference-every 100 \
+    > logs/domibot2/my_run.log 2>&1 &
+```
+
 **Training arc** (fresh network through 8000 iterations, all resumed
 continuations of the same lineage):
 - **1-400**: default hyperparameters. Completed in under an hour (~250x
