@@ -46,6 +46,19 @@ Python 3.10+. `train` pulls in `torch` (CPU build by default — see
   python -m training.train
   python -m training.ppo.train
   ```
+- A longer PPO run, resumed from the current strongest checkpoint and
+  backgrounded with its output logged to a file — the reference-checkpoint
+  eval uses real MCTS search and dominates wall-clock time, so
+  `--eval-reference-every` lets it run far less often than the cheap
+  BigMoney evals (see `training/README.md`'s PPO section):
+  ```bash
+  python -m training.ppo.train \
+      --iterations 4000 --games-per-iter 64 \
+      --checkpoint checkpoints/domibot2/domibot2.1.pt \
+      --eval-every 20 --eval-games 20 \
+      --eval-reference-checkpoint checkpoints/domibot_v4.4.pt --eval-reference-every 100 \
+      > logs/domibot2/my_run.log 2>&1 &
+  ```
 - Evaluate a checkpoint against the baseline agents:
   ```bash
   python -m training.evaluate 200
