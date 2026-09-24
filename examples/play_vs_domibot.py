@@ -5,6 +5,9 @@
     python examples/play_vs_domibot.py --gpu   # only if you're not also training right now
     python examples/play_vs_domibot.py --gui   # a pygame window instead of the text prompt
 
+Defaults to checkpoints/domibot2/domibot2.1.pt, the strongest checkpoint
+in the project (see training/README.md's checkpoint lineage table).
+
 Runs on CPU by default so it doesn't compete with a training run that may
 still be using the GPU. Domibot "thinks" (runs MCTS) for a moment before
 each of its play/buy decisions -- more --simulations means stronger but
@@ -28,7 +31,7 @@ from training.agents import DomibotAgent  # noqa: E402
 from training.network import DomibotNet, get_device  # noqa: E402
 
 GAME_LOGS_DIR = ROOT / "game_logs"
-DEFAULT_CHECKPOINT = ROOT / "checkpoints" / "latest.pt"
+DEFAULT_CHECKPOINT = ROOT / "checkpoints" / "domibot2" / "domibot2.1.pt"
 
 HUMAN = 0
 BOT = 1
