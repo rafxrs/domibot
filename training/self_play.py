@@ -47,7 +47,7 @@ from .mcts import (
 # harder the more of them are simultaneously in play.
 SUB_DECISION_CARDS = frozenset({
     "Cellar", "Chapel", "Harbinger", "Workshop", "Bureaucrat", "Militia",
-    "Moneylender", "Poacher", "Remodel", "Throne Room", "Bandit", "Library",
+    "Poacher", "Remodel", "Throne Room", "Bandit", "Library",
     "Mine", "Sentry", "Artisan",
 })
 

@@ -485,6 +485,16 @@ def _replay_full_state(
         if m:
             abbrev, card_text = m.groups()
             player = resolve(abbrev)
+            if last_played.get(player) == "Harbinger":
+                # Harbinger looks through its owner's own discard pile --
+                # already tracked exactly (discard is always public), so
+                # there's nothing here to learn from the line's text, which
+                # dominion.games often abbreviates as a mix of named cards
+                # and an anonymous "N other cards" count (not a real card
+                # name _parse_card_list can resolve). The subsequent topdeck
+                # (below) reads straight from the tracked discard instead of
+                # relying on anything parsed from this line.
+                continue
             # Library logs each drawn-and-examined card as a bare, unnamed
             # "looks at a card." (unlike Sentry/Bandit's named deck-top
             # reveals) -- the card itself is drawn from the deck, so it's
@@ -578,17 +588,30 @@ def _replay_full_state(
             harbinger_context = last_played.get(player) == "Harbinger"
             # Artisan's own second decision (put a card from *hand* onto
             # your deck) is rendered as an unnamed "topdecks a card" for
-            # the opponent, since hand contents are hidden -- unlike
-            # Harbinger's discard-sourced topdeck, which is always named
-            # because discard is public. Only the hand-sourced case can
-            # ever be unnamed, so only handle it there; a still-unnamed
-            # discard-sourced topdeck (unexpected) falls through to the
-            # named path below and safely aborts the replay instead of
-            # guessing which discarded card it was.
+            # the opponent, since hand contents are hidden. dominion.games
+            # renders Harbinger's own discard-sourced topdeck unnamed too,
+            # at least sometimes (seen for real) -- unlike Artisan's, this
+            # one *is* fully knowable, since the discard it came from is
+            # already tracked exactly, so rather than aborting the replay
+            # this just removes an arbitrary card from the tracked discard.
+            # Which specific one doesn't matter for anything this module
+            # computes (only zone *counts* feed reconstruct_game's by-
+            # elimination math), so this isn't the guess the module
+            # docstring otherwise avoids -- it's a don't-care.
             if not harbinger_context and _GENERIC_DRAW.match(card_text.strip()):
                 if player == my_full_name:
                     raise ValueError("your own Artisan topdeck was unnamed -- can't track exact hand from here")
                 opp.hand_size -= 1
+                continue
+            if harbinger_context and _GENERIC_DRAW.match(card_text.strip()):
+                if player == my_full_name:
+                    raise ValueError("your own Harbinger topdeck was unnamed -- can't track exact hand from here")
+                if not opp.discard:
+                    raise ValueError(
+                        "opponent's Harbinger topdeck was unnamed but their tracked discard is empty -- "
+                        "something drifted"
+                    )
+                opp.discard.pop()
                 continue
             for card in _parse_card_list(card_text):
                 from_reveal = _remove_one(pending_reveal[player], card)

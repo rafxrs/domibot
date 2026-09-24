@@ -185,13 +185,17 @@ MILITIA = Card("Militia", cost=4, types=ACTION_ATTACK, plus_coins=2, effect=mili
 
 # ----------------------------------------------------------- Moneylender ---
 def moneylender_effect(game, p):
+    # "Trash a Copper from your hand. If you do, +$3." -- no "may", so this
+    # is mandatory whenever a Copper is in hand (the "if you do" only makes
+    # the bonus conditional on a Copper actually being there to trash, not
+    # on choosing to; confirmed against real dominion.games play, which
+    # never prompts for this). Not a Decision at all, unlike Remodel/Mine's
+    # genuine choices -- there's nothing here for a player to decide.
     player = game.players[p]
     if "Copper" not in player.hand:
         return
-    do_it = yield from yes_no(p, "Moneylender: trash a Copper from your hand for +3 Coins?")
-    if do_it:
-        trash_from(game, "Copper", player.hand)
-        player.coins += 3
+    trash_from(game, "Copper", player.hand)
+    player.coins += 3
 
 
 MONEYLENDER = Card("Moneylender", cost=4, types=ACTION, effect=moneylender_effect)

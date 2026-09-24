@@ -241,6 +241,31 @@ def test_library_can_skip_action_cards():
     assert game.pending_decision is None
 
 
+# ----------------------------------------------------------- Moneylender
+def test_moneylender_trashes_copper_automatically_no_decision():
+    # "Trash a Copper from your hand. If you do, +$3." -- no "may", so this
+    # is mandatory whenever a Copper is in hand, not a choice (confirmed
+    # against real dominion.games play, which never prompts for it).
+    game = make_game(["Moneylender"], seed=16)
+    p = game.players[0]
+    p.hand = ["Moneylender", "Copper", "Copper", "Estate"]
+    play(game, Action("PLAY", "Moneylender"))
+    assert game.pending_decision is None  # no yes/no decision raised at all
+    assert p.hand.count("Copper") == 1  # exactly one trashed
+    assert "Copper" in game.trash
+    assert p.coins == 3
+
+
+def test_moneylender_no_op_without_a_copper():
+    game = make_game(["Moneylender"], seed=17)
+    p = game.players[0]
+    p.hand = ["Moneylender", "Estate", "Estate"]
+    play(game, Action("PLAY", "Moneylender"))
+    assert game.pending_decision is None
+    assert p.coins == 0
+    assert "Copper" not in game.trash
+
+
 # -------------------------------------------------------------- Merchant
 def test_merchant_bonus_on_first_silver_only():
     game = make_game(["Merchant"], seed=13)

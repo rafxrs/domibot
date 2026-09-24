@@ -1542,6 +1542,104 @@ def test_vassal_reveal_discard_does_not_decrement_opponent_hand_size():
     assert parsed.opp_hand_size == 4
 
 
+# Trimmed from a real dominion.games log the user pasted while hitting this
+# bug: an opponent Harbinger whose "looks at" line mixes a named card with
+# an anonymous "N other cards" count, and whose topdeck line is itself
+# unnamed -- both drawn from the discard pile, which is fully public and
+# already tracked exactly, so neither actually needs to be "guessed."
+HARBINGER_KINGDOM = ["Laboratory", "Library", "Sentry", "Witch", "Harbinger", "Workshop",
+                     "Remodel", "Council Room", "Cellar", "Chapel"]
+
+HARBINGER_LOG = """Game #183870834, rated.
+domibot_v1.4: 39.66
+vicki6071: 41.12
+Timer: Friendly
+Card Pool: level 2
+d starts with 3 Estates.
+d starts with 7 Coppers.
+v starts with 3 Estates.
+v starts with 7 Coppers.
+d shuffles their deck.
+v shuffles their deck.
+d draws 4 Coppers and an Estate.
+v draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Silver.
+d draws 3 Coppers and 2 Estates.
+Turn 1 - vicki6071
+v plays 4 Coppers. (+$4)
+v buys and gains a Silver.
+v draws 5 cards.
+Turn 2 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d shuffles their deck.
+d draws a Copper, 2 Silvers, and 2 Estates.
+Turn 2 - vicki6071
+v plays 3 Coppers. (+$3)
+v buys and gains a Silver.
+v shuffles their deck.
+v draws 5 cards.
+Turn 3 - domibot_v1.4
+d plays 2 Silvers and a Copper. (+$5)
+d buys and gains a Sentry.
+d draws 4 Coppers and an Estate.
+Turn 3 - vicki6071
+v plays 3 Coppers. (+$3)
+v buys and gains a Harbinger.
+v draws 5 cards.
+Turn 4 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Silver.
+d shuffles their deck.
+d draws 2 Coppers, 2 Silvers, and an Estate.
+Turn 4 - vicki6071
+v plays 2 Silvers and 2 Coppers. (+$6)
+v buys and gains a Sentry.
+v shuffles their deck.
+v draws 5 cards.
+Turn 5 - domibot_v1.4
+d plays 2 Silvers and 2 Coppers. (+$6)
+d buys and gains a Sentry.
+d draws 3 Coppers and 2 Estates.
+Turn 5 - vicki6071
+v plays a Silver and 4 Coppers. (+$6)
+v buys and gains a Gold.
+v draws 5 cards.
+Turn 6 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Harbinger.
+d shuffles their deck.
+d draws 2 Coppers, a Silver, an Estate, and a Sentry.
+Turn 6 - vicki6071
+v plays a Harbinger.
+v draws a card.
+v gets +1 Action.
+v looks at 5 other cards and a Gold.
+v topdecks a card.
+v plays a Silver and 2 Coppers. (+$4)
+v buys and gains a Silver.
+v shuffles their deck.
+v draws 5 cards.
+Turn 7 - domibot_v1.4"""
+
+
+def test_opponent_harbinger_with_anonymous_look_and_unnamed_topdeck_still_derives():
+    # Before the fix, "looks at 5 other cards and a Gold" failed to parse
+    # at all ("other cards" isn't a real card name), aborting the replay --
+    # even though Harbinger only ever looks through its owner's own
+    # discard, which is already tracked exactly and needs no parsing from
+    # the line's text. The subsequent unnamed "topdecks a card" is a
+    # genuine don't-care (nothing downstream needs to know *which* tracked
+    # discard card moved, only that discard's count went down by one).
+    parsed = parse_dominion_log(HARBINGER_LOG, my_name="domibot_v1.4", kingdom=HARBINGER_KINGDOM)
+    assert parsed.my_hand is not None
+    assert parsed.opp_hand_size is not None
+    assert parsed.opp_draw_pile_size is not None
+    assert parsed.opp_draw_pile_size >= 0
+
+
 def test_bureaucrat_reveals_hand_fallback_is_a_no_op():
     # Previously "L reveals their hand: 5 Coppers." matched the general
     # reveal regex and then blew up trying to parse "their hand: 5
