@@ -1,11 +1,8 @@
 # domibot
 
 A Dominion (base set) game engine, built as the foundational layer for later
-training self-play RL agents (AlphaZero-style: policy/value network + MCTS).
-Inspired by [pyminion](https://github.com/evanofslack/pyminion), but the API
-is shaped around the needs of a search/self-play loop rather than a
-human-playable CLI: at every point there is exactly one player who must make
-exactly one choice from an explicit list of legal actions.
+training self-play RL agents: at every point there is exactly one player who must make
+exactly one choice from an explicit list of legal actions. Play against domibot from the CLI or on a PyGame GUI.
 
 ## Setup
 
