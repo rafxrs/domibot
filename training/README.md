@@ -84,14 +84,14 @@ demand, which is deterministic because every random draw goes through
 
 | Checkpoint | What changed | Key measured result |
 |---|---|---|
-| v1.x | original network | 68% vs BigMoney; never chains actions |
+| v1.x | original network | ~68% vs BigMoney in its in-training eval; never chains actions |
 | v2.x | fresh net, action-continuation bias (nudges self-play toward chaining instead of ending the phase) from iter 1 — retrofitting it onto v1.4 had zero effect | v2.1 beat v1.4 71-27-2 with real multi-card engine turns; v2.2 beat v2.1 57-36-7 |
-| v3.x | sub-decisions searched via MCTS instead of a fixed heuristic (much harder decision space), curriculum kingdom sampling, then multi-determinization search to fix "strategy fusion" (each self-play search only explored the *one* hidden deal a game actually had) | 2% → 35% vs v2.2 over 7 versions; spams Militia (needs no sub-decision), avoids chaining |
+| v3.x | sub-decisions searched via MCTS instead of a fixed heuristic (much harder decision space), curriculum kingdom sampling, then multi-determinization search to fix "strategy fusion" (each self-play search only explored the *one* hidden deal a game actually had) | ~17% → 35% (28/80 games) vs v2.2 over 7 versions; spams Militia (needs no sub-decision), avoids chaining |
 | v4.1 | fresh net after an audit found 3 engine bugs (game-end timing, indistinguishable same-shape decisions, invisible mid-effect cards), plus LR decay | 11/60 vs BigMoney — a regime fix, not a power play |
 | v4.2-v4.3 | warm-restart LR cycles | 35/60 peak; v4.2 never plays two action cards in a turn |
-| v4.4 | `action_bias` x2.75 (no effect); TD-bootstrapped value targets + opponent pool | 67%/60% vs BigMoney/+terminal; still never chains |
-| (unpromoted) | same TD+pool recipe, fresh network | 35%/25%, still no chaining — rules out entrenchment as the cause |
-| **domibot2.1** | **Phase 2: PPO + GAE, no tree search** | **95-100% vs BigMoney on fixed kingdoms; real multi-action engine turns** |
+| v4.4 | `action_bias` x2.75 (no effect); TD-bootstrapped value targets + opponent pool | 40/60 vs BigMoney, 36/60 vs BigMoney+terminal; still never chains |
+| (unpromoted) | same TD+pool recipe, fresh network | 21–36–3 vs BigMoney, 15–44–1 vs +terminal (60 games each); still no chaining — rules out entrenchment as the cause |
+| **domibot2.1** | **Phase 2: PPO + GAE, no tree search** | **351–43–6 vs BigMoney (400 games), 159–36–5 vs v4.4 (200 games); real multi-action engine turns** |
 
 **Why it failed.** It plateaued at Big Money + Witch: from v4.2 on, the
 question wasn't win rate but whether it ever discovers multi-step strategy,
@@ -166,28 +166,47 @@ python -m training.ppo.train \
 ```
 
 `python -m training.ppo.plot_eval logs/domibot2/my_run.log` graphs eval win
-rate vs iteration with linear trendlines (pass several logs to merge a
-resumed run into one history; needs `pip install -e ".[plot]"`).
+rate vs iteration (needs `pip install -e ".[plot]"`). Pass several logs to
+merge a resumed run into one history; `--smooth N` plots a rolling mean,
+`--vline ITER:LABEL` marks an event. `docs/training_curve.png` is:
+
+```bash
+python -m training.ppo.plot_eval logs/domibot2/domibot2_stage1_run{1,2,3,3b}.log \
+    logs/domibot2/domibot2_stage3_pool_run1.log --no-trend --smooth 10 \
+    --vline "2400:warm restart (LR decay, entropy up)" --vline "4400:opponent pool" \
+    --title "domibot2 (PPO) eval win rate, fresh network -> domibot2.1 (20-game evals, rolling mean of 10)" \
+    --out docs/training_curve.png
+```
 
 **Training arc** (fresh network through 8000 iterations; promoted
 checkpoints are named `domibotN.M.pt`, with logs/checkpoints under
-`logs/domibot2/` and `checkpoints/domibot2/`):
+`logs/domibot2/` and `checkpoints/domibot2/`). In-training evals are 20
+games each, so single points are noisy (±~20pp); the curve below is a
+rolling mean.
+
+![Training curve](../docs/training_curve.png)
+
 - **1-400**: default hyperparameters, under an hour. `iter_400` chains
-  actions on 28% of turns on a Witch-free engine-rich test kingdom (up to
-  5 plays deep) — something no MCTS checkpoint ever showed — and beat
-  `domibot_v4.4.pt` 30-28-2 head to head.
+  actions on 62/218 turns (28%) on a Witch-free engine-rich test kingdom
+  (up to 5 plays deep) — something no MCTS checkpoint ever showed — and
+  beat `domibot_v4.4.pt` 30–28–2 over 60 games.
 - **401-4400**: plateaued by 2400 (flat win-rate trend, entropy decaying).
   A warm restart (LR decay + `entropy_coef` 0.01→0.03) broadened chaining
-  specifically where it was weakest (Witch kingdom: 7%→20%). Final eval:
-  85%/75%/80% vs BigMoney/BigMoney+terminal/`domibot_v4.4.pt`.
+  specifically where it was weakest (Witch kingdom: 7% → 20% of turns,
+  40/198). Final eval: 17/20, 15/20, 16/20 games vs BigMoney,
+  BigMoney+terminal, `domibot_v4.4.pt`.
 - **4401-8000**: an opponent pool (30% of games vs. a frozen recent
   checkpoint) was a wash — chaining moved in opposite directions on the two
-  test kingdoms (20%→13% / 24%→28%), likely because the pool's snapshots
-  were too recent to add real diversity. Final eval: 100%/65%/80%.
+  test kingdoms (Witch: 20% → 13%, 32/244 turns; Witch-free: 24% → 28%,
+  58/209), likely because the pool's snapshots were too recent to add real
+  diversity. Final eval: 20/20, 13/20, 16/20.
 
 `iter_8000` is promoted as **`domibot2.1.pt`**, the current strongest
 checkpoint (superseding an earlier interim promotion of `iter_400` under
-the same name).
+the same name). A larger post-hoc eval (raw policy, no search, paired random
+kingdoms): 351–43–6 vs BigMoney and 286–103–11 vs BigMoney+terminal over
+400 games each, and 159–36–5 vs `domibot_v4.4.pt` (100-sim MCTS) over 200. Download it from the
+[Releases page](https://github.com/rafxrs/domibot/releases).
 
 **Playing against / evaluating it**:
 

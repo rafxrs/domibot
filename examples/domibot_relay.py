@@ -397,7 +397,7 @@ def main() -> None:
         return
 
     if not Path(args.checkpoint).exists():
-        raise SystemExit(f"no checkpoint at {args.checkpoint}")
+        raise SystemExit(f"no checkpoint at {args.checkpoint} -- download domibot2.1.pt from https://github.com/rafxrs/domibot/releases into checkpoints/domibot2/ (see README Setup), or train your own")
 
     device = get_device() if args.gpu else torch.device("cpu")
     network = DomibotNet.load(args.checkpoint, map_location=device).to(device)

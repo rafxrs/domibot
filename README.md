@@ -4,6 +4,30 @@ A Dominion (base set) game engine, built as the foundational layer for later
 training self-play RL agents: at every point there is exactly one player who must make
 exactly one choice from an explicit list of legal actions. Play against domibot from the CLI or on a PyGame GUI.
 
+![Domibot GUI demo](docs/gui_demo.gif)
+
+*The pygame GUI, recorded headlessly: a scripted Big Money player in the
+human seat vs. Domibot. Its turn log (right) shows engine turns like
+Laboratory → Laboratory → Militia.*
+
+## Results
+
+`domibot2.1`, a PPO-trained policy playing with no search, on random
+10-card kingdoms (each kingdom played twice with seats swapped):
+
+- **vs Big Money** (the standard Dominion baseline): 351–43–6 (W–L–T) over
+  400 games, 88.5% (95% CI 85–91%)
+- **vs Big Money + the kingdom's best terminal Action**: 286–103–11 over
+  400 games, 72.9% (95% CI 68–77%)
+- **vs `domibot_v4.4`** (the best AlphaZero-style checkpoint, running
+  100-simulation MCTS at every move): 159–36–5 over 200 games, 80.8%
+  (95% CI 75–86%), with no search of its own
+
+Unlike the MCTS approach it replaced, it learns multi-card engine turns.
+See [training/README.md](training/README.md) for how it got here.
+
+![Training curve](docs/training_curve.png)
+
 ## Setup
 
 ```bash
@@ -15,6 +39,15 @@ pip install -e ".[dev,train,gui]"
 Python 3.10+. `train` pulls in `torch` (CPU build by default — see
 `training/README.md`'s GPU section to install a CUDA build instead);
 `gui` pulls in `pygame`. Drop either extra you don't need.
+
+The trained model isn't in git (`checkpoints/` is gitignored). Download
+`domibot2.1.pt` from the [Releases page](https://github.com/rafxrs/domibot/releases)
+into `checkpoints/domibot2/`, where every script looks for it by default:
+
+```bash
+mkdir -p checkpoints/domibot2
+curl -L -o checkpoints/domibot2/domibot2.1.pt https://github.com/rafxrs/domibot/releases/download/domibot2.1/domibot2.1.pt
+```
 
 ## Play
 

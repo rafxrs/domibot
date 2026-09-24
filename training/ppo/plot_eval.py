@@ -98,14 +98,27 @@ def linear_trend(iters: list[int], rates: list[float]) -> tuple[float, float, fl
     return float(slope), float(intercept), r_squared
 
 
-def plot(series: dict[str, tuple[list[int], list[float]]], title: str, out: Path, trend: bool = True) -> None:
+def rolling_mean(iters: list[int], rates: list[float], window: int) -> tuple[list[int], list[float]]:
+    """Trailing mean over the last `window` eval points, plotted at the
+    last point's iteration."""
+    y = np.convolve(np.asarray(rates, dtype=np.float64), np.ones(window) / window, mode="valid")
+    return iters[window - 1:], y.tolist()
+
+
+def plot(series: dict[str, tuple[list[int], list[float]]], title: str, out: Path, trend: bool = True,
+         smooth: int = 1, vlines: list[tuple[int, str]] | None = None) -> None:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(10, 6))
     for label, (iters, rates) in series.items():
-        line, = ax.plot(iters, rates, marker="o", markersize=3, linewidth=1.2, alpha=0.55, label=label)
+        if smooth > 1 and len(iters) >= smooth:
+            raw, = ax.plot(iters, rates, linewidth=0.8, alpha=0.2)
+            sx, sy = rolling_mean(iters, rates, smooth)
+            line, = ax.plot(sx, sy, linewidth=2.2, color=raw.get_color(), label=f"vs {label}")
+        else:
+            line, = ax.plot(iters, rates, marker="o", markersize=3, linewidth=1.2, alpha=0.55, label=f"vs {label}")
         if trend and len(iters) >= 2:
             slope, intercept, r_squared = linear_trend(iters, rates)
             x_fit = [iters[0], iters[-1]]
@@ -113,12 +126,16 @@ def plot(series: dict[str, tuple[list[int], list[float]]], title: str, out: Path
             ax.plot(x_fit, y_fit, linewidth=2.2, color=line.get_color(),
                      label=f"{label} trend ({slope * 100:+.2f}%/100 iter, r2={r_squared:.2f})")
 
+    for x, text in vlines or []:
+        ax.axvline(x, color="black", linewidth=0.8, linestyle=":", alpha=0.7)
+        ax.text(x, 3, f" {text}", rotation=90, va="bottom", fontsize=9, alpha=0.8)
+
     ax.set_xlabel("iteration")
     ax.set_ylabel("win rate (%)")
     ax.set_ylim(-2, 102)
     ax.axhline(50, color="gray", linewidth=0.8, linestyle="--", alpha=0.6)
     ax.set_title(title)
-    ax.legend()
+    ax.legend(loc="lower right")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(out, dpi=150)
@@ -136,7 +153,15 @@ def main() -> None:
                               "combined_<stem1>+<stem2>+..._eval.png for multiple logs, next to the first log)")
     parser.add_argument("--no-trend", action="store_true",
                          help="skip the least-squares trendline (see linear_trend) overlaid on each series")
+    parser.add_argument("--smooth", type=int, default=1,
+                         help="plot a trailing mean over this many eval points, with the raw series faint "
+                              "behind it (1, the default, plots raw points only)")
+    parser.add_argument("--vline", action="append", default=[], metavar="ITER:LABEL",
+                         help="mark an iteration with a labeled vertical line, e.g. '2400:warm restart' "
+                              "(repeatable)")
+    parser.add_argument("--title", type=str, default=None)
     args = parser.parse_args()
+    vlines = [(int(v.split(":", 1)[0]), v.split(":", 1)[1] if ":" in v else "") for v in args.vline]
 
     log_paths = [Path(p) for p in args.log_files]
     series = merge_series([parse_eval_log(p) for p in log_paths])
@@ -157,8 +182,8 @@ def main() -> None:
         out = log_paths[0].with_name(log_paths[0].stem + "_eval.png")
     else:
         out = log_paths[0].with_name("combined_" + "+".join(p.stem for p in log_paths) + "_eval.png")
-    title = f"domibot2 eval win rate -- {'+'.join(p.name for p in log_paths)}"
-    plot(series, title=title, out=out, trend=not args.no_trend)
+    title = args.title or f"domibot2 eval win rate -- {'+'.join(p.name for p in log_paths)}"
+    plot(series, title=title, out=out, trend=not args.no_trend, smooth=args.smooth, vlines=vlines)
 
 
 if __name__ == "__main__":

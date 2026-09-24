@@ -77,7 +77,7 @@ def main() -> None:
         raise SystemExit(f"--checkpoints has {len(checkpoint_paths)} entries but --players is {args.players}")
     for path in checkpoint_paths:
         if not Path(path).exists():
-            raise SystemExit(f"no checkpoint at {path} -- has training saved one yet?")
+            raise SystemExit(f"no checkpoint at {path} -- download domibot2.1.pt from https://github.com/rafxrs/domibot/releases into checkpoints/domibot2/ (see README Setup), or train your own")
 
     device = get_device() if args.gpu else torch.device("cpu")
     agents = load_agents(checkpoint_paths, args.simulations, args.temperature, device)
