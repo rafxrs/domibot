@@ -4,7 +4,7 @@ decisions (what to play, what to buy) this tells you what Domibot would do,
 using only what's actually visible to a player at the table.
 
     python examples/domibot_relay.py
-    python examples/domibot_relay.py --checkpoint checkpoints/domibot_v1.4.pt --simulations 400
+    python examples/domibot_relay.py --checkpoint checkpoints/domibot_v4.4.pt --simulations 400
 
 This never touches the real game for you -- you type in what's on screen,
 it prints a recommendation, you click the move yourself. See training/relay.py
@@ -59,7 +59,7 @@ name, e.g. 'POA' for Poacher or 'CR' for Council Room -- run with
 --list-abbreviations to see the full table (also printed at startup). The
 kingdom itself also doesn't need commas between entries.
 
-Your account name defaults to 'domibot_v1.4' (override with
+Your account name defaults to 'domibot2.1' (override with
 --account-name) -- it's just whatever your dominion.games username is,
 unrelated to which checkpoint --checkpoint points at. If the pasted log
 has no "name: rating" header at all (e.g. a trimmed practice-game log),
@@ -71,6 +71,16 @@ straight to the Buy phase (treasures auto-played) rather than making you
 click "end actions" -- this does the same, silently, so the recommendation
 you get is always the useful one (what to buy), not "end your action
 phase" (something you'd never actually see asked on the real site).
+
+Defaults to the strongest checkpoint in the project, `domibot2.1.pt`
+(domibot 2's PPO lineage -- see training/README.md). This still works
+via MCTS search (`training/mcts.py`'s `run_mcts`) exactly as it did for
+the MCTS lineage's checkpoints, even though domibot 2 itself never
+searches during training: the network's `(obs) -> (policy_logits,
+value)` interface never changed, so search-at-inference-time on top of a
+PPO-trained network is just an unrelated, orthogonal choice -- and search
+should still help here the same way it always has, refining the policy's
+own recommendation with lookahead instead of taking it greedily.
 """
 from __future__ import annotations
 
@@ -97,7 +107,7 @@ from training.relay import (  # noqa: E402
     resolve_card_name,
 )
 
-DEFAULT_CHECKPOINT = ROOT / "checkpoints" / "latest.pt"
+DEFAULT_CHECKPOINT = ROOT / "checkpoints" / "domibot2" / "domibot2.1.pt"
 
 
 _LEADING_COUNT = re.compile(r"^(\d+)x?$", re.IGNORECASE)
@@ -377,7 +387,7 @@ def main() -> None:
                                                                        "speed pressure here, so it's fine to go higher than training's default)")
     parser.add_argument("--gpu", action="store_true", help="use CUDA if available")
     parser.add_argument("--list-abbreviations", action="store_true", help="print the kingdom card short codes and exit")
-    parser.add_argument("--account-name", type=str, default="domibot_v1.4",
+    parser.add_argument("--account-name", type=str, default="domibot2.1",
                          help="your account name as it appears in a pasted log -- unrelated to which "
                               "checkpoint is giving advice, just whatever your dominion.games username is")
     args = parser.parse_args()
