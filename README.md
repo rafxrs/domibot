@@ -44,42 +44,24 @@ gitignored since its contents are generated, not source.
 
 ## Design: decisions as a generator, actions as a flat, typed choice
 
-Dominion's rules text is full of nested, variable-length choices ("trash up
-to 4 cards", "each opponent discards down to 3", "play an Action card
-twice"). Modeling that with a hand-written state machine per phase gets
-unwieldy fast. Instead, every card effect that needs player input is a
-Python generator:
+Every card effect that needs player input is a Python generator; `Game`
+drives whichever one is currently suspended (`legal_actions()` returns the
+pending `Decision`'s options, `step(action)` resumes it via
+`generator.send`). Sub-effects (Throne Room, Vassal replaying a card)
+compose with plain `yield from`; `attack_each_opponent` walks opponents in
+turn order and inserts Moat's block-or-not automatically.
 
-```python
-def chapel_effect(game, player_idx):
-    ...
-    to_trash = yield from choose_cards(game, player_idx, player.hand, "TRASH", ...)
-    for c in to_trash:
-        trash_from(game, c, player.hand)
-```
+Variable-length selections (Cellar/Chapel/Militia/Sentry's trash/discard
+steps) are a *sequence* of single-card-or-DONE decisions, not one
+combinatorial "choose a subset" decision — keeps the legal-action count
+bounded by hand size instead of 2^hand_size.
 
-`Game` drives whichever generator is currently suspended: `legal_actions()`
-returns the options attached to the pending `Decision`, and `step(action)`
-resumes the generator with that choice (`generator.send(action)`), which
-runs until the next `yield` or until the effect finishes. Cards with
-sub-effects (Throne Room, Vassal replaying a discarded Action) compose with
-plain `yield from` on another card's effect. Attacks share one helper,
-`attack_each_opponent`, that walks opponents in turn order and inserts the
-Moat "reveal to block?" decision automatically.
-
-This keeps the action space small and uniform for a future policy network:
-variable-length selections (Cellar, Chapel, Militia, Sentry's trash/discard
-steps) are modeled as a *sequence* of single-card-or-DONE decisions rather
-than one combinatorial "choose a subset" decision, so the legal-action count
-at any single step is bounded by hand size, not by 2^hand_size.
-
-`Action` is a flat `(verb, card_or_None)` pair (e.g. `PLAY(Village)`,
-`BUY(Silver)`, `TRASH(Copper)`, `DONE`) — hashable and directly usable as a
-policy-network output token. `Decision.kind` (`PHASE_ACTION` / `SELECT_CARD`
-/ `YES_NO` / `REACT`) gives a future encoder context for *why* a given verb
-is legal, since e.g. `YES`/`NO` is reused across several unrelated card
-effects (Moneylender's optional trash, Library's draw-or-skip, Vassal's
-play-or-not).
+`Action` is a flat `(verb, card_or_None)` pair (`PLAY(Village)`,
+`BUY(Silver)`, `TRASH(Copper)`, `DONE`) — hashable, usable directly as a
+policy-network output token. `Decision.kind` (`PHASE_ACTION` /
+`SELECT_CARD` / `YES_NO` / `REACT`) gives an encoder context for *why* a
+verb is legal, since e.g. `YES`/`NO` is reused across unrelated effects
+(Library's draw-or-skip, Vassal's play-or-not).
 
 ## Layout
 
@@ -118,13 +100,8 @@ pygame front-end, launched via `examples/play_vs_domibot.py --gui`;
 the engine: a fixed-size observation/action encoding, a Gym-shaped
 `DominionEnv`, baseline agents (`RandomAgent`, `BigMoneyAgent`), and
 **Domibot** — a policy/value network (PyTorch, GPU-ready) trained via
-AlphaZero-style MCTS self-play (`training/mcts.py`, `training/self_play.py`,
-`training/train.py`). `python -m training.train` runs the self-play loop;
-`python -m training.evaluate` and `training.agents.DomibotAgent` let you
-measure it against the baselines. See `training/README.md` for the full
-picture, including how MCTS searches and learns card-effect sub-decisions
-(Chapel's trashes, Militia's forced discard, ...) uniformly alongside
-play/buy decisions, not just the play/buy decisions themselves.
+MCTS self-play (`training/train.py`) or PPO (`training/ppo/train.py`). See
+`training/README.md` for the full picture.
 
 ## What's not here yet (next layers)
 

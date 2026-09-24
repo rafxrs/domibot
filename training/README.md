@@ -7,35 +7,23 @@ trained against, and this folder is where that opinion lives.
 ## What's here
 
 - **`encoding.py`** — the fixed vocabularies everything else is built on:
-  - `CARD_NAMES` (33) / `CARD_INDEX` — every base + kingdom card, sorted.
-  - `ACTION_VOCAB` (206) / `ACTION_INDEX` — every `Action` any card effect
-    can ever produce (6 card-targeted verbs x 33 cards, plus 8 verb-only
-    actions). `Game.legal_actions()` is always a subset of this.
-  - `encode_observation(game, player_idx)` — a fixed-size (350,) float32
-    vector from one player's point of view. Respects hidden information:
-    your own hand/deck is fully known, opponents only expose what's
-    actually public in Dominion (discard pile, play area, hand/deck
-    *sizes* — never hand or deck *contents*).
-  - `legal_action_mask(game)` — boolean mask over `ACTION_VOCAB`.
-- **`env.py`** — `DominionEnv`, a Gym-shaped (`reset`/`step`) wrapper around
-  `Game` using the standard masked-discrete-action pattern (fixed action
-  space + an `action_mask` every observation carries, since which actions
-  are legal changes constantly). Turn-based multi-agent: each `step` acts
-  for whoever `Game.current_decider()` currently is, and returns the next
-  observation from *that* player's perspective — a self-play loop just
-  routes each observation to whichever policy controls that seat. Reward is
-  sparse: 0 until the game ends, then +1/-1/0 (win/loss/tie) from the
-  perspective of whoever just moved.
-- **`agents.py`** — the `Agent` protocol (`act(game) -> Action`) plus two
-  baselines that operate directly on `Game` (no encoding needed — that's
-  only for a network-based policy): `RandomAgent`, and `BigMoneyAgent` (buys
-  Treasures/Victory on a fixed priority, never buys Action cards, and falls
-  back to simple defaults for any reactive decision an opponent's attack
-  forces on it).
-- **`evaluate.py`** — `play_match(agent_a, agent_b, n_games)` runs a
-  head-to-head series across random kingdoms (alternating who goes first)
-  and reports win counts. `python -m training.evaluate [n_games] [seed]`
-  runs BigMoney vs Random as a sanity check of the whole stack.
+  `CARD_NAMES`/`CARD_INDEX` (every base+kingdom card), `ACTION_VOCAB`/
+  `ACTION_INDEX` (206 actions any card effect can produce — `Game.legal_actions()`
+  is always a subset), `encode_observation(game, player_idx)` (fixed-size
+  (350,) float32 vector, respects hidden info: opponents expose only what's
+  actually public — discard, play area, hand/deck *sizes*, never contents),
+  `legal_action_mask(game)`.
+- **`env.py`** — `DominionEnv`, a Gym-shaped (`reset`/`step`) masked-discrete-
+  action wrapper around `Game`. Turn-based multi-agent: each `step` acts for
+  whoever `Game.current_decider()` is and returns the next observation from
+  *their* perspective. Reward is sparse: 0 until the game ends, then
+  +1/-1/0 from whoever just moved.
+- **`agents.py`** — the `Agent` protocol (`act(game) -> Action`) plus
+  `RandomAgent` and `BigMoneyAgent` (fixed-priority Treasures/Victory, never
+  buys Action cards).
+- **`evaluate.py`** — `play_match(agent_a, agent_b, n_games)`, a head-to-head
+  series across random kingdoms. `python -m training.evaluate [n_games] [seed]`
+  runs BigMoney vs Random as a sanity check.
 
 ## Quickstart
 
@@ -60,52 +48,31 @@ while True:
 
 - **`network.py`** — `DomibotNet`, a small residual MLP (350 → 256 ×4 blocks
   → policy logits (206) + value (tanh, [-1,1])). `get_device()` picks CUDA
-  automatically when available. `.save(path)` / `DomibotNet.load(path)`
-  handle checkpointing.
-- **`mcts.py`** — PUCT search (`run_mcts`), same family of algorithm as
-  AlphaZero/AlphaGo. Searches and learns *every* Dominion decision — phase
-  actions (what to play, what to buy, when to end a phase) *and*
-  card-effect sub-decisions (Chapel's trashes, Militia's forced discard,
-  Sentry's trash/discard/reorder, ...) — uniformly. A node's position is a
-  `(boundary, path)` pair rather than a raw `Game`: `boundary` is the
-  nearest ancestor `Game` at a true phase-action boundary (always safely
-  clonable — card effects are Python generators that capture a live
-  reference to the `Game` they were created against, see `effects.py` in
-  the engine, so `Game.clone()` refuses to run while one is suspended), and
-  `path` is the sub-decision `Action`s taken since that boundary.
-  `materialize()` reconstructs the actual position on demand by cloning
-  `boundary` and replaying `path` — safe because `Game.rng`'s state is
-  fully captured by `clone()` and every random draw inside a card effect
-  goes exclusively through it, so replay always reaches bit-identical
-  state. See the module docstring for the full reasoning.
-- **`heuristics.py`** — `heuristic_reaction(game)`, the fixed, non-learned
-  fallback `BigMoneyAgent` always uses for sub-decisions, and that
-  `DomibotAgent`/self-play fall back to only as an ablation
-  (`search_sub_decisions=False`) — by default they search and learn
-  sub-decisions via MCTS instead. Also `advance_to_next_phase_action(game,
-  action)` (apply an action, then keep auto-resolving forced sub-decisions
-  via the heuristic until the next phase-action boundary or game end),
-  used by that ablation path and by `BigMoneyAgent`.
+  automatically. `.save(path)` / `DomibotNet.load(path)` for checkpointing.
+- **`mcts.py`** — PUCT search (`run_mcts`), AlphaZero-style. Searches and
+  learns every decision uniformly — phase actions *and* card-effect
+  sub-decisions (Chapel's trashes, Militia's forced discard, ...). A node's
+  position is `(boundary, path)` rather than a raw `Game` (card effects are
+  suspended generators, which `Game.clone()` can't safely copy) —
+  `materialize()` replays `path` from `boundary` on demand to reach the real
+  state; see the module docstring for why replay is always deterministic.
+- **`heuristics.py`** — `heuristic_reaction(game)`, the fixed non-learned
+  fallback `BigMoneyAgent` always uses for sub-decisions (and
+  `DomibotAgent`/self-play use only as an ablation,
+  `search_sub_decisions=False` — by default they search sub-decisions via
+  MCTS instead).
 - **`self_play.py`** — `play_self_play_game(network, num_simulations, ...)`
-  plays one game with MCTS-guided moves (Dirichlet noise at the root,
-  temperature-based sampling for the first ~15 moves, then near-greedy),
-  and returns one training `Example` per decision — phase action or
-  sub-decision alike: the encoded state, the legal mask, the MCTS
-  visit-count distribution (policy target), and — filled in once the game
-  ends — the actual outcome from that decision's perspective (value
-  target). `ReplayBuffer` is a fixed-capacity FIFO of these.
-- **`train.py`** — the loop: self-play games → add to buffer → gradient
-  steps (policy = cross-entropy vs. visit counts, value = MSE vs. outcome)
-  → checkpoint → every `--eval-every` iterations, play the current network
-  (via MCTS) against `BigMoneyAgent` and report the score, so you can watch
-  it actually improve over time. Pass `--reference-checkpoint <path>` to
-  also eval against a fixed past checkpoint (loaded once, frozen for the
-  whole run) alongside BigMoney — useful for comparing a new network
-  lineage against an older one on equal footing.
+  plays one MCTS-guided game and returns one training `Example` per
+  decision (encoded state, legal mask, visit-count policy target, and the
+  eventual outcome as the value target). `ReplayBuffer` is a fixed-capacity
+  FIFO of these.
+- **`train.py`** — the loop: self-play → buffer → gradient steps (policy
+  cross-entropy vs. visit counts, value MSE vs. outcome) → checkpoint →
+  eval vs `BigMoneyAgent` every `--eval-every` iterations.
+  `--reference-checkpoint <path>` adds a fixed past checkpoint as a second
+  eval opponent.
 - `agents.DomibotAgent` wraps a trained network + MCTS behind the same
-  `act(game)` interface as the baselines, so it drops straight into
-  `evaluate.py` against `RandomAgent`/`BigMoneyAgent` (or another
-  checkpoint) exactly like any other agent.
+  `act(game)` interface as the baselines.
 
 ### Training
 
@@ -114,53 +81,34 @@ python -m training.train
 ```
 
 Key flags (see `python -m training.train --help`): `--iterations`,
-`--games-per-iter`, `--simulations` (MCTS sims/move during self-play —
-bigger is stronger but slower), `--action-bias` (self-play-only nudge to
-keep chaining Action cards instead of ending the phase early — see
-`mcts._apply_action_continuation_bias`; most effective when set from a
-fresh network rather than added mid-training), `--eval-every`,
-`--eval-games` (per opponent), `--reference-checkpoint <path>` (adds a
-second, fixed eval opponent), `--checkpoint <path>` to resume. Checkpoints
-land in `checkpoints/` (gitignored) as `latest.pt` plus a snapshot every
-eval.
+`--games-per-iter`, `--simulations` (MCTS sims/move, stronger but slower),
+`--action-bias` (self-play-only nudge toward chaining Action cards instead
+of ending the phase early — most effective set from a fresh network, not
+added mid-training), `--eval-every`, `--eval-games`,
+`--reference-checkpoint <path>` (a second, fixed eval opponent),
+`--checkpoint <path>` to resume. Checkpoints land in `checkpoints/`
+(gitignored) as `latest.pt` plus a snapshot every eval.
 
 ### GPU
 
-`get_device()` uses CUDA automatically whenever `torch.cuda.is_available()`
-— no code changes needed on a CUDA machine, but `pip install torch` alone
-grabs the CPU-only build, so you need torch installed against a CUDA index.
-
-Verified working on an RTX 5080 (Blackwell, compute capability 12.0,
-driver supporting CUDA 13.3): the `cu128`/`cu124`-tagged builds people
-often see recommended online predate Blackwell-generation wheels catching
-up to the latest torch release, and resolved to an *older* torch version
-here. The `cu130` index had the exact same torch version as the CPU build
-it replaced, with full CUDA support:
+`get_device()` uses CUDA automatically once torch is installed against a
+CUDA index (plain `pip install torch` grabs the CPU-only build):
 
 ```bash
 pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cu130
 ```
 
-Confirm it actually works (not just `is_available()`, which can be True
-even when a build lacks kernels for a brand-new architecture — the failure
-mode shows up at actual kernel launch, not at that check):
+If that tag doesn't have kernels for your GPU, `torch.cuda.is_available()`
+can still say `True` and only fail at actual kernel launch — confirm with:
 
 ```bash
 python -c "import torch; x = torch.randn(2048, 2048, device='cuda'); print((x @ x).sum().item())"
 ```
 
-If your card/driver combo resolves to a different tag, list what's on
-each index without installing anything: `pip install --force-reinstall
---dry-run torch --index-url https://download.pytorch.org/whl/<tag>` for
-whichever `cuNNN` tags exist at https://download.pytorch.org/whl/ , and
-pick whichever gives you the newest torch version with CUDA.
-
 Self-play batches leaf evaluations across `--parallel-games` concurrent
-games (`mcts.run_mcts_batch` / `self_play.play_self_play_games_batch`), so
-raising `--parallel-games` toward your card's real throughput sweet spot is
-the lever for affording higher `--simulations` counts. The Python game
-engine driving move selection is still real, unbatched CPU work though, so
-past some point it — not the network — becomes the bottleneck again.
+games, so raising it toward your card's throughput sweet spot affords
+higher `--simulations`. Past some point the unbatched Python game engine,
+not the network, becomes the bottleneck.
 
 ### Playing against / evaluating Domibot
 
@@ -171,7 +119,7 @@ from training.evaluate import play_match
 from training.network import DomibotNet, get_device
 
 device = get_device()
-network = DomibotNet.load("checkpoints/latest.pt", map_location=device).to(device)
+network = DomibotNet.load("checkpoints/domibot2/domibot2.1.pt", map_location=device).to(device)
 domibot = DomibotAgent(network, num_simulations=200, device=device)
 
 print(play_match(domibot, BigMoneyAgent(), n_games=50))
@@ -180,42 +128,30 @@ print(play_match(domibot, BigMoneyAgent(), n_games=50))
 ### Testing against real people: `examples/domibot_relay.py`
 
 A move advisor for playing a real game yourself (e.g. on dominion.games)
-while asking Domibot what it would do at each of your decisions, without
-actually automating any clicks -- you play every move, this only tells you
-what it recommends. `training/relay.py` reconstructs a `Game` from exactly
-what's visible to a player at the table (your own hand/total ownership
-exactly; the opponent's discard pile and hand/deck *sizes*, never their
-contents), filling in what's genuinely hidden (the opponent's hand/deck
-contents, your own deck's order) via determinization -- see that module's
-docstring for the details. Only covers phase-action decisions: state is
-always reconstructed at a phase-action boundary, so a sub-decision can't be
-represented here even though `mcts.py` itself searches those too now when
-driving self-play/`DomibotAgent` directly.
+while asking Domibot what it would do at each decision -- no clicks
+automated, you play every move. `training/relay.py` reconstructs a `Game`
+from exactly what's visible at the table (your own hand/total ownership
+exactly; the opponent's discard and hand/deck *sizes*, never contents),
+filling in what's genuinely hidden via determinization. Only covers
+phase-action decisions, not sub-decisions.
 
-In practice this is closer to zero-effort than that description suggests:
 `training/log_parser.py` does a full turn-by-turn replay of a pasted
-dominion.games log (plays, buys/gains, trashes/discards/topdecks including
-Sentry/Bandit-style reveals and Throne-Room replays, explicit "+N
-Action/Buy/$" lines, and Cleanup) to derive *everything* -- your hand,
-discard, play area, phase, actions, buys, coins, and the opponent's hand
-size, draw-pile size, and discard. When that fully succeeds (the common
-case), the CLI skips straight to the recommendation with no further
-prompts at all. It's still best-effort -- dominion.games occasionally
-renders a card as a bare, unnamed "a card", which breaks exact replay from
-that point on -- and gracefully falls back to manual entry (pre-filled
-with whatever it did derive) when that happens.
+dominion.games log to derive everything automatically -- your hand,
+discard, play area, phase, actions/buys/coins, and the opponent's hand
+size, draw-pile size, and discard -- so the common case skips straight to
+the recommendation with no manual entry. Best-effort: dominion.games
+occasionally renders a card as a bare, unnamed "a card", which falls back
+to manual entry (pre-filled with whatever it did derive).
 
 ```bash
-python examples/domibot_relay.py --checkpoint checkpoints/domibot_v2.2.pt --simulations 400
+python examples/domibot_relay.py --checkpoint checkpoints/domibot2/domibot2.1.pt --simulations 400
 ```
 
 ## Checkpoint lineage and results
 
-`checkpoints/` (gitignored) holds each promoted checkpoint as
-`domibot_vX.Y.pt` (v1-v4 lineage, MCTS self-play) or `domibot2_vN.pt`
-(domibot 2, PPO self-play), plus that run's `iter_N.pt` snapshots under
-`vX.Y_run/` or `v4_run/`. Full narrative history for anything below is in
-git log / prior commit messages; this table is the durable summary.
+`checkpoints/` (gitignored) holds each promoted checkpoint: `domibot_vX.Y.pt`
+(v1-v4, MCTS) or `domibotN.M.pt` (domibot 2+, PPO). Full narrative history
+is in git log; this table is the durable summary.
 
 | Checkpoint | Change from previous | Key measured result |
 |---|---|---|
@@ -237,175 +173,92 @@ git log / prior commit messages; this table is the durable summary.
 | **domibot2.1** | **new algorithm: PPO + GAE, no tree search** (see below) | **95-100% vs BigMoney on fixed kingdoms; real multi-action engine turns** |
 
 **The handful of decisions that actually mattered**, in order:
-1. **v1→v2**: `_apply_action_continuation_bias` tested at various
-   strengths against a converged v1.4 had zero effect -- PUCT's
-   exploitation term dominates the prior once a network already has
-   confident (anti-chaining) value estimates. Motivated training the
-   bias in from iteration 1 on a fresh network instead of retrofitting it.
-2. **v2→v3**: sub-decisions (trash/discard/gain/topdeck choices) switched
-   from a fixed heuristic to being searched and learned via MCTS like any
-   other decision -- a much harder, larger decision space, hence v3.1's
-   weak start.
-3. **v3.6→v3.7**: `train.py`'s flat learning rate across 1200+ cumulative
-   iterations was one real problem, but discussing *why* the whole v3.x
-   lineage improved so slowly surfaced a deeper one -- every self-play
-   search explored hypothetical continuations against the *one* concrete
-   hidden deal that game actually had, a "strategy fusion" problem in
-   imperfect-info game AI. `mcts.redeal_hidden_info`/`run_mcts_ensemble`
-   (multi-determinization PIMC) fixed it; LR decay followed in v4.1.
+1. **v1→v2**: training the action-continuation bias in from iteration 1 on
+   a fresh network, instead of retrofitting it onto a converged one (which
+   had zero effect -- PUCT's exploitation term dominates the prior once
+   value estimates are already confident).
+2. **v2→v3**: sub-decisions (trash/discard/gain/topdeck) switched from a
+   fixed heuristic to being searched and learned via MCTS -- a much harder
+   decision space, hence v3.1's weak start.
+3. **v3.6→v3.7**: fixed the "strategy fusion" problem (every self-play
+   search only ever explored the *one* concrete hidden deal that game
+   actually had) via multi-determinization PIMC
+   (`mcts.redeal_hidden_info`/`run_mcts_ensemble`); LR decay followed.
 4. **v3→v4**: a full-codebase audit found three real engine bugs (game-end
-   timing, same-shape decisions from different source cards being
-   indistinguishable, popped cards resolving invisibly instead of being
-   staged in `set_aside`) that changed `OBS_DIM`, forcing a fresh network.
-5. **v4.2 strategy check**: `domibot_v4.2.pt` never played two action
-   cards in the same turn -- Big Money + Witch only, zero engine buys, on
-   a kingdom stocked with engine pieces. This became the actual question
-   for the rest of the project: not "is it winning more," but "does it
-   ever discover multi-step strategy."
-6. **v4.4 diagnostics**: `action_bias` raised 2.75x (a mechanism already
-   built specifically to force self-play to try chaining) produced zero
-   change. TD-bootstrapped value targets + an opponent pool -- targeting
-   two specific, different mechanisms (noisy credit assignment over a
-   whole-game Monte-Carlo return; self-play only ever needing to beat
-   itself) -- produced a large strength jump (67%/60%) but *still* zero
-   chaining, including from a fresh network with no prior entrenchment
-   to blame. Five separate conditions, one conclusion: this needed a
-   different algorithm, not another patch.
+   timing, indistinguishable same-shape decisions, cards resolving
+   invisibly instead of staged in `set_aside`) that changed `OBS_DIM`,
+   forcing a fresh network.
+5. **v4.2 strategy check**: `domibot_v4.2.pt` never played two action cards
+   in the same turn on a kingdom stocked with engine pieces. This became
+   the real question for the rest of the project: not win rate, but
+   whether it ever discovers multi-step strategy.
+6. **v4.4 diagnostics**: `action_bias` x2.75, TD-bootstrapped targets, and
+   an opponent pool produced a large strength jump but *still* zero
+   chaining, including from a fresh network. Five conditions, one
+   conclusion: needed a different algorithm, not another patch.
 7. **domibot 2**: see below.
 
 **Naming, from domibot 2 on**: promoted checkpoints are `domibotN.M.pt`
-(`domibot2.1.pt`, `domibot2.2.pt`, ...) -- no `v`, no underscore,
-replacing the `domibot_vX.Y.pt` style the MCTS lineage used. Logs and
-checkpoints are also split by lineage: `logs/domibot1/` /
-`checkpoints/` (the `domibot_vX.Y.pt` files, `vX.Y_run/` snapshot
-folders) for MCTS, `logs/domibot2/` / `checkpoints/domibot2/` (every
-iteration snapshot and the promoted `domibotN.M.pt` files together, per
-`training/ppo/train.py`'s `CHECKPOINT_DIR`) for PPO.
+(no `v`, no underscore). Logs/checkpoints are split by lineage:
+`logs/domibot1/` / `checkpoints/` for MCTS, `logs/domibot2/` /
+`checkpoints/domibot2/` for PPO.
 
 ## domibot 2: PPO self-play
 
-Built alongside (not replacing) `training/train.py`'s MCTS lineage, once
-five separate conditions (plain self-play, `action_bias` x2.75,
-TD-bootstrapped targets, an opponent pool, and TD+pool from a fresh
-network) all failed to produce durable engine play -- see the table above
-and the approved design plan for the full reasoning. The diagnosis: every
-MCTS value target is a Monte-Carlo return (or a short TD-bootstrap of
-one), and pure self-play only ever has to beat itself, so a half-built
-engine reliably loses to tuned Big Money with nothing rewarding the climb
-to a well-executed one. PPO's GAE fixes credit assignment structurally
-(dense, bootstrapped credit to *every* decision from a real value
-function) and needs no tree search at data-generation time at all.
+Built alongside (not replacing) the MCTS lineage, once five conditions
+(plain self-play, `action_bias` x2.75, TD-bootstrapped targets, an
+opponent pool, TD+pool from scratch) all failed to produce durable engine
+play. Diagnosis: every MCTS value target is a Monte-Carlo return, and pure
+self-play only has to beat itself, so a half-built engine reliably loses
+to tuned Big Money with nothing rewarding the climb to a well-executed
+one. PPO's GAE fixes credit assignment structurally and needs no tree
+search at data-generation time.
 
-**Reused unchanged**: the `domibot` engine, `training/encoding.py`,
-`network.DomibotNet` (a plain `(obs) -> (policy_logits, value)` residual
-MLP -- nothing MCTS-specific, PPO uses the class as-is), `env.DominionEnv`
-(already existed, already unused by the MCTS pipeline, exactly the
-Gym-shaped interface PPO needs -- gained one small addition, an optional
-`reward_fn` so `mcts.terminal_value`'s margin-based reward can replace
-plain +1/-1/0), and `evaluate.py`/`agents.py` for eval, so every number
-is directly comparable to the MCTS lineage's. `mcts.py` stays too, for a
-future inference-time search layer on top of a PPO-trained network (the
-network signature never changed) -- not yet wired up.
+**Reused unchanged**: the `domibot` engine, `encoding.py`,
+`network.DomibotNet` (nothing MCTS-specific about it), `env.DominionEnv`
+(gained one addition: an optional `reward_fn`), `evaluate.py`/`agents.py`.
+`mcts.py` stays too, for a future inference-time search layer on a
+PPO-trained network (not yet wired up).
 
-**New `training/ppo/` subpackage**: `gae.py` (`compute_gae`, reusing the
-exact per-decider-subsequence pattern `self_play._backfill_value_targets`
-proved out, generalized to full GAE -- a truncated episode's tail
-bootstraps from its own value instead of being discarded), `rollout.py`
-(`collect_rollouts`, `N` `DominionEnv` instances stepped side by side
-sharing one batched forward pass per round, the same root-parallel idea
-as `run_mcts_batch` minus the tree -- no `boundary`/`path`/`materialize`
-needed anywhere, since PPO only ever advances the one real game), `train.py`
-(the PPO loop: clipped surrogate, value MSE, entropy bonus, advantage
-normalization; CLI mirrors `train.py`'s conventions). 7 tests in
+**New `training/ppo/` subpackage**: `gae.py` (`compute_gae`, generalizing
+`self_play._backfill_value_targets`'s per-decider pattern to full GAE),
+`rollout.py` (`collect_rollouts`, N `DominionEnv` instances stepped side
+by side sharing one batched forward pass per round -- no MCTS tree, so no
+`boundary`/`path`/`materialize` needed), `train.py` (clipped surrogate,
+value MSE, entropy bonus, advantage normalization). 7 tests in
 `tests/test_ppo.py`.
 
-**First real run**: 400 iterations x 50 games (20,000 total games,
-matching `domibot_v4.4.pt`'s cumulative lineage volume), default
-hyperparameters (`lr=3e-4`, `gae_lambda=0.95`, `clip_eps=0.2`,
-`entropy_coef=0.01`). Completed in **under an hour** -- rollout+update
-per iteration averaged ~2s, roughly 250x faster than MCTS's ~500-600s/
-iteration, since there's no simulation budget to pay for at all. Eval vs
-`domibot_v4.4.pt` (via `DomibotAgent`, real MCTS search) climbed from
-2/20 to a peak of 17/20, settling in a noisy 9-17/20 band. A 4-way,
-100-game round-robin among the best late checkpoints (iter_300/320/380/
-400) found `iter_300` and `iter_320` on top by win rate (50.7%/49.7%,
-`iter_400` and `iter_380` behind at ~45%) -- but win rate among four
-checkpoints from a one-hour run isn't the actual goal here, and it
-buried the more important difference: `iter_400` (the final checkpoint)
-chained actions far more than `iter_300` did: on the fixed engine-rich
-kingdom used throughout this project's diagnostics, `iter_400` (raw
-policy, no search) went 100% single-action on the Witch kingdom (19-1 vs
-BigMoney; Witch alone judged good enough there, the same call every
-strong MCTS checkpoint made) but with Witch removed, 20-0 vs BigMoney
-with 62/218 turns (28%) multi-action, up to 5 plays deep, buying
-Laboratory 26 times and visibly chaining it into further plays --
-something no MCTS checkpoint ever showed after `domibot_v4.2.pt`.
-`iter_300` showed the same pattern far more weakly (17/254 and 22/117
-turns respectively). Confirmed `iter_400` with a direct 60-game match
-against `domibot_v4.4.pt` (its real MCTS search, 100 sims, vs. the raw
-policy, no search at all): won 30-28-2 -- narrower than `iter_300` would
-have given (33-26-1 in the same test), but a real win on the checkpoint
-actually showing the behavior this project has been chasing.
+**Training arc** (fresh network through 8000 iterations, all resumed
+continuations of the same lineage):
+- **1-400**: default hyperparameters. Completed in under an hour (~250x
+  faster than MCTS's per-iteration cost, no simulation budget to pay
+  for). `iter_400` chains actions on 28% of turns on a Witch-free
+  engine-rich test kingdom (up to 5 plays deep) -- something no MCTS
+  checkpoint ever showed. Beat `domibot_v4.4.pt` 30-28-2 head to head.
+- **401-4400**: plateaued by 2400 (win-rate trend flat, entropy decaying).
+  A warm restart (LR decay + `entropy_coef` 0.01→0.03) broadened chaining
+  specifically on the kingdom where it was weakest (Witch: 7%→20%). Final
+  eval: 85%/75%/80% vs BigMoney/BigMoney+terminal/`domibot_v4.4.pt`.
+- **4401-8000**: an opponent pool (30% of games vs. a frozen recent
+  checkpoint) was a wash, not a repeat win -- chaining moved in opposite
+  directions on the two test kingdoms (20%→13% / 24%→28%), likely because
+  the pool's snapshots were too recent to add real diversity. Final eval:
+  100%/65%/80%.
 
-**Continued training and a warm restart** (iterations 401-4400): resumed
-from `iter_400`, continuing to iteration 2400 -- eval vs `domibot_v4.4.pt`
-climbed as high as 80% but the win-rate trend flattened (near-zero r² on
-a least-squares fit; see `plot_eval.py`), the same plateau signature that
-kept recurring in the MCTS lineage. Applied the same fix that repeatedly
-worked there: a warm restart (cosine LR decay from `1.7e-4` down to
-`~3e-5`, `entropy_coef` raised `0.01` -> `0.03`) run to iteration 4400.
-Win rate stayed a flat/noisy plateau (already near-saturated against
-BigMoney/BigMoney+terminal), but chaining -- the metric that actually
-matters -- broadened specifically where it had been weakest: the Witch
-kingdom went from 7% to 20% multi-action turns, now also buying
-Laboratory there, while the Witch-free kingdom held steady (~24-30%).
-Final eval at iter_4400: 85%/75%/80% vs BigMoney/BigMoney+terminal/
-`domibot_v4.4.pt`.
-
-**Opponent pool** (Stage 3, iterations 4401-8000): resumed from
-`iter_4400` with `--opponent-pool-size 5 --opponent-pool-frac 0.3`
-(`ppo.rollout.collect_cross_play_rollouts` -- 30% of each iteration's
-games played against a frozen snapshot sampled from the run's own 5
-most recent checkpoints, so training never optimizes purely against "beat
-the version of myself I'm currently playing against"), LR held flat at
-`3e-5` and `entropy_coef` held at `0.03` so the pool was the only new
-variable. Result: a wash, not a repeat of the entropy-bump win. Chaining
-moved in opposite directions on the two fixed kingdoms (Witch: 20% -> 13%;
-Witch-free: 24% -> 28%), and the win-rate trend over just this run's own
-span stayed flat/noisy (r²<0.2 on all three eval series). Plausible
-reason: at `pool_frac=0.3` sampling from checkpoints only ~400 iterations
-apart, the "opponent" is nearly identical to the current policy, so it
-may not inject much real strategic diversity -- an older/wider pool is
-untried. Final eval at iter_8000: 100%/65%/80% vs BigMoney/
-BigMoney+terminal/`domibot_v4.4.pt`.
-
-**Promoted `iter_8000` as `domibot2.1.pt`** -- by convention this name
-now marks the end of domibot 2's first training arc (the full run from a
-fresh network through 8000 iterations: the initial 400, the continuation
-to 2400, the entropy/LR warm restart to 4400, and the opponent-pool
-experiment to 8000), superseding the earlier interim promotion of
-`iter_400` under the same name.
+Promoted `iter_8000` as `domibot2.1.pt`, marking the end of this first
+training arc (superseding an earlier interim promotion of `iter_400`
+under the same name).
 
 **Not yet done**: Stage 2 (privileged critic), Stage 4 (inference-time
-search for the relay tool); a wider/older opponent pool or higher
-`--opponent-pool-frac` (this run's pool sampled only very recent, nearly-
-identical snapshots); further hyperparameter tuning; longer runs to see
-whether strength and chaining both keep improving.
+search for the relay tool), a wider/older opponent pool, further
+hyperparameter tuning, longer runs.
 
 ## What's still missing
 
-Card-effect sub-decisions are now searched and learned (see `mcts.py`
-above), not just play/buy. What's still missing: `examples/domibot_relay.py`/
-`training/relay.py` only recommend sub-decisions for one case so far --
-Militia's forced discard (`reconstruct_opponent_turn_boundary`), when a
-pasted log ends with the opponent having just played it. Every other
-sub-decision (Bureaucrat/Bandit's own forced reactions, and your own
-mid-turn choices like an unresolved Chapel trash) still falls back to
-manual entry. Also missing: extending `mcts.run_mcts_batch`'s root-parallel
-batching to
-heterogeneous per-root simulation budgets (sub-decisions now consume
-search budget that used to be free, so a kingdom with lots of them needs
-more total decision points for the same amount of real game); and
-hyperparameter tuning (network size, simulation count, `--parallel-games`,
-replay buffer size) and longer training runs than anything validated so
-far.
+The relay tool only recommends sub-decisions for one case -- Militia's
+forced discard -- when a pasted log ends with the opponent having just
+played it. Every other sub-decision (Bureaucrat/Bandit's forced reactions,
+your own mid-turn choices like an unresolved Chapel trash) falls back to
+manual entry. Also missing: `mcts.run_mcts_batch`'s root-parallel batching
+doesn't support heterogeneous per-root simulation budgets; hyperparameter
+tuning and longer training runs than anything validated so far.
