@@ -47,7 +47,7 @@ Python 3.10+. `train` pulls in `torch` (CPU build by default — see
   backgrounded with its output logged to a file — the reference-checkpoint
   eval uses real MCTS search and dominates wall-clock time, so
   `--eval-reference-every` lets it run far less often than the cheap
-  BigMoney evals (see `training/README.md`'s PPO section):
+  BigMoney evals (see `training/README.md`'s Phase 2 section):
   ```bash
   python -m training.ppo.train \
       --iterations 4000 --games-per-iter 64 \
@@ -160,6 +160,6 @@ MCTS self-play (`training/train.py`) or PPO (`training/ppo/train.py`). See
 
 ## What's not here yet (next layers)
 
-- Domibot's training loop is a first working version, not a tuned one —
-  see "What's still missing" in `training/README.md`.
+- Domibot's PPO training is a first working version, not a tuned one —
+  see "Not yet done" in `training/README.md`'s Phase 2 section.
 - Anything beyond the base set (no other expansions, no >4 players).

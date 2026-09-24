@@ -1,5 +1,5 @@
 """PPO self-play training loop for domibot 2 -- see training/ppo/__init__.py
-and training/README.md's "domibot 2" section for why this exists alongside
+and training/README.md's "Phase 2" section for why this exists alongside
 the MCTS lineage in training/train.py, not instead of it.
 
     python -m training.ppo.train
