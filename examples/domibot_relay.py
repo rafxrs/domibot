@@ -59,7 +59,7 @@ name, e.g. 'POA' for Poacher or 'CR' for Council Room -- run with
 --list-abbreviations to see the full table (also printed at startup). The
 kingdom itself also doesn't need commas between entries.
 
-Your account name defaults to 'domibot2.1' (override with
+Your account name defaults to 'domibot_v1.4' (override with
 --account-name) -- it's just whatever your dominion.games username is,
 unrelated to which checkpoint --checkpoint points at. If the pasted log
 has no "name: rating" header at all (e.g. a trimmed practice-game log),
@@ -387,7 +387,7 @@ def main() -> None:
                                                                        "speed pressure here, so it's fine to go higher than training's default)")
     parser.add_argument("--gpu", action="store_true", help="use CUDA if available")
     parser.add_argument("--list-abbreviations", action="store_true", help="print the kingdom card short codes and exit")
-    parser.add_argument("--account-name", type=str, default="domibot2.1",
+    parser.add_argument("--account-name", type=str, default="domibot_v1.4",
                          help="your account name as it appears in a pasted log -- unrelated to which "
                               "checkpoint is giving advice, just whatever your dominion.games username is")
     args = parser.parse_args()
