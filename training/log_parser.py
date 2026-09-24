@@ -270,6 +270,21 @@ def _replay_full_state(
     current_turn_disqualified = False
     opp_turn_start_discard: list[str] | None = None
     game_ended = False
+    # A second (or later) Throne Room played by the opponent in the same
+    # turn, after they've also played a Vassal that turn, is where exact
+    # replay breaks down: Vassal can play a revealed card straight from the
+    # deck top without it ever touching hand (logged identically to a plain
+    # hand play -- no "reveals" line precedes it, unlike Sentry/Bandit), so
+    # once a second Throne Room enters the mix there's no way to tell from
+    # the log text alone which "plays a Throne Room"/"discards a Throne
+    # Room" lines are independent hand-sourced copies and which are a
+    # Vassal reveal of a card already accounted for elsewhere -- see the
+    # log_parser.py module docstring's "best-effort... give up rather than
+    # guess" policy. A single Throne Room (however many cards it doubles)
+    # or a Vassal with no second Throne Room are both unambiguous and stay
+    # fully supported; only the combination bails.
+    opp_throne_room_plays_this_turn = 0
+    opp_played_vassal_this_turn = False
     # True exactly when the most recent play in current_turn_safe_path was
     # a supported attack (Militia) whose reaction hasn't shown up yet --
     # cleared the moment a line about *me* appears during the opponent's
@@ -301,6 +316,8 @@ def _replay_full_state(
             current_turn_safe_path = []
             current_turn_disqualified = False
             reaction_pending = False
+            opp_throne_room_plays_this_turn = 0
+            opp_played_vassal_this_turn = False
             if current_turn_player == opp_full_name:
                 opp_turn_start_discard = list(opp.discard)
             continue
@@ -386,6 +403,18 @@ def _replay_full_state(
                     me.actions -= 1
             else:
                 if not again:
+                    if card_name == "Throne Room":
+                        if opp_throne_room_plays_this_turn >= 1 and opp_played_vassal_this_turn:
+                            raise ValueError(
+                                "opponent played a second Throne Room this turn after also playing a Vassal -- "
+                                "Vassal can play a card straight off the deck top without it ever touching hand, "
+                                "logged identically to a plain hand play, so which 'plays'/'discards a Throne "
+                                "Room' lines are independent copies vs. a Vassal reveal can't be told apart from "
+                                "the log text alone once a second Throne Room is in the mix"
+                            )
+                        opp_throne_room_plays_this_turn += 1
+                    elif card_name == "Vassal":
+                        opp_played_vassal_this_turn = True
                     opp.hand_size -= 1
                     opp.play_area.append(card_name)
                 # A Throne-Room-style replay (`again`) would need its own

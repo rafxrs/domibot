@@ -1190,6 +1190,299 @@ def test_library_looks_at_a_card_increments_opponent_hand_size():
     assert parsed.opp_hand_size == 5 - 1 + 3
 
 
+# A real log fragment, provided by the user, where the opponent plays a
+# second Throne Room after already playing a Vassal that same turn -- see
+# test_throne_room_after_vassal_bails_instead_of_miscounting below for why
+# this specific ordering breaks exact replay.
+THRONE_VASSAL_KINGDOM = ["Throne Room", "Vassal", "Village", "Market", "Moneylender", "Chapel"]
+
+_THRONE_VASSAL_OPENING = """Game #1, unrated.
+d starts with 7 Coppers.
+d starts with 3 Estates.
+L starts with 7 Coppers.
+L starts with 3 Estates.
+d shuffles their deck.
+L shuffles their deck.
+d draws 4 Coppers and an Estate.
+L draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Silver.
+d draws 3 Coppers and 2 Estates.
+Turn 1 - Lord Rattington
+L plays 4 Coppers. (+$4)
+L buys and gains a Throne Room.
+L draws 5 cards.
+Turn 2 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d draws 3 Coppers, an Estate, and a Silver.
+Turn 2 - Lord Rattington
+L plays 4 Coppers. (+$4)
+L buys and gains a Throne Room.
+L buys and gains a Vassal.
+L draws 5 cards.
+Turn 3 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d draws 3 Coppers, an Estate, and a Silver.
+Turn 3 - Lord Rattington
+"""
+
+# Vassal played BEFORE the second Throne Room -- ambiguous: Vassal can play a
+# card straight off the deck top without it ever touching hand, logged
+# identically to a plain hand play, so once a second Throne Room is in the
+# mix there's no way to tell from the log text alone which "plays"/"discards
+# a Throne Room" lines are independent owned copies vs. a Vassal reveal.
+THRONE_THEN_VASSAL_THEN_THRONE_LOG = _THRONE_VASSAL_OPENING + """L plays a Throne Room.
+L plays a Vassal.
+L gets +$2.
+L discards a Throne Room.
+L plays a Throne Room.
+L plays a Vassal again.
+L gets +$2.
+L discards a Copper.
+L plays 2 Coppers. (+$2)
+L buys and gains a Village.
+L draws 5 cards.
+Turn 4 - domibot_v1.4"""
+
+# The same shape (two Throne Room plays plus a Vassal, one turn), but with
+# Vassal only showing up *after* both Throne Rooms -- unambiguous, since
+# nothing about the second Throne Room's own hand-sourced play could be
+# confused with a Vassal reveal if Vassal hasn't been played yet. Trimmed
+# from a real dominion.games log the user pasted while hitting the bug this
+# module fixes -- turn 9 there has exactly this "TR, unrelated card, TR,
+# Vassal" ordering and worked before and after the fix; this is that same
+# real turn, not a hand-built one (see REAL_LOG's own comment on why real
+# logs make the best fixtures here).
+TWO_THRONES_THEN_VASSAL_KINGDOM = ["Throne Room", "Council Room", "Library", "Market", "Village",
+                                   "Moneylender", "Poacher", "Remodel", "Cellar", "Vassal"]
+
+TWO_THRONES_THEN_VASSAL_LOG = """Game #183869862, rated.
+domibot_v1.4: 39
+Alice6th: 36.73
+Timer: Friendly
+Card Pool: level 1
+d starts with 3 Estates.
+d starts with 7 Coppers.
+A starts with 3 Estates.
+A starts with 7 Coppers.
+d shuffles their deck.
+A shuffles their deck.
+d draws 4 Coppers and an Estate.
+A draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Moneylender.
+d draws 3 Coppers and 2 Estates.
+Turn 1 - Alice6th
+A plays 4 Coppers. (+$4)
+A buys and gains a Moneylender.
+A draws 5 cards.
+Turn 2 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d shuffles their deck.
+d draws 3 Coppers, an Estate, and a Moneylender.
+Turn 2 - Alice6th
+A plays 3 Coppers. (+$3)
+A buys and gains a Village.
+A shuffles their deck.
+A draws 5 cards.
+Turn 3 - domibot_v1.4
+d plays a Moneylender.
+d trashes a Copper.
+d gets +$3.
+d plays 2 Coppers. (+$2)
+d buys and gains a Council Room.
+d draws 2 Coppers, a Silver, and 2 Estates.
+Turn 3 - Alice6th
+A plays a Moneylender.
+A trashes a Copper.
+A gets +$3.
+A plays a Copper. (+$1)
+A buys and gains a Throne Room.
+A draws 5 cards.
+Turn 4 - domibot_v1.4
+d plays a Silver and 2 Coppers. (+$4)
+d buys and gains a Throne Room.
+d shuffles their deck.
+d draws 3 Coppers and 2 Estates.
+Turn 4 - Alice6th
+A plays a Village.
+A draws a card.
+A gets +2 Actions.
+A plays 5 Coppers. (+$5)
+A buys and gains a Market.
+A shuffles their deck.
+A draws 5 cards.
+Turn 5 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d draws 2 Coppers, an Estate, a Council Room, and a Throne Room.
+Turn 5 - Alice6th
+A plays a Throne Room.
+A plays 3 Coppers. (+$3)
+A buys and gains a Village.
+A draws 5 cards.
+Turn 6 - domibot_v1.4
+d plays a Throne Room.
+d plays a Council Room.
+d shuffles their deck.
+d draws 2 Coppers, a Silver, and a Moneylender.
+d gets +1 Buy.
+A draws a card.
+d plays a Council Room again.
+d draws 2 Coppers, a Silver, and an Estate.
+d gets +1 Buy.
+A draws a card.
+d plays 2 Silvers and 6 Coppers. (+$10)
+d buys and gains a Gold.
+d shuffles their deck.
+d draws 2 Coppers, 2 Estates, and a Throne Room.
+Turn 6 - Alice6th
+A plays a Village.
+A draws a card.
+A gets +2 Actions.
+A plays a Market.
+A shuffles their deck.
+A draws a card.
+A gets +1 Action.
+A gets +1 Buy.
+A gets +$1.
+A plays a Moneylender.
+A trashes a Copper.
+A gets +$3.
+A plays 3 Coppers. (+$3)
+A buys and gains a Vassal.
+A buys and gains a Throne Room.
+A draws 5 cards.
+Turn 7 - domibot_v1.4
+d plays a Throne Room.
+d plays 2 Coppers. (+$2)
+d draws 2 Coppers, a Gold, an Estate, and a Moneylender.
+Turn 7 - Alice6th
+A plays a Throne Room.
+A plays a Village.
+A shuffles their deck.
+A draws a card.
+A gets +2 Actions.
+A plays a Village again.
+A draws a card.
+A gets +2 Actions.
+A plays a Market.
+A draws a card.
+A gets +1 Action.
+A gets +1 Buy.
+A gets +$1.
+A plays a Vassal.
+A gets +$2.
+A discards an Estate.
+A plays 2 Coppers. (+$2)
+A buys and gains a Library.
+A draws 5 cards.
+Turn 8 - domibot_v1.4
+d plays a Moneylender.
+d trashes a Copper.
+d gets +$3.
+d plays a Gold and a Copper. (+$4)
+d buys and gains a Gold.
+d draws 2 Coppers, 2 Silvers, and a Council Room.
+Turn 8 - Alice6th
+A plays a Moneylender.
+A trashes a Copper.
+A gets +$3.
+A plays 2 Coppers. (+$2)
+A buys and gains a Market.
+A shuffles their deck.
+A draws 5 cards.
+Turn 9 - domibot_v1.4
+d plays a Council Room.
+d shuffles their deck.
+d draws a Gold, 2 Estates, and a Throne Room.
+d gets +1 Buy.
+A draws a card.
+d plays a Gold, 2 Silvers, and 2 Coppers. (+$9)
+d buys and gains a Province.
+d draws 2 Coppers, a Gold, an Estate, and a Moneylender.
+Turn 9 - Alice6th
+A plays a Village.
+A draws a card.
+A gets +2 Actions.
+A plays a Throne Room.
+A plays a Market.
+A draws a card.
+A gets +1 Action.
+A gets +1 Buy.
+A gets +$1.
+A plays a Market again.
+A draws a card.
+A gets +1 Action.
+A gets +1 Buy.
+A gets +$1.
+A plays a Throne Room.
+A plays a Vassal.
+A gets +$2.
+A discards a Village.
+A plays a Village.
+A draws a card.
+A gets +2 Actions.
+A plays a Vassal again.
+A gets +$2.
+A discards an Estate.
+A plays a Moneylender.
+A trashes a Copper.
+A gets +$3.
+A plays a Library.
+A looks at a card.
+A looks at a card.
+A looks at a card.
+A looks at a card.
+A shuffles their deck.
+A looks at a card.
+A plays a Market.
+A gets +1 Action.
+A gets +1 Buy.
+A gets +$1.
+A plays 3 Coppers. (+$3)
+A buys and gains a Throne Room.
+A buys and gains 3 Vassals.
+A shuffles their deck.
+A draws 5 cards.
+Turn 10 - domibot_v1.4"""
+
+
+def test_throne_room_after_vassal_bails_instead_of_miscounting():
+    # Before the fix, this silently over-counted opp_discard/opp_play_area
+    # (both "discards a Throne Room" lines and both "plays a Throne Room"
+    # lines were each treated as independent hand-sourced copies), which
+    # then blew up downstream in reconstruct_game's by-elimination check --
+    # a confusing failure mode one full layer away from the actual cause.
+    # Layer 2 should instead recognize it can't safely replay this exactly
+    # and gracefully fall back (None fields), same as any other
+    # can't-resolve-exactly case (an unnamed card, etc.).
+    parsed = parse_dominion_log(THRONE_THEN_VASSAL_THEN_THRONE_LOG, my_name="domibot_v1.4",
+                                 kingdom=THRONE_VASSAL_KINGDOM)
+    assert parsed.my_hand is None
+    assert parsed.opp_discard is None
+    # Layer 1 (supply/trash/my_total) is independent of the replay and must
+    # still come through even when layer 2 bails.
+    assert parsed.supply is not None
+    assert parsed.my_total is not None
+
+
+def test_two_thrones_then_vassal_still_fully_derives():
+    # The mirror-image ordering (both Throne Rooms resolve before Vassal
+    # ever enters the picture) is unambiguous and must keep working --
+    # confirms the fix is scoped to the actual ambiguous ordering, not to
+    # "two Throne Rooms and a Vassal in the same turn" in general.
+    parsed = parse_dominion_log(TWO_THRONES_THEN_VASSAL_LOG, my_name="domibot_v1.4",
+                                 kingdom=TWO_THRONES_THEN_VASSAL_KINGDOM)
+    assert parsed.my_hand is not None
+    assert parsed.opp_discard is not None
+
+
 def test_bureaucrat_reveals_hand_fallback_is_a_no_op():
     # Previously "L reveals their hand: 5 Coppers." matched the general
     # reveal regex and then blew up trying to parse "their hand: 5
