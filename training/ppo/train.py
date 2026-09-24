@@ -14,6 +14,7 @@ number already measured for the MCTS lineage.
 from __future__ import annotations
 
 import argparse
+import random
 import time
 from pathlib import Path
 
@@ -29,7 +30,7 @@ from ..evaluate import play_match
 from ..network import DomibotNet, get_device
 from ..self_play import DEFAULT_MAX_MOVES
 from .gae import Transition
-from .rollout import collect_rollouts
+from .rollout import collect_cross_play_rollouts, collect_rollouts
 
 CHECKPOINT_DIR = Path(__file__).resolve().parent.parent.parent / "checkpoints"
 
@@ -146,6 +147,21 @@ def main() -> None:
                               "Dirichlet-noise-at-root/action_bias; probably matters a lot for whether it ever "
                               "tries chaining action cards, so worth tuning deliberately, not left at the default")
     parser.add_argument("--grad-clip", type=float, default=0.5)
+    parser.add_argument("--opponent-pool-size", type=int, default=0,
+                         help="keep this many of the most recently saved domibot2_iter_N.pt checkpoints from *this "
+                              "run* (plus the --checkpoint resumed from, if any) as eligible opponents for "
+                              "--opponent-pool-frac of each iteration's games (see "
+                              "ppo.rollout.collect_cross_play_rollouts). 0 (default) disables this -- rollouts are "
+                              "always the current network vs itself, as before. Exists because pure self-play "
+                              "optimizes toward 'beat the version of myself I'm currently playing against', which "
+                              "can make a partially-executed complex strategy look like a regression against the "
+                              "current population even when a well-executed version of it would win -- facing a "
+                              "genuinely different, historical strategy some of the time breaks that "
+                              "self-reinforcement (see train.py's identical flag, ported here for PPO).")
+    parser.add_argument("--opponent-pool-frac", type=float, default=0.0,
+                         help="fraction of --games-per-iter played as cross-play against a sampled opponent-pool "
+                              "checkpoint instead of pure self-play (only meaningful when --opponent-pool-size > "
+                              "0). Only the current network's own seat produces training examples in these games.")
     parser.add_argument("--eval-every", type=int, default=5)
     parser.add_argument("--eval-games", type=int, default=20)
     parser.add_argument("--eval-reference-checkpoint", type=str, default=None,
@@ -172,6 +188,7 @@ def main() -> None:
           f"minibatch_size: {args.minibatch_size}  |  lr: {args.lr} -> {args.lr * args.lr_final_frac:g}  |  "
           f"gamma: {args.gamma}  |  gae_lambda: {args.gae_lambda}  |  clip_eps: {args.clip_eps}  |  "
           f"entropy_coef: {args.entropy_coef}")
+    print(f"opponent_pool_size: {args.opponent_pool_size}  |  opponent_pool_frac: {args.opponent_pool_frac}")
 
     network = DomibotNet.load(args.checkpoint, map_location=device).to(device) if args.checkpoint else DomibotNet().to(device)
     if args.checkpoint:
@@ -189,16 +206,42 @@ def main() -> None:
         print(f"reference opponent: {args.eval_reference_checkpoint}")
 
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+    rng = random.Random(args.seed)
+
+    # Opponent pool: checkpoints from *this run* only (plus the resume
+    # checkpoint, if any) -- never scans disk for older/unrelated lineages'
+    # saved files. Populated as domibot2_iter_N.pt snapshots are saved below.
+    recent_checkpoint_paths: list[Path] = [Path(args.checkpoint)] if args.checkpoint else []
 
     end_iteration = args.start_iteration + args.iterations - 1
     for iteration in range(args.start_iteration, end_iteration + 1):
         network.eval()
         t0 = time.time()
-        games = collect_rollouts(
-            network, args.games_per_iter, max_moves=max_moves, device=device,
-            seed=args.seed * 1_000_003 + iteration, min_sub_decision_cards=args.min_sub_decision_cards,
-            gamma=args.gamma, lam=args.gae_lambda,
-        )
+
+        pool_games = 0
+        opponent_network = None
+        opponent_path = None
+        if args.opponent_pool_size > 0 and args.opponent_pool_frac > 0 and recent_checkpoint_paths:
+            pool_games = round(args.games_per_iter * args.opponent_pool_frac)
+        if pool_games > 0:
+            opponent_path = rng.choice(recent_checkpoint_paths)
+            opponent_network = DomibotNet.load(opponent_path, map_location=device).to(device)
+            opponent_network.eval()
+
+        games = []
+        remaining = args.games_per_iter - pool_games
+        if remaining > 0:
+            games += collect_rollouts(
+                network, remaining, max_moves=max_moves, device=device,
+                seed=rng.randrange(2**31), min_sub_decision_cards=args.min_sub_decision_cards,
+                gamma=args.gamma, lam=args.gae_lambda,
+            )
+        if pool_games > 0:
+            games += collect_cross_play_rollouts(
+                network, opponent_network, pool_games, max_moves=max_moves, device=device,
+                seed=rng.randrange(2**31), min_sub_decision_cards=args.min_sub_decision_cards,
+                gamma=args.gamma, lam=args.gae_lambda,
+            )
         rollout_time = time.time() - t0
         transitions = [t for game in games for t in game]
 
@@ -216,6 +259,8 @@ def main() -> None:
         msg = (f"iter {iteration}/{end_iteration}  transitions={len(transitions)}  "
                f"rollout={rollout_time:.1f}s  update={update_time:.1f}s  "
                f"policy_loss={pl:.4f}  value_loss={vl:.4f}  entropy={ent:.4f}")
+        if pool_games > 0:
+            msg += f"  pool_games={pool_games}({Path(opponent_path).stem})"
         if scheduler is not None:
             msg += f"  lr={optimizer.param_groups[0]['lr']:.2e}"
         print(msg, flush=True)
@@ -233,7 +278,11 @@ def main() -> None:
                 ref_result = play_match(agent, reference_agent, n_games=args.eval_games, seed=iteration)
                 print(f"  eval vs {Path(args.eval_reference_checkpoint).stem}: "
                       f"{ref_result['agent_a_wins']}/{ref_result['games']} wins, {ref_result['ties']} ties", flush=True)
-            network.save(CHECKPOINT_DIR / f"domibot2_iter_{iteration}.pt")
+            iter_path = CHECKPOINT_DIR / f"domibot2_iter_{iteration}.pt"
+            network.save(iter_path)
+            if args.opponent_pool_size > 0:
+                recent_checkpoint_paths.append(iter_path)
+                del recent_checkpoint_paths[:-args.opponent_pool_size]
 
 
 if __name__ == "__main__":

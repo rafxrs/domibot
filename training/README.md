@@ -330,34 +330,65 @@ iteration, since there's no simulation budget to pay for at all. Eval vs
 `iter_400` and `iter_380` behind at ~45%) -- but win rate among four
 checkpoints from a one-hour run isn't the actual goal here, and it
 buried the more important difference: `iter_400` (the final checkpoint)
-chains actions far more than `iter_300` does (see below). Promoted
-`iter_400` on that basis instead, confirmed with a direct 60-game match
-against `domibot_v4.4.pt` (its real MCTS search, 100 sims, vs.
-`domibot2.1.pt`'s raw policy, no search at all): **`domibot2.1.pt` won
-30-28-2** -- a narrower margin than `iter_300` would have given (which
-beat `domibot_v4.4.pt` 33-26-1 in the same test), but still a real win,
-on the checkpoint that actually shows the behavior this project has been
-chasing.
+chained actions far more than `iter_300` did: on the fixed engine-rich
+kingdom used throughout this project's diagnostics, `iter_400` (raw
+policy, no search) went 100% single-action on the Witch kingdom (19-1 vs
+BigMoney; Witch alone judged good enough there, the same call every
+strong MCTS checkpoint made) but with Witch removed, 20-0 vs BigMoney
+with 62/218 turns (28%) multi-action, up to 5 plays deep, buying
+Laboratory 26 times and visibly chaining it into further plays --
+something no MCTS checkpoint ever showed after `domibot_v4.2.pt`.
+`iter_300` showed the same pattern far more weakly (17/254 and 22/117
+turns respectively). Confirmed `iter_400` with a direct 60-game match
+against `domibot_v4.4.pt` (its real MCTS search, 100 sims, vs. the raw
+policy, no search at all): won 30-28-2 -- narrower than `iter_300` would
+have given (33-26-1 in the same test), but a real win on the checkpoint
+actually showing the behavior this project has been chasing.
 
-The result that mattered: on the fixed engine-rich kingdom used
-throughout this project's diagnostics, `domibot2.1.pt` (raw policy, no
-search) goes 100% single-action on the Witch kingdom (**19-1 vs
-BigMoney**; Witch alone judged good enough there, the same call every
-strong MCTS checkpoint made) but on the same kingdom with Witch removed,
-**20-0 vs BigMoney with 62/218 turns (28%) multi-action, up to 5 plays
-deep**, buying Laboratory 26 times and visibly chaining it into further
-plays -- something no MCTS checkpoint ever showed after `domibot_v4.2.pt`.
-`iter_300` shows the same pattern far more weakly (17/254 and 22/117
-turns respectively) -- real, but a fraction of `iter_400`'s, which is
-exactly why it's the better pick despite the lower win-rate-among-
-siblings: on the actual objective, `iter_400` is doing more of what
-matters, more clearly.
+**Continued training and a warm restart** (iterations 401-4400): resumed
+from `iter_400`, continuing to iteration 2400 -- eval vs `domibot_v4.4.pt`
+climbed as high as 80% but the win-rate trend flattened (near-zero r² on
+a least-squares fit; see `plot_eval.py`), the same plateau signature that
+kept recurring in the MCTS lineage. Applied the same fix that repeatedly
+worked there: a warm restart (cosine LR decay from `1.7e-4` down to
+`~3e-5`, `entropy_coef` raised `0.01` -> `0.03`) run to iteration 4400.
+Win rate stayed a flat/noisy plateau (already near-saturated against
+BigMoney/BigMoney+terminal), but chaining -- the metric that actually
+matters -- broadened specifically where it had been weakest: the Witch
+kingdom went from 7% to 20% multi-action turns, now also buying
+Laboratory there, while the Witch-free kingdom held steady (~24-30%).
+Final eval at iter_4400: 85%/75%/80% vs BigMoney/BigMoney+terminal/
+`domibot_v4.4.pt`.
 
-**Not yet done**: Stage 2 (privileged critic), Stage 3 (opponent pool
-ported to PPO), Stage 4 (inference-time search for the relay tool);
-hyperparameter tuning (`entropy_coef` especially -- PPO's exploration
-driver, likely to matter a lot for how reliably it finds chaining);
-longer runs to see whether strength and chaining both keep improving.
+**Opponent pool** (Stage 3, iterations 4401-8000): resumed from
+`iter_4400` with `--opponent-pool-size 5 --opponent-pool-frac 0.3`
+(`ppo.rollout.collect_cross_play_rollouts` -- 30% of each iteration's
+games played against a frozen snapshot sampled from the run's own 5
+most recent checkpoints, so training never optimizes purely against "beat
+the version of myself I'm currently playing against"), LR held flat at
+`3e-5` and `entropy_coef` held at `0.03` so the pool was the only new
+variable. Result: a wash, not a repeat of the entropy-bump win. Chaining
+moved in opposite directions on the two fixed kingdoms (Witch: 20% -> 13%;
+Witch-free: 24% -> 28%), and the win-rate trend over just this run's own
+span stayed flat/noisy (r²<0.2 on all three eval series). Plausible
+reason: at `pool_frac=0.3` sampling from checkpoints only ~400 iterations
+apart, the "opponent" is nearly identical to the current policy, so it
+may not inject much real strategic diversity -- an older/wider pool is
+untried. Final eval at iter_8000: 100%/65%/80% vs BigMoney/
+BigMoney+terminal/`domibot_v4.4.pt`.
+
+**Promoted `iter_8000` as `domibot2.1.pt`** -- by convention this name
+now marks the end of domibot 2's first training arc (the full run from a
+fresh network through 8000 iterations: the initial 400, the continuation
+to 2400, the entropy/LR warm restart to 4400, and the opponent-pool
+experiment to 8000), superseding the earlier interim promotion of
+`iter_400` under the same name.
+
+**Not yet done**: Stage 2 (privileged critic), Stage 4 (inference-time
+search for the relay tool); a wider/older opponent pool or higher
+`--opponent-pool-frac` (this run's pool sampled only very recent, nearly-
+identical snapshots); further hyperparameter tuning; longer runs to see
+whether strength and chaining both keep improving.
 
 ## What's still missing
 

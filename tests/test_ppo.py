@@ -4,7 +4,7 @@ from domibot import Game, KINGDOM_CARDS
 from training.mcts import terminal_value
 from training.network import DomibotNet
 from training.ppo.gae import Transition, compute_gae
-from training.ppo.rollout import collect_rollouts
+from training.ppo.rollout import collect_cross_play_rollouts, collect_rollouts
 
 
 def _tiny_kingdom():
@@ -96,3 +96,25 @@ def test_collect_rollouts_completes_across_several_seeds():
         games = collect_rollouts(net, num_games=2, kingdom=_tiny_kingdom(), max_moves=30, seed=seed)
         assert len(games) == 2
         assert all(len(g) > 0 for g in games)
+
+
+def test_collect_cross_play_rollouts_only_records_current_networks_seat():
+    net = DomibotNet()
+    net.eval()
+    opponent = DomibotNet()
+    opponent.eval()
+    games = collect_cross_play_rollouts(net, opponent, num_games=4, kingdom=_tiny_kingdom(), max_moves=40, seed=2)
+    assert len(games) == 4
+    for transitions in games:
+        assert len(transitions) > 0
+        # every recorded transition belongs to a single seat per game (the
+        # randomly assigned current_seat) -- cross-play never records the
+        # frozen opponent's own decisions
+        deciders = {t.decider for t in transitions}
+        assert len(deciders) == 1
+        for t in transitions:
+            assert t.obs.shape == (net.obs_dim,)
+            assert t.mask.shape == (net.num_actions,)
+            assert t.mask[t.action]
+            assert np.isfinite(t.advantage)
+            assert np.isfinite(t.return_)
