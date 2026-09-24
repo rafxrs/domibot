@@ -243,6 +243,21 @@ def test_parses_real_log_supply_decremented_for_both_players_buys():
     assert parsed.supply["Artisan"] == 10 - 2  # d bought 2 (T8, T10); l never touched Artisan
 
 
+def test_gardens_supply_starts_at_victory_pile_size_not_ten():
+    # Gardens is a Kingdom card that's also a Victory card -- it uses the
+    # 8-card (2p) / 12-card (3-4p) Victory pile, not the flat 10 every
+    # other Kingdom card gets (see domibot.Game.__init__, the same rule).
+    # Before the fix this was silently 10, so 8 real buys still left the
+    # tracked supply showing 2 remaining when the pile was actually empty
+    # -- reported by a user whose relay kept recommending Gardens after
+    # the real pile had run out.
+    log = "\n".join("d buys and gains a Gardens." for _ in range(8))
+    kingdom = ["Gardens", "Smithy", "Remodel", "Bandit", "Moneylender", "Sentry",
+               "Cellar", "Artisan", "Village", "Chapel"]
+    parsed = parse_dominion_log(log, my_name="domibot_v1.4", kingdom=kingdom)
+    assert parsed.supply["Gardens"] == 0
+
+
 def test_parses_real_log_turns_taken():
     parsed = parse_dominion_log(REAL_LOG, my_name="domibot_v1.4", kingdom=KINGDOM)
     # d has started turn 10 (fully shown) and l has started turn 11 -- so
@@ -1481,6 +1496,50 @@ def test_two_thrones_then_vassal_still_fully_derives():
                                  kingdom=TWO_THRONES_THEN_VASSAL_KINGDOM)
     assert parsed.my_hand is not None
     assert parsed.opp_discard is not None
+
+
+VASSAL_HAND_SIZE_KINGDOM = ["Vassal", "Village", "Market", "Moneylender", "Chapel", "Witch",
+                            "Militia", "Moat", "Council Room", "Festival"]
+
+VASSAL_DECLINE_LOG = """Game #1, unrated.
+d starts with 7 Coppers.
+d starts with 3 Estates.
+L starts with 7 Coppers.
+L starts with 3 Estates.
+d shuffles their deck.
+L shuffles their deck.
+d draws 4 Coppers and an Estate.
+L draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Silver.
+d draws 3 Coppers and 2 Estates.
+Turn 1 - Lord Rattington
+L plays 4 Coppers. (+$4)
+L buys and gains a Vassal.
+L draws 5 cards.
+Turn 2 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d draws 3 Coppers, an Estate, and a Silver.
+Turn 2 - Lord Rattington
+L plays a Vassal.
+L gets +$2.
+L discards a Copper."""
+
+
+def test_vassal_reveal_discard_does_not_decrement_opponent_hand_size():
+    # Before the fix, Vassal's reveal-and-decline discard was indistinguishable
+    # from a plain hand-sourced discard (no "reveals" line precedes it, unlike
+    # Sentry/Bandit), so it wrongly charged the revealed card against the
+    # opponent's hand even though it came straight off their deck top.
+    parsed = parse_dominion_log(VASSAL_DECLINE_LOG, my_name="domibot_v1.4",
+                                 kingdom=VASSAL_HAND_SIZE_KINGDOM)
+    assert parsed.opp_hand_size is not None
+    # Turn 2 Lord Rattington starts at 5 (turn 1's cleanup draw); playing
+    # Vassal costs 1 hand card (-> 4); the revealed-and-discarded Copper
+    # must not cost another.
+    assert parsed.opp_hand_size == 4
 
 
 def test_bureaucrat_reveals_hand_fallback_is_a_no_op():

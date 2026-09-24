@@ -46,7 +46,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
-from domibot import ALL_CARDS, Action
+from domibot import ALL_CARDS, Action, CardType
 
 _RATING_LINE = re.compile(r"^([\w.\- ]+): [\d.]+$")
 _TURN_LINE = re.compile(r"^Turn (\d+) - (.+)$")
@@ -285,6 +285,16 @@ def _replay_full_state(
     # fully supported; only the combination bails.
     opp_throne_room_plays_this_turn = 0
     opp_played_vassal_this_turn = False
+    # True exactly between the opponent playing a Vassal (any resolution of
+    # it -- the "again" doubled one included) and the single play/discard
+    # that resolves its reveal: that one card comes straight off the deck
+    # top, never touching hand, so (unlike every other opponent play/
+    # discard, which the code below otherwise always assumes is
+    # hand-sourced) it must not decrement opp.hand_size. Doesn't affect
+    # *which* zone the card ends up counted in (play_area if they chose to
+    # play it, discard if not) -- only whether it's charged against their
+    # hand.
+    opp_vassal_pending = False
     # True exactly when the most recent play in current_turn_safe_path was
     # a supported attack (Militia) whose reaction hasn't shown up yet --
     # cleared the moment a line about *me* appears during the opponent's
@@ -318,6 +328,7 @@ def _replay_full_state(
             reaction_pending = False
             opp_throne_room_plays_this_turn = 0
             opp_played_vassal_this_turn = False
+            opp_vassal_pending = False
             if current_turn_player == opp_full_name:
                 opp_turn_start_discard = list(opp.discard)
             continue
@@ -415,8 +426,16 @@ def _replay_full_state(
                         opp_throne_room_plays_this_turn += 1
                     elif card_name == "Vassal":
                         opp_played_vassal_this_turn = True
-                    opp.hand_size -= 1
+                    if opp_vassal_pending:
+                        # this play *is* the pending Vassal's reveal
+                        # resolution (they chose to play the revealed
+                        # card) -- it came off the deck top, not hand.
+                        opp_vassal_pending = False
+                    else:
+                        opp.hand_size -= 1
                     opp.play_area.append(card_name)
+                    if card_name == "Vassal":
+                        opp_vassal_pending = True  # this Vassal's own reveal is now pending
                 # A Throne-Room-style replay (`again`) would need its own
                 # sub-decision (which card to double) represented in the
                 # path, which nothing here builds -- and any card outside
@@ -529,7 +548,13 @@ def _replay_full_state(
                         reaction_pending = False  # this resolves the Militia discard just requested
                 else:
                     if not from_reveal:
-                        opp.hand_size -= 1
+                        if opp_vassal_pending:
+                            # this discard *is* the pending Vassal's reveal
+                            # resolution (declined) -- straight off the deck
+                            # top, not hand.
+                            opp_vassal_pending = False
+                        else:
+                            opp.hand_size -= 1
                     opp.discard.append(card)
                     # A discard belonging to the opponent, during their own
                     # still-open turn, can only be self-caused (Cellar/
@@ -679,14 +704,20 @@ def parse_dominion_log(text: str, my_name: str, kingdom: list[str], num_players:
             raise ValueError(f"unrecognized player abbreviation {abbrev!r} (known: {abbrev_to_name})")
         return name
 
+    victory_pile_size = 8 if num_players == 2 else 12
     supply: Counter = Counter({"Copper": 60 - _STARTING_COPPER * num_players,
                                 "Silver": 40, "Gold": 30,
-                                "Estate": 8 if num_players == 2 else 12,
-                                "Duchy": 8 if num_players == 2 else 12,
-                                "Province": 8 if num_players == 2 else 12,
+                                "Estate": victory_pile_size,
+                                "Duchy": victory_pile_size,
+                                "Province": victory_pile_size,
                                 "Curse": 10 * (num_players - 1)})
     for name in kingdom:
-        supply[name] = 10
+        # A Kingdom card that's also a Victory card (e.g. Gardens) uses the
+        # same pile size as the basic Victory cards, not the flat 10 every
+        # other Kingdom card gets -- see domibot.Game.__init__, the same
+        # rule applied there.
+        is_victory = CardType.VICTORY in ALL_CARDS[name].types
+        supply[name] = victory_pile_size if is_victory else 10
 
     trash: list[str] = []
     my_total: Counter = Counter({"Copper": _STARTING_COPPER, "Estate": _STARTING_ESTATE})
@@ -740,13 +771,19 @@ def parse_dominion_log(text: str, my_name: str, kingdom: list[str], num_players:
             me, opp, pending_reaction = _replay_full_state(lines, my_full_name, other_names[0], resolve)
             # Every card is in exactly one of {supply, trash, mine, theirs} --
             # solved by elimination, the same trick reconstruct_game uses.
+            # A Victory-type Kingdom card (Gardens) starts at victory_pile_size
+            # total, not 10, same as the supply-init loop above.
+            kingdom_total = sum(
+                victory_pile_size if CardType.VICTORY in ALL_CARDS[name].types else 10
+                for name in kingdom
+            )
             total_sum = (
                 60 + 40 + 30
-                + (8 if num_players == 2 else 12) + _STARTING_ESTATE * num_players
-                + (8 if num_players == 2 else 12)
-                + (8 if num_players == 2 else 12)
+                + victory_pile_size + _STARTING_ESTATE * num_players
+                + victory_pile_size
+                + victory_pile_size
                 + 10 * (num_players - 1)
-                + 10 * len(kingdom)
+                + kingdom_total
             )
             opp_total = total_sum - sum(supply.values()) - len(trash) - sum(my_total.values())
             opp_draw_pile_size = opp_total - opp.hand_size - len(opp.discard) - len(opp.play_area)

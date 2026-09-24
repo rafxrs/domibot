@@ -254,6 +254,23 @@ def test_merchant_bonus_on_first_silver_only():
 
 
 # ------------------------------------------------------------------ Gardens
+def test_gardens_supply_uses_victory_pile_size_not_flat_ten():
+    # Gardens is a Kingdom card that's also a Victory card -- the rulebook
+    # says it uses the same pile size as Estate/Duchy/Province (8 for 2p,
+    # 12 for 3-4p), not the flat 10 every other Kingdom card gets. Before
+    # the fix this was silently 10, so a bot could keep recommending
+    # Gardens for 2 turns after the real pile had already emptied.
+    game2p = make_game(["Gardens"], num_players=2, seed=14)
+    assert game2p.supply["Gardens"] == 8
+    game4p = make_game(["Gardens"], num_players=4, seed=14)
+    assert game4p.supply["Gardens"] == 12
+    # An ordinary (non-Victory) Kingdom card is unaffected -- Gardens is the
+    # only Victory-type Kingdom card in the base set, so any other slot
+    # (kingdom[0] is Gardens itself, per make_game's `required` placement)
+    # is guaranteed to be a flat-10 pile.
+    assert game2p.supply[game2p.kingdom[1]] == 10
+
+
 def test_gardens_vp_scales_with_total_cards():
     game = make_game(["Gardens"], seed=14)
     p = game.players[0]

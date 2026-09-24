@@ -53,7 +53,14 @@ class Game:
             "Curse": 10 * (num_players - 1),
         }
         for name in self.kingdom:
-            self.supply[name] = 10
+            # A Kingdom card that's also a Victory card (e.g. Gardens) uses
+            # the same pile size as the basic Victory cards, not the flat 10
+            # every other Kingdom card gets -- official rule, not a house
+            # variant (the rulebook calls it out explicitly for exactly this
+            # reason: it'd otherwise be a much deeper pile than Estate/Duchy/
+            # Province ever are).
+            is_victory = CardType.VICTORY in self.cards[name].types
+            self.supply[name] = victory_pile_size if is_victory else 10
 
         self.trash: list[str] = []
         self.players = [PlayerState(name=f"P{i}") for i in range(num_players)]
