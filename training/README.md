@@ -278,7 +278,9 @@ git log / prior commit messages; this table is the durable summary.
 replacing the `domibot_vX.Y.pt` style the MCTS lineage used. Logs and
 checkpoints are also split by lineage: `logs/domibot1/` /
 `checkpoints/` (the `domibot_vX.Y.pt` files, `vX.Y_run/` snapshot
-folders) for MCTS, `logs/domibot2/` / `checkpoints/domibot2_run/` for PPO.
+folders) for MCTS, `logs/domibot2/` / `checkpoints/domibot2/` (every
+iteration snapshot and the promoted `domibotN.M.pt` files together, per
+`training/ppo/train.py`'s `CHECKPOINT_DIR`) for PPO.
 
 ## domibot 2: PPO self-play
 

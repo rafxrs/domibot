@@ -32,7 +32,7 @@ from ..self_play import DEFAULT_MAX_MOVES
 from .gae import Transition
 from .rollout import collect_cross_play_rollouts, collect_rollouts
 
-CHECKPOINT_DIR = Path(__file__).resolve().parent.parent.parent / "checkpoints"
+CHECKPOINT_DIR = Path(__file__).resolve().parent.parent.parent / "checkpoints" / "domibot2"
 
 
 class PPOAgent:
