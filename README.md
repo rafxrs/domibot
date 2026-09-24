@@ -7,7 +7,54 @@ is shaped around the needs of a search/self-play loop rather than a
 human-playable CLI: at every point there is exactly one player who must make
 exactly one choice from an explicit list of legal actions.
 
-## Quickstart
+## Setup
+
+```bash
+git clone https://github.com/rafxrs/domibot.git
+cd domibot
+pip install -e ".[dev,train,gui]"
+```
+
+Python 3.10+. `train` pulls in `torch` (CPU build by default — see
+`training/README.md`'s GPU section to install a CUDA build instead);
+`gui` pulls in `pygame`. Drop either extra you don't need.
+
+## Play
+
+- Play a game yourself against a random-move bot (text CLI):
+  ```bash
+  python examples/play_vs_random.py [seed]
+  ```
+- Play against a trained Domibot checkpoint (text CLI, or `--gui` for a
+  pygame window):
+  ```bash
+  python examples/play_vs_domibot.py
+  python examples/play_vs_domibot.py --gui
+  ```
+- Watch Domibot play itself (N games, M agents, 2-4 players):
+  ```bash
+  python examples/play_domibot.py --games 20 --players 2
+  ```
+- Get move recommendations while playing a real game yourself (e.g. on
+  dominion.games):
+  ```bash
+  python examples/domibot_relay.py
+  ```
+- Train a new Domibot from scratch — MCTS self-play or PPO (see
+  `training/README.md` for the difference and why both exist):
+  ```bash
+  python -m training.train
+  python -m training.ppo.train
+  ```
+- Evaluate a checkpoint against the baseline agents:
+  ```bash
+  python -m training.evaluate 200
+  ```
+
+See `training/README.md` for flags, checkpoint layout, GPU setup, and the
+full checkpoint lineage.
+
+## Using the engine directly
 
 ```python
 import random
@@ -66,10 +113,8 @@ verb is legal, since e.g. `YES`/`NO` is reused across unrelated effects
 ## Layout
 
 Repo root: `src/domibot/` (the engine, below), `tests/`, `examples/` (CLI
-scripts), `training/` (the RL layer — see its own README), `gui/` (a
-pygame front-end, launched via `examples/play_vs_domibot.py --gui`;
-`pip install -e ".[gui]"` for the pygame dependency), `game_logs/`
-(gitignored, generated).
+scripts), `training/` (the RL layer — see its own README), `gui/` (the
+pygame front-end behind `--gui`), `game_logs/` (gitignored, generated).
 
 - `enums.py` — `CardType`, `Phase`, `DecisionKind`
 - `models.py` — `Action`, `Decision`
