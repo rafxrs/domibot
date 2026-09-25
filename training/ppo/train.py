@@ -80,9 +80,11 @@ def ppo_update(
     Forced moves (exactly one legal action, ~40% of all transitions) have a
     constant log-prob of 0, so they carry no policy gradient; they're left
     out of the policy/entropy terms and the advantage statistics rather than
-    diluting them, but still train the value head. `target_kl` stops the
-    update early once a minibatch's approximate KL from the rollout policy
-    exceeds 1.5x it. Returns means over the minibatches actually run."""
+    diluting them, but still train the value head. `target_kl` skips the
+    remaining epochs once an epoch's mean approximate KL from the rollout
+    policy exceeds 1.5x it (checked per epoch, not per minibatch: a
+    256-sample minibatch's KL estimate is noisy enough to trip it on noise
+    alone). Returns means over the minibatches actually run."""
     obs = torch.from_numpy(np.stack([t.obs for t in transitions])).to(device)
     mask = torch.from_numpy(np.stack([t.mask for t in transitions])).to(device)
     actions = torch.tensor([t.action for t in transitions], dtype=torch.long, device=device)
@@ -96,8 +98,8 @@ def ppo_update(
 
     n = len(transitions)
     stats: dict[str, list[float]] = {k: [] for k in ("policy_loss", "value_loss", "entropy", "approx_kl", "clipfrac")}
-    stopped_early = False
     for _ in range(epochs):
+        epoch_kls: list[float] = []
         perm = np.random.permutation(n)
         for start in range(0, n, minibatch_size):
             mb = torch.from_numpy(perm[start:start + minibatch_size]).to(device)
@@ -112,9 +114,7 @@ def ppo_update(
             with torch.no_grad():
                 approx_kl = float((((ratio - 1) - log_ratio) * w).sum() / n_free)
                 clipfrac = float((((ratio - 1).abs() > clip_eps).float() * w).sum() / n_free)
-            if target_kl is not None and approx_kl > 1.5 * target_kl:
-                stopped_early = True
-                break
+            epoch_kls.append(approx_kl)
 
             surr1 = ratio * advantages[mb]
             surr2 = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * advantages[mb]
@@ -133,7 +133,7 @@ def ppo_update(
                 stats[k].append(float(v.item()))
             stats["approx_kl"].append(approx_kl)
             stats["clipfrac"].append(clipfrac)
-        if stopped_early:
+        if target_kl is not None and sum(epoch_kls) / len(epoch_kls) > 1.5 * target_kl:
             break
 
     out = {k: (sum(v) / len(v) if v else float("nan")) for k, v in stats.items()}
