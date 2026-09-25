@@ -315,30 +315,59 @@ the midpoint and the end.
 
 A smaller entropy bonus barely helps (B vs C), so the bonus isn't what
 drives the drift. A lower learning rate slows it (B → D). A 4x larger
-batch helps at 5e-5 (B → F) but not at 1e-4 (E). F held strength while
-still learning at a usable rate, so the long run uses it.
+batch helps at 5e-5 (B → F) but not at 1e-4 (E). F held strength over its
+50 iterations, so the first long run used it.
 
-**The run and its control.** F's settings with cosine decay to 10%, for
-2000 iterations of 256 games (512k games, twice the 2.2 run's). The recipe
-changed along with the network, so the same recipe also runs on the 256×4
-`domibot2_iter_12000.pt` as a control; `--run-name` keeps their checkpoint
-files apart. At the same learning rate the larger network's per-update
-KL is ~4x the smaller one's (0.005 vs 0.0013).
+**First long run: the drift came back.** F's settings with cosine decay to
+10%, for 2000 iterations of 256 games. Since the recipe changed along with
+the network, the same recipe also ran on the 256×4
+`domibot2_iter_12000.pt` as a control (`--run-name` keeps their checkpoint
+files apart). By iteration ~12650 the two had split:
+
+| | 512×6 | 256×4 control |
+|---|---|---|
+| entropy | 0.22 → 0.55–0.64 | ~0.12, flat |
+| vs BigMoney+terminal (last 15 evals) | ~57% | 73.4% |
+| vs `domibot_v4.4` (40 games at 12250, 12500) | 33, then 24 | 35, then 33 |
+| approximate KL per update | 0.018 | 0.001 |
+
+The 512×6 run was stopped there (`logs/domibot2/domibot2_512x6_run1.log`).
+
+**The cause: refitting each batch.** PPO makes several passes over each
+batch (`--epochs-per-update`, default 4), and every decision in it carries
+a noisy advantage. The larger network can fit that noise position by
+position (its surrogate loss went ~6x lower than the control's), and
+fitting noise moves the policy in random directions, which shows up as
+rising entropy. The 256×4 network can't fit it as well and averages it
+out instead. Two more probes varied only the number of passes, at F's
+settings for 100 iterations (`logs/domibot2/domibot2_512x6_probe_{G,H}.log`):
+
+| passes per batch | entropy, iteration 25 → 100 | vs BigMoney+terminal (evals at 25/50/75/100) |
+|---|---|---|
+| 4 (the stopped run) | 0.22 → 0.41 | 141, 135, 128, 121 |
+| 2 | 0.15 → 0.20 | 136, 133, 148, 144 |
+| 1 | 0.13, flat | 147, 141, 134, 147 |
+
+**Second long run.** One pass per batch, otherwise the same; the control
+keeps running unchanged:
 
 ```bash
 python -m training.ppo.train \
-    --checkpoint checkpoints/domibot2/domibot2_512x6_distilled.pt --run-name domibot2_512x6 \
-    --iterations 2000 --games-per-iter 256 --minibatch-size 1024 --start-iteration 12001 \
-    --lr 5e-5 --lr-final-frac 0.1 --entropy-coef 0.01 --target-kl 0.02 \
+    --checkpoint checkpoints/domibot2/domibot2_512x6_distilled.pt --run-name domibot2_512x6e1 \
+    --iterations 2000 --games-per-iter 256 --minibatch-size 1024 --epochs-per-update 1 \
+    --start-iteration 12001 --lr 5e-5 --lr-final-frac 0.1 --entropy-coef 0.01 --target-kl 0.02 \
     --eval-every 25 --eval-games 200 \
     --eval-reference-checkpoint checkpoints/domibot1/domibot_v4.4.pt \
     --eval-reference-every 250 --eval-reference-games 40 \
-    > logs/domibot2/domibot2_512x6_run1.log 2>&1 &
+    > logs/domibot2/domibot2_512x6_run2_1epoch.log 2>&1 &
 ```
 
-The control is the same command with `--checkpoint
+The control uses 4 passes, `--checkpoint
 checkpoints/domibot2/domibot2_iter_12000.pt --run-name domibot2_256x4`,
-logging to `logs/domibot2/domibot2_256x4_control_run1.log`.
+and logs to `logs/domibot2/domibot2_256x4_control_run1.log`. It also
+differs from the 2.2 run (4x the games per update, a quarter of the
+learning rate), so it tests whether a gentler restart alone helps the
+256×4 network.
 
 Results: in progress. The bar for promotion to `domibot2.2` is beating
 `domibot2.1` head-to-head over 2000 games with a 95% CI above 50%.
