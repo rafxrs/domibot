@@ -80,7 +80,7 @@ can't safely copy; `materialize()` replays `path` from `boundary` on
 demand, which is deterministic because every random draw goes through
 `Game.rng`.
 
-**Checkpoint lineage and results** (`checkpoints/domibot_vX.Y.pt`):
+**Checkpoint lineage and results** (`checkpoints/domibot1/domibot_vX.Y.pt`):
 
 | Checkpoint | What changed | Key measured result |
 |---|---|---|
@@ -161,7 +161,7 @@ python -m training.ppo.train \
     --iterations 4000 --games-per-iter 64 \
     --checkpoint checkpoints/domibot2/domibot2.1.pt \
     --eval-every 20 --eval-games 20 \
-    --eval-reference-checkpoint checkpoints/domibot_v4.4.pt --eval-reference-every 100 \
+    --eval-reference-checkpoint checkpoints/domibot1/domibot_v4.4.pt --eval-reference-every 100 \
     > logs/domibot2/my_run.log 2>&1 &
 ```
 

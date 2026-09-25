@@ -136,3 +136,51 @@ def encode_observation(game: Game, player_idx: int) -> np.ndarray:
     obs = np.concatenate(parts)
     assert obs.shape == (OBS_DIM,)
     return obs
+
+
+# Public information the base encoding above leaves out, appended after it
+# so the base vector is an exact prefix: a network trained on the base
+# encoding just ignores the tail (see DomibotNet.extra_dim). Every gain and
+# trash in Dominion is announced, so each opponent's total card ownership --
+# and with it their score -- is public even though its split across
+# hand/deck/discard isn't. Supply counts alone can't tell an emptied kingdom
+# pile from a card that isn't in this game (both read 0), so the kingdom
+# membership and empty-pile count are explicit too.
+# kingdom membership + empty piles + my VP + MAX_OPPONENTS * (total cards + VP) + VP lead
+EXTRA_DIM = NUM_CARDS + 1 + 1 + MAX_OPPONENTS * (NUM_CARDS + 1) + 1
+FULL_OBS_DIM = OBS_DIM + EXTRA_DIM
+
+
+def encode_public_extras(game: Game, player_idx: int) -> np.ndarray:
+    scores = game.get_scores()
+    in_game = np.zeros(NUM_CARDS, dtype=np.float32)
+    for name in game.supply:
+        in_game[CARD_INDEX[name]] = 1.0
+    empty_piles = sum(1 for count in game.supply.values() if count == 0)
+    parts = [in_game, np.array([empty_piles, scores[player_idx]], dtype=np.float32)]
+
+    opponents = game.other_players_in_order(player_idx)
+    for slot in range(MAX_OPPONENTS):
+        if slot < len(opponents):
+            parts.append(_card_counts(game.players[opponents[slot]].all_cards()))
+            parts.append(np.array([scores[opponents[slot]]], dtype=np.float32))
+        else:
+            parts.append(np.zeros(NUM_CARDS + 1, dtype=np.float32))
+    best_opp = max(scores[o] for o in opponents)
+    parts.append(np.array([scores[player_idx] - best_opp], dtype=np.float32))
+    extras = np.concatenate(parts)
+    assert extras.shape == (EXTRA_DIM,)
+    return extras
+
+
+def encode_full_observation(game: Game, player_idx: int) -> np.ndarray:
+    """`encode_observation` followed by `encode_public_extras`."""
+    return np.concatenate([encode_observation(game, player_idx), encode_public_extras(game, player_idx)])
+
+
+def encode_for(network, game: Game, player_idx: int) -> np.ndarray:
+    """Whichever encoding `network` consumes: the full one if it was built
+    with public-extras inputs, the base one otherwise."""
+    if getattr(network, "extra_dim", 0):
+        return encode_full_observation(game, player_idx)
+    return encode_observation(game, player_idx)

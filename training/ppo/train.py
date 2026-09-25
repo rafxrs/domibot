@@ -14,6 +14,7 @@ number already measured for the MCTS lineage.
 from __future__ import annotations
 
 import argparse
+import functools
 import random
 import time
 from pathlib import Path
@@ -29,7 +30,7 @@ from ..agents import BigMoneyAgent, BigMoneyTerminalAgent, DomibotAgent
 from ..evaluate import play_match
 from ..network import DomibotNet, get_device
 from ..self_play import DEFAULT_MAX_MOVES
-from .gae import Transition
+from .gae import Transition, win_weighted_value
 from .rollout import collect_cross_play_rollouts, collect_rollouts
 
 CHECKPOINT_DIR = Path(__file__).resolve().parent.parent.parent / "checkpoints" / "domibot2"
@@ -48,7 +49,7 @@ class PPOAgent:
 
     def act(self, game: Game) -> Action:
         decider = game.current_decider()
-        obs = encoding.encode_observation(game, decider)
+        obs = encoding.encode_for(self.network, game, decider)
         mask = encoding.legal_action_mask(game)
         obs_t = torch.from_numpy(obs).unsqueeze(0).to(self.device)
         mask_t = torch.from_numpy(mask).unsqueeze(0).to(self.device)
@@ -70,22 +71,32 @@ def ppo_update(
     value_loss_weight: float = 0.5,
     entropy_coef: float = 0.01,
     grad_clip: float = 0.5,
-) -> tuple[float, float, float]:
+    target_kl: float | None = None,
+) -> dict[str, float]:
     """One PPO update: `epochs` passes of minibatch clipped-surrogate
     updates over `transitions` (already carrying `.advantage`/`.return_`
-    from `gae.compute_gae`). Advantage normalization is the standard PPO
-    stabilization trick. Returns mean (policy_loss, value_loss, entropy)
-    across all minibatches/epochs, for logging."""
+    from `gae.compute_gae`), with advantage normalization.
+
+    Forced moves (exactly one legal action, ~40% of all transitions) have a
+    constant log-prob of 0, so they carry no policy gradient; they're left
+    out of the policy/entropy terms and the advantage statistics rather than
+    diluting them, but still train the value head. `target_kl` stops the
+    update early once a minibatch's approximate KL from the rollout policy
+    exceeds 1.5x it. Returns means over the minibatches actually run."""
     obs = torch.from_numpy(np.stack([t.obs for t in transitions])).to(device)
     mask = torch.from_numpy(np.stack([t.mask for t in transitions])).to(device)
     actions = torch.tensor([t.action for t in transitions], dtype=torch.long, device=device)
     old_log_probs = torch.tensor([t.log_prob for t in transitions], dtype=torch.float32, device=device)
     advantages = torch.tensor([t.advantage for t in transitions], dtype=torch.float32, device=device)
     returns = torch.tensor([t.return_ for t in transitions], dtype=torch.float32, device=device)
-    advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+    free = mask.sum(dim=-1) > 1
+    if free.sum() > 1:
+        free_adv = advantages[free]
+        advantages = (advantages - free_adv.mean()) / (free_adv.std() + 1e-8)
 
     n = len(transitions)
-    policy_losses, value_losses, entropies = [], [], []
+    stats: dict[str, list[float]] = {k: [] for k in ("policy_loss", "value_loss", "entropy", "approx_kl", "clipfrac")}
+    stopped_early = False
     for _ in range(epochs):
         perm = np.random.permutation(n)
         for start in range(0, n, minibatch_size):
@@ -93,13 +104,22 @@ def ppo_update(
             logits, values = network(obs[mb])
             masked_logits = logits.masked_fill(~mask[mb], -1e9)
             dist = torch.distributions.Categorical(logits=masked_logits)
-            new_log_probs = dist.log_prob(actions[mb])
-            entropy = dist.entropy().mean()
+            log_ratio = dist.log_prob(actions[mb]) - old_log_probs[mb]
+            ratio = torch.exp(log_ratio)
+            w = free[mb].float()
+            n_free = w.sum().clamp(min=1.0)
 
-            ratio = torch.exp(new_log_probs - old_log_probs[mb])
+            with torch.no_grad():
+                approx_kl = float((((ratio - 1) - log_ratio) * w).sum() / n_free)
+                clipfrac = float((((ratio - 1).abs() > clip_eps).float() * w).sum() / n_free)
+            if target_kl is not None and approx_kl > 1.5 * target_kl:
+                stopped_early = True
+                break
+
             surr1 = ratio * advantages[mb]
             surr2 = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * advantages[mb]
-            policy_loss = -torch.min(surr1, surr2).mean()
+            policy_loss = -(torch.min(surr1, surr2) * w).sum() / n_free
+            entropy = (dist.entropy() * w).sum() / n_free
             value_loss = F.mse_loss(values, returns[mb])
             loss = policy_loss + value_loss_weight * value_loss - entropy_coef * entropy
 
@@ -109,13 +129,16 @@ def ppo_update(
                 torch.nn.utils.clip_grad_norm_(network.parameters(), grad_clip)
             optimizer.step()
 
-            policy_losses.append(float(policy_loss.item()))
-            value_losses.append(float(value_loss.item()))
-            entropies.append(float(entropy.item()))
+            for k, v in (("policy_loss", policy_loss), ("value_loss", value_loss), ("entropy", entropy)):
+                stats[k].append(float(v.item()))
+            stats["approx_kl"].append(approx_kl)
+            stats["clipfrac"].append(clipfrac)
+        if stopped_early:
+            break
 
-    return (sum(policy_losses) / len(policy_losses),
-            sum(value_losses) / len(value_losses),
-            sum(entropies) / len(entropies))
+    out = {k: (sum(v) / len(v) if v else float("nan")) for k, v in stats.items()}
+    out["updates"] = len(stats["policy_loss"])
+    return out
 
 
 def main() -> None:
@@ -147,6 +170,18 @@ def main() -> None:
                               "Dirichlet-noise-at-root/action_bias; probably matters a lot for whether it ever "
                               "tries chaining action cards, so worth tuning deliberately, not left at the default")
     parser.add_argument("--grad-clip", type=float, default=0.5)
+    parser.add_argument("--target-kl", type=float, default=None,
+                         help="stop each update early once a minibatch's approximate KL from the rollout "
+                              "policy exceeds 1.5x this (off by default)")
+    parser.add_argument("--reward-win-weight", type=float, default=0.8,
+                         help="terminal reward = this * (+1 win / -1 loss / 0 tie) + the rest as the tanh "
+                              "margin (gae.win_weighted_value); 0 reproduces the margin-only reward "
+                              "domibot2.1 was trained on")
+    parser.add_argument("--public-features", action=argparse.BooleanOptionalAction, default=True,
+                         help="network reads encoding.encode_public_extras (opponent card ownership, both "
+                              "scores, kingdom membership, empty piles). Resuming from a checkpoint without "
+                              "them adds them via DomibotNet.with_extra_inputs, which leaves its outputs "
+                              "unchanged until trained")
     parser.add_argument("--opponent-pool-size", type=int, default=0,
                          help="keep this many of the most recently saved domibot2_iter_N.pt checkpoints from *this "
                               "run* (plus the --checkpoint resumed from, if any) as eligible opponents for "
@@ -165,9 +200,12 @@ def main() -> None:
     parser.add_argument("--eval-every", type=int, default=5)
     parser.add_argument("--eval-games", type=int, default=20)
     parser.add_argument("--eval-reference-checkpoint", type=str, default=None,
-                         help="also eval against this checkpoint (e.g. checkpoints/domibot_v4.4.pt) via "
+                         help="also eval against this checkpoint (e.g. checkpoints/domibot1/domibot_v4.4.pt) via "
                               "agents.DomibotAgent, for a same-footing comparison against the MCTS lineage")
     parser.add_argument("--eval-reference-simulations", type=int, default=100)
+    parser.add_argument("--eval-reference-games", type=int, default=None,
+                         help="games per reference eval (default: --eval-games); it runs real MCTS search, "
+                              "so it's ~200x slower per game than the BigMoney evals")
     parser.add_argument("--eval-reference-every", type=int, default=None,
                          help="if set, only run --eval-reference-checkpoint's eval every this many iterations "
                               "instead of every --eval-every (must be a multiple of --eval-every). The reference "
@@ -188,11 +226,19 @@ def main() -> None:
           f"minibatch_size: {args.minibatch_size}  |  lr: {args.lr} -> {args.lr * args.lr_final_frac:g}  |  "
           f"gamma: {args.gamma}  |  gae_lambda: {args.gae_lambda}  |  clip_eps: {args.clip_eps}  |  "
           f"entropy_coef: {args.entropy_coef}")
-    print(f"opponent_pool_size: {args.opponent_pool_size}  |  opponent_pool_frac: {args.opponent_pool_frac}")
+    print(f"opponent_pool_size: {args.opponent_pool_size}  |  opponent_pool_frac: {args.opponent_pool_frac}  |  "
+          f"reward_win_weight: {args.reward_win_weight}  |  public_features: {args.public_features}  |  "
+          f"target_kl: {args.target_kl}")
+    reward_fn = functools.partial(win_weighted_value, win_weight=args.reward_win_weight)
 
-    network = DomibotNet.load(args.checkpoint, map_location=device).to(device) if args.checkpoint else DomibotNet().to(device)
     if args.checkpoint:
+        network = DomibotNet.load(args.checkpoint, map_location=device).to(device)
         print(f"resumed from {args.checkpoint}")
+        if args.public_features and not network.extra_dim:
+            network = network.with_extra_inputs()
+            print(f"added {network.extra_dim} public-feature inputs (zero-initialized)")
+    else:
+        network = DomibotNet(extra_dim=encoding.EXTRA_DIM if args.public_features else 0).to(device)
     optimizer = torch.optim.Adam(network.parameters(), lr=args.lr)
     scheduler = (torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=max(args.iterations, 1), eta_min=args.lr * args.lr_final_frac)
@@ -234,22 +280,23 @@ def main() -> None:
             games += collect_rollouts(
                 network, remaining, max_moves=max_moves, device=device,
                 seed=rng.randrange(2**31), min_sub_decision_cards=args.min_sub_decision_cards,
-                gamma=args.gamma, lam=args.gae_lambda,
+                reward_fn=reward_fn, gamma=args.gamma, lam=args.gae_lambda,
             )
         if pool_games > 0:
             games += collect_cross_play_rollouts(
                 network, opponent_network, pool_games, max_moves=max_moves, device=device,
                 seed=rng.randrange(2**31), min_sub_decision_cards=args.min_sub_decision_cards,
-                gamma=args.gamma, lam=args.gae_lambda,
+                reward_fn=reward_fn, gamma=args.gamma, lam=args.gae_lambda,
             )
         rollout_time = time.time() - t0
         transitions = [t for game in games for t in game]
 
         network.train()
-        pl, vl, ent = ppo_update(
+        st = ppo_update(
             network, optimizer, transitions, device,
             clip_eps=args.clip_eps, epochs=args.epochs_per_update, minibatch_size=args.minibatch_size,
             value_loss_weight=args.value_loss_weight, entropy_coef=args.entropy_coef, grad_clip=args.grad_clip,
+            target_kl=args.target_kl,
         )
         if scheduler is not None:
             scheduler.step()
@@ -258,7 +305,9 @@ def main() -> None:
         network.save(CHECKPOINT_DIR / "domibot2_latest.pt")
         msg = (f"iter {iteration}/{end_iteration}  transitions={len(transitions)}  "
                f"rollout={rollout_time:.1f}s  update={update_time:.1f}s  "
-               f"policy_loss={pl:.4f}  value_loss={vl:.4f}  entropy={ent:.4f}")
+               f"policy_loss={st['policy_loss']:.4f}  value_loss={st['value_loss']:.4f}  "
+               f"entropy={st['entropy']:.4f}  kl={st['approx_kl']:.4f}  clipfrac={st['clipfrac']:.3f}  "
+               f"updates={st['updates']}")
         if pool_games > 0:
             msg += f"  pool_games={pool_games}({Path(opponent_path).stem})"
         if scheduler is not None:
@@ -275,7 +324,8 @@ def main() -> None:
                   f"{bmt_result['ties']} ties", flush=True)
             ref_every = args.eval_reference_every or args.eval_every
             if reference_agent is not None and iteration % ref_every == 0:
-                ref_result = play_match(agent, reference_agent, n_games=args.eval_games, seed=iteration)
+                ref_result = play_match(agent, reference_agent, n_games=args.eval_reference_games or args.eval_games,
+                                        seed=iteration)
                 print(f"  eval vs {Path(args.eval_reference_checkpoint).stem}: "
                       f"{ref_result['agent_a_wins']}/{ref_result['games']} wins, {ref_result['ties']} ties", flush=True)
             iter_path = CHECKPOINT_DIR / f"domibot2_iter_{iteration}.pt"

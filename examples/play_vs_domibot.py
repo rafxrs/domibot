@@ -1,7 +1,7 @@
 """Play one interactive game against a trained Domibot checkpoint.
 
     python examples/play_vs_domibot.py
-    python examples/play_vs_domibot.py --checkpoint checkpoints/domibot_v4.4.pt --simulations 400
+    python examples/play_vs_domibot.py --checkpoint checkpoints/domibot1/domibot_v4.4.pt --simulations 400
     python examples/play_vs_domibot.py --gpu   # only if you're not also training right now
     python examples/play_vs_domibot.py --gui   # a pygame window instead of the text prompt
 

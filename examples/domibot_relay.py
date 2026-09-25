@@ -4,7 +4,7 @@ decisions (what to play, what to buy) this tells you what Domibot would do,
 using only what's actually visible to a player at the table.
 
     python examples/domibot_relay.py
-    python examples/domibot_relay.py --checkpoint checkpoints/domibot_v4.4.pt --simulations 400
+    python examples/domibot_relay.py --checkpoint checkpoints/domibot1/domibot_v4.4.pt --simulations 400
 
 This never touches the real game for you -- you type in what's on screen,
 it prints a recommendation, you click the move yourself. See training/relay.py

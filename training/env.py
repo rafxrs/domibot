@@ -35,16 +35,18 @@ Observation = dict  # {"observation": np.ndarray[OBS_DIM], "action_mask": np.nda
 
 class DominionEnv:
     def __init__(self, num_players: int = 2, max_steps: int = 100_000,
-                 reward_fn: Optional[Callable[[Game, int], float]] = None):
+                 reward_fn: Optional[Callable[[Game, int], float]] = None, full_obs: bool = False):
         """`reward_fn(game, player_idx)`, called only at a terminal step,
         overrides the default +1/-1/0 win/loss/tie reward -- e.g. pass
         `mcts.terminal_value` for a margin-based reward that still
         distinguishes a nail-biter from a blowout, the way the MCTS
         lineage's value targets already do. Leave unset for the original
-        behavior."""
+        behavior. `full_obs` emits `encoding.encode_full_observation`
+        (base encoding + public extras) instead of the base encoding."""
         self.num_players = num_players
         self.max_steps = max_steps
         self.reward_fn = reward_fn
+        self.full_obs = full_obs
         self.game: Optional[Game] = None
         self._steps = 0
 
@@ -92,8 +94,9 @@ class DominionEnv:
 
     def _observe(self) -> Observation:
         player = self.game.current_decider() if not self.game.is_game_over() else self.game.current_player
+        encode = encoding.encode_full_observation if self.full_obs else encoding.encode_observation
         return {
-            "observation": encoding.encode_observation(self.game, player),
+            "observation": encode(self.game, player),
             "action_mask": encoding.legal_action_mask(self.game) if not self.game.is_game_over()
             else np.zeros(encoding.NUM_ACTIONS, dtype=bool),
         }

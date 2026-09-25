@@ -5,7 +5,7 @@ repeat.
 
     python -m training.train
     python -m training.train --iterations 200 --games-per-iter 20 --simulations 150
-    python -m training.train --reference-checkpoint checkpoints/domibot_v1.4.pt --eval-games 40
+    python -m training.train --reference-checkpoint checkpoints/domibot1/domibot_v1.4.pt --eval-games 40
 
 GPU note: self-play runs `--parallel-games` games at a time side by side
 (`self_play.play_self_play_games_batch`), sharing one batched network

@@ -58,7 +58,8 @@ def collect_rollouts(
         g_seed = master_rng.randrange(2**31)
         game_kingdom = kingdom if kingdom is not None else \
             _sample_kingdom(random.Random(g_seed), min_sub_decision_cards)
-        env = DominionEnv(num_players=num_players, max_steps=max_moves, reward_fn=reward_fn)
+        env = DominionEnv(num_players=num_players, max_steps=max_moves, reward_fn=reward_fn,
+                          full_obs=bool(getattr(network, "extra_dim", 0)))
         obs, _info = env.reset(kingdom=game_kingdom, seed=g_seed)
         envs.append(env)
         obs_list.append(obs["observation"])
@@ -175,7 +176,10 @@ def collect_cross_play_rollouts(
         g_seed = master_rng.randrange(2**31)
         game_kingdom = kingdom if kingdom is not None else \
             _sample_kingdom(random.Random(g_seed), min_sub_decision_cards)
-        env = DominionEnv(num_players=num_players, max_steps=max_moves, reward_fn=reward_fn)
+        # Either network may read the public extras; one that doesn't just
+        # ignores the tail of the full encoding (see DomibotNet.forward).
+        full_obs = bool(getattr(network, "extra_dim", 0) or getattr(opponent_network, "extra_dim", 0))
+        env = DominionEnv(num_players=num_players, max_steps=max_moves, reward_fn=reward_fn, full_obs=full_obs)
         obs, _info = env.reset(kingdom=game_kingdom, seed=g_seed)
         envs.append(env)
         obs_list.append(obs["observation"])

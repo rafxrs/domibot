@@ -86,7 +86,7 @@ curl -L -o checkpoints/domibot2/domibot2.1.pt https://github.com/rafxrs/domibot/
       --iterations 4000 --games-per-iter 64 \
       --checkpoint checkpoints/domibot2/domibot2.1.pt \
       --eval-every 20 --eval-games 20 \
-      --eval-reference-checkpoint checkpoints/domibot_v4.4.pt --eval-reference-every 100 \
+      --eval-reference-checkpoint checkpoints/domibot1/domibot_v4.4.pt --eval-reference-every 100 \
       > logs/domibot2/my_run.log 2>&1 &
   ```
 - Evaluate a checkpoint against the baseline agents:

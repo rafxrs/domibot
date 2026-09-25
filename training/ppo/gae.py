@@ -28,6 +28,17 @@ from domibot import Game
 from ..mcts import terminal_value
 
 
+def win_weighted_value(game: Game, perspective: int, win_weight: float = 0.8) -> float:
+    """`win_weight` * (+1 win / -1 loss / 0 tie, per `game.winners()`, so
+    the fewest-turns tiebreak counts) plus the rest as `terminal_value`'s
+    tanh margin. Margin alone makes a 1-point win and a 1-point loss worth
+    +0.1 and -0.1, so the win/loss line barely registers; `win_weight=0`
+    is exactly `terminal_value`."""
+    winners = game.winners()
+    result = 0.0 if len(winners) != 1 else (1.0 if winners[0] == perspective else -1.0)
+    return win_weight * result + (1.0 - win_weight) * terminal_value(game, perspective)
+
+
 @dataclass
 class Transition:
     obs: np.ndarray

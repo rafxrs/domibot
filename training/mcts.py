@@ -182,7 +182,7 @@ def evaluate_node(
     `action_bias` > 0 applies `_apply_action_continuation_bias`; leave at 0
     for evaluation/play so what you're measuring is the network's own
     judgment, not an artificially nudged one."""
-    obs = encoding.encode_observation(node.game, node.decider)
+    obs = encoding.encode_for(network, node.game, node.decider)
     mask = encoding.legal_action_mask(node.game)
     obs_t = torch.from_numpy(obs).unsqueeze(0).to(device)
     with torch.no_grad():
@@ -214,7 +214,7 @@ def evaluate_nodes_batch(
     each simulation round costs one batch-size-G forward pass."""
     if not nodes:
         return []
-    obs_batch = np.stack([encoding.encode_observation(n.game, n.decider) for n in nodes])
+    obs_batch = np.stack([encoding.encode_for(network, n.game, n.decider) for n in nodes])
     obs_t = torch.from_numpy(obs_batch).to(device)
     with torch.no_grad():
         policy_logits, values = network(obs_t)
