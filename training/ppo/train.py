@@ -28,7 +28,7 @@ from domibot import Action, Game
 from .. import encoding
 from ..agents import BigMoneyAgent, BigMoneyTerminalAgent, DomibotAgent
 from ..evaluate import play_match
-from ..network import DomibotNet, get_device
+from ..network import HIDDEN_DIM, NUM_RESIDUAL_BLOCKS, DomibotNet, get_device
 from ..self_play import DEFAULT_MAX_MOVES
 from .gae import Transition, win_weighted_value
 from .rollout import collect_cross_play_rollouts, collect_rollouts
@@ -171,8 +171,8 @@ def main() -> None:
                               "tries chaining action cards, so worth tuning deliberately, not left at the default")
     parser.add_argument("--grad-clip", type=float, default=0.5)
     parser.add_argument("--target-kl", type=float, default=None,
-                         help="stop each update early once a minibatch's approximate KL from the rollout "
-                              "policy exceeds 1.5x this (off by default)")
+                         help="skip an update's remaining epochs once an epoch's mean approximate KL from "
+                              "the rollout policy exceeds 1.5x this (off by default)")
     parser.add_argument("--reward-win-weight", type=float, default=0.8,
                          help="terminal reward = this * (+1 win / -1 loss / 0 tie) + the rest as the tanh "
                               "margin (gae.win_weighted_value); 0 reproduces the margin-only reward "
@@ -182,6 +182,12 @@ def main() -> None:
                               "scores, kingdom membership, empty piles). Resuming from a checkpoint without "
                               "them adds them via DomibotNet.with_extra_inputs, which leaves its outputs "
                               "unchanged until trained")
+    parser.add_argument("--hidden-dim", type=int, default=HIDDEN_DIM,
+                         help="width of a fresh network (ignored on --checkpoint, whose size is saved in it). "
+                              "For a larger network, distill it from a trained one first (ppo/distill.py) and "
+                              "resume from that rather than starting from scratch")
+    parser.add_argument("--num-blocks", type=int, default=NUM_RESIDUAL_BLOCKS,
+                         help="residual blocks in a fresh network (ignored on --checkpoint)")
     parser.add_argument("--opponent-pool-size", type=int, default=0,
                          help="keep this many of the most recently saved domibot2_iter_N.pt checkpoints from *this "
                               "run* (plus the --checkpoint resumed from, if any) as eligible opponents for "
@@ -215,6 +221,10 @@ def main() -> None:
                               "cadence as --eval-every, i.e. no behavior change from leaving this unset.")
     parser.add_argument("--checkpoint", type=str, default=None, help="resume from this checkpoint file")
     parser.add_argument("--start-iteration", type=int, default=1)
+    parser.add_argument("--run-name", type=str, default="domibot2",
+                         help="checkpoint filename prefix: <run-name>_latest.pt and <run-name>_iter_N.pt in "
+                              "checkpoints/domibot2/. Give concurrent runs different names so they don't "
+                              "overwrite each other's files")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", type=str, default=None)
     args = parser.parse_args()
@@ -233,12 +243,13 @@ def main() -> None:
 
     if args.checkpoint:
         network = DomibotNet.load(args.checkpoint, map_location=device).to(device)
-        print(f"resumed from {args.checkpoint}")
+        print(f"resumed from {args.checkpoint} ({network.hidden_dim}x{network.num_blocks})")
         if args.public_features and not network.extra_dim:
             network = network.with_extra_inputs()
             print(f"added {network.extra_dim} public-feature inputs (zero-initialized)")
     else:
-        network = DomibotNet(extra_dim=encoding.EXTRA_DIM if args.public_features else 0).to(device)
+        network = DomibotNet(hidden_dim=args.hidden_dim, num_blocks=args.num_blocks,
+                             extra_dim=encoding.EXTRA_DIM if args.public_features else 0).to(device)
     optimizer = torch.optim.Adam(network.parameters(), lr=args.lr)
     scheduler = (torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=max(args.iterations, 1), eta_min=args.lr * args.lr_final_frac)
@@ -302,7 +313,7 @@ def main() -> None:
             scheduler.step()
         update_time = time.time() - t0 - rollout_time
 
-        network.save(CHECKPOINT_DIR / "domibot2_latest.pt")
+        network.save(CHECKPOINT_DIR / f"{args.run_name}_latest.pt")
         msg = (f"iter {iteration}/{end_iteration}  transitions={len(transitions)}  "
                f"rollout={rollout_time:.1f}s  update={update_time:.1f}s  "
                f"policy_loss={st['policy_loss']:.4f}  value_loss={st['value_loss']:.4f}  "
@@ -328,7 +339,7 @@ def main() -> None:
                                         seed=iteration)
                 print(f"  eval vs {Path(args.eval_reference_checkpoint).stem}: "
                       f"{ref_result['agent_a_wins']}/{ref_result['games']} wins, {ref_result['ties']} ties", flush=True)
-            iter_path = CHECKPOINT_DIR / f"domibot2_iter_{iteration}.pt"
+            iter_path = CHECKPOINT_DIR / f"{args.run_name}_iter_{iteration}.pt"
             network.save(iter_path)
             if args.opponent_pool_size > 0:
                 recent_checkpoint_paths.append(iter_path)

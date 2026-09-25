@@ -33,6 +33,7 @@ def collect_rollouts(
     reward_fn: Callable = terminal_value,
     gamma: float = 1.0,
     lam: float = 0.95,
+    full_obs: bool | None = None,
 ) -> list[list[Transition]]:
     """Plays `num_games` independent self-play games to completion (or
     `max_moves`), and returns one list of `Transition`s per game with
@@ -46,9 +47,16 @@ def collect_rollouts(
     sampled from the current policy with legal-action masking (standard
     invalid-action masking: illegal logits set to -inf before the
     categorical distribution, mirroring `mcts.evaluate_node`'s numpy
-    version of the same mask)."""
+    version of the same mask).
+
+    `full_obs` forces the full (public-extras) encoding on or off; by
+    default it follows whether `network` reads the extras. Distillation
+    sets it so recorded observations suit the student even when the
+    teacher is the one playing."""
     if device is None:
         device = next(network.parameters()).device
+    if full_obs is None:
+        full_obs = bool(getattr(network, "extra_dim", 0))
     master_rng = random.Random(seed)
 
     envs: list[DominionEnv] = []
@@ -58,8 +66,7 @@ def collect_rollouts(
         g_seed = master_rng.randrange(2**31)
         game_kingdom = kingdom if kingdom is not None else \
             _sample_kingdom(random.Random(g_seed), min_sub_decision_cards)
-        env = DominionEnv(num_players=num_players, max_steps=max_moves, reward_fn=reward_fn,
-                          full_obs=bool(getattr(network, "extra_dim", 0)))
+        env = DominionEnv(num_players=num_players, max_steps=max_moves, reward_fn=reward_fn, full_obs=full_obs)
         obs, _info = env.reset(kingdom=game_kingdom, seed=g_seed)
         envs.append(env)
         obs_list.append(obs["observation"])

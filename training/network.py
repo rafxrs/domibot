@@ -2,12 +2,12 @@
 distribution over the 206-action vocabulary (policy) and the expected game
 outcome from the deciding player's perspective (value, in [-1, 1]).
 
-Small residual MLP — the observation is already an engineered fixed-size
-feature vector (see encoding.py), not raw pixels/a board grid, so there's
-no reason for anything convolutional. At this size the network itself is
-not the compute bottleneck of self-play; the Python game engine driving
-MCTS simulations is. See train.py's docstring for what that means for GPU
-usage.
+Residual MLP, 256 wide x 4 blocks by default; the size is saved in each
+checkpoint, so larger ones load transparently (see ppo/distill.py). The
+observation is already an engineered fixed-size feature vector (see
+encoding.py), not raw pixels/a board grid, so there's no reason for
+anything convolutional. At these sizes the network itself is not the
+compute bottleneck of self-play; the Python game engine is.
 """
 from __future__ import annotations
 
@@ -53,6 +53,8 @@ class DomibotNet(nn.Module):
         super().__init__()
         self.obs_dim = obs_dim
         self.num_actions = num_actions
+        self.hidden_dim = hidden_dim
+        self.num_blocks = num_blocks
         self.extra_dim = extra_dim
         # The observation mixes raw pile counts (Copper starts at 46) with
         # 0/1 one-hots, a ~46x scale spread that badly conditions the first
@@ -99,7 +101,8 @@ class DomibotNet(nn.Module):
         the new inputs' zero-initialized weights are trained."""
         if self.extra_dim:
             raise ValueError("network already has extra inputs")
-        net = DomibotNet(obs_dim=self.obs_dim, num_actions=self.num_actions, extra_dim=extra_dim)
+        net = DomibotNet(obs_dim=self.obs_dim, num_actions=self.num_actions, hidden_dim=self.hidden_dim,
+                         num_blocks=self.num_blocks, extra_dim=extra_dim)
         missing, unexpected = net.load_state_dict(self.state_dict(), strict=False)
         assert not unexpected and all(k.startswith("extra_") for k in missing)
         return net.to(next(self.parameters()).device)
@@ -108,12 +111,15 @@ class DomibotNet(nn.Module):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         torch.save({"state_dict": self.state_dict(), "obs_dim": self.obs_dim, "num_actions": self.num_actions,
-                    "extra_dim": self.extra_dim}, path)
+                    "hidden_dim": self.hidden_dim, "num_blocks": self.num_blocks, "extra_dim": self.extra_dim}, path)
 
     @classmethod
     def load(cls, path: str | Path, map_location: str | torch.device | None = None) -> "DomibotNet":
         checkpoint = torch.load(path, map_location=map_location, weights_only=True)
+        # Checkpoints from before the size was saved are all the default 256 x 4.
         net = cls(obs_dim=checkpoint["obs_dim"], num_actions=checkpoint["num_actions"],
+                  hidden_dim=checkpoint.get("hidden_dim", HIDDEN_DIM),
+                  num_blocks=checkpoint.get("num_blocks", NUM_RESIDUAL_BLOCKS),
                   extra_dim=checkpoint.get("extra_dim", 0))
         net.load_state_dict(checkpoint["state_dict"])
         return net

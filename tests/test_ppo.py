@@ -126,6 +126,7 @@ import torch  # noqa: E402
 from training import encoding  # noqa: E402
 from training.ppo.gae import win_weighted_value  # noqa: E402
 from training.ppo.train import ppo_update  # noqa: E402
+from training.ppo.distill import distill_loss, distill_update, teacher_targets  # noqa: E402
 
 
 def test_public_extras_at_game_start():
@@ -224,3 +225,38 @@ def test_cross_play_mixes_extras_and_base_networks():
     opponent.eval()
     games = collect_cross_play_rollouts(net, opponent, num_games=2, kingdom=_tiny_kingdom(), max_moves=40, seed=6)
     assert all(t.obs.shape == (encoding.FULL_OBS_DIM,) for g in games for t in g)
+
+
+def test_network_size_is_saved_and_old_checkpoints_load_as_default(tmp_path):
+    net = DomibotNet(hidden_dim=64, num_blocks=2, extra_dim=encoding.EXTRA_DIM)
+    net.save(tmp_path / "small.pt")
+    loaded = DomibotNet.load(tmp_path / "small.pt")
+    assert (loaded.hidden_dim, loaded.num_blocks, loaded.extra_dim) == (64, 2, encoding.EXTRA_DIM)
+
+    # A checkpoint saved before the size was recorded is the default size.
+    old = DomibotNet()
+    torch.save({"state_dict": old.state_dict(), "obs_dim": old.obs_dim, "num_actions": old.num_actions},
+               tmp_path / "old.pt")
+    loaded_old = DomibotNet.load(tmp_path / "old.pt")
+    assert (loaded_old.hidden_dim, loaded_old.num_blocks) == (256, 4)
+
+
+def test_distillation_pulls_a_different_size_student_toward_the_teacher():
+    torch.manual_seed(0)
+    teacher = DomibotNet(extra_dim=encoding.EXTRA_DIM)
+    teacher.eval()
+    student = DomibotNet(hidden_dim=64, num_blocks=2, extra_dim=encoding.EXTRA_DIM)
+    games = collect_rollouts(teacher, num_games=2, kingdom=_tiny_kingdom(), max_moves=60, seed=7, full_obs=True)
+    obs = torch.from_numpy(np.stack([t.obs for g in games for t in g]))
+    mask = torch.from_numpy(np.stack([t.mask for g in games for t in g]))
+    teacher_log_probs, teacher_values = teacher_targets(teacher, obs, mask)
+
+    with torch.no_grad():
+        _, before = distill_loss(student, obs, mask, teacher_log_probs, teacher_values)
+    opt = torch.optim.Adam(student.parameters(), lr=1e-3)
+    distill_update(student, opt, obs, mask, teacher_log_probs, teacher_values, epochs=30, minibatch_size=64)
+    with torch.no_grad():
+        _, after = distill_loss(student, obs, mask, teacher_log_probs, teacher_values)
+    assert after["kl"] < 0.5 * before["kl"]
+    assert after["value_mse"] < before["value_mse"]
+    assert after["top1_agree"] >= before["top1_agree"]

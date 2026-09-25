@@ -203,7 +203,8 @@ def main() -> None:
     # differs from --device, since a single nn.Module lives on one device at a
     # time; kept in sync via load_state_dict (a plain tensor copy, which
     # transparently crosses devices) right before each iteration's self-play.
-    self_play_network = network if self_play_device == device else DomibotNet().to(self_play_device)
+    self_play_network = network if self_play_device == device else DomibotNet(
+        hidden_dim=network.hidden_dim, num_blocks=network.num_blocks, extra_dim=network.extra_dim).to(self_play_device)
 
     reference_agent = None
     if args.reference_checkpoint:
