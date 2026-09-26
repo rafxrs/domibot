@@ -295,7 +295,7 @@ climbed and win rate fell. At the 2.2 run's `--lr 2e-4` the larger
 network's policy moved ~3x further per update than the 256×4 one's had
 (approximate KL 0.041 vs 0.013). At 1e-4, entropy went 0.15 → 0.42 and
 BigMoney+terminal fell to 128/200 within 50 iterations. Both were stopped
-(`logs/domibot2/domibot2_512x6_run0*_aborted.log`).
+(their logs weren't kept).
 
 The 2.2 run had the same signature: entropy rose from ~0.18 to ~0.30 over
 its first few hundred iterations while win rate fell, and both recovered
