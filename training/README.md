@@ -386,6 +386,22 @@ promoted as **`domibot2.2.pt`**: as strong as the 512×6 network, a fifth
 the size, and faster for the relay tool's search. Download it from the
 [Releases page](https://github.com/rafxrs/domibot/releases).
 
+**Continuing 2.2 (14001-16000): plateaued.** Its last 500 iterations were
+still gaining against BigMoney+terminal (72.6% -> 74.9% over four
+500-iteration blocks) as its learning rate ran out, so the same recipe
+ran for another 2000 iterations from `domibot2.2.pt` with a fresh
+learning-rate cycle (`logs/domibot2/domibot2_256x4_run2.log`, same
+command as above with `--checkpoint checkpoints/domibot2/domibot2.2.pt
+--start-iteration 14001`). In-training evals stayed flat (~75% vs
+BigMoney+terminal, ~92% vs BigMoney), and no checkpoint beat
+`domibot2.2` head-to-head over 2000 games: 49.3%, 50.2%, 50.1% at
+iterations 14500/15000/15500, and 51.5% (95% CI 49.3-53.7%) at 16000,
+whose baselines (77.5% vs BigMoney+terminal over 2000, 94.5% vs BigMoney
+over 400, 86.8% vs `domibot_v4.4` over 200) are also within noise of 2.2's.
+Not promoted. With a 5x larger network landing at the same strength too,
+more of the same self-play is unlikely to help; varying the opponents is
+the next lever.
+
 **Playing against / evaluating it**:
 
 ```python
@@ -442,6 +458,6 @@ two players.
 python examples/domibot_relay.py --checkpoint checkpoints/domibot2/domibot2.2.pt --simulations 400
 ```
 
-**Not yet done**: a privileged (full-information) critic, a more varied
-opponent pool (older checkpoints, scripted strategies), and continuing
-from `domibot2.2` with its own recipe to see where it plateaus.
+**Not yet done**: a more varied opponent pool (older checkpoints, scripted
+strategies), a privileged (full-information) critic, and a larger search
+budget at play time.
