@@ -96,7 +96,8 @@ demand, which is deterministic because every random draw goes through
 | v4.2-v4.3 | warm-restart LR cycles | 35/60 peak; v4.2 never plays two action cards in a turn |
 | v4.4 | `action_bias` x2.75 (no effect); TD-bootstrapped value targets + opponent pool | 40/60 vs BigMoney, 36/60 vs BigMoney+terminal; still never chains |
 | (unpromoted) | same TD+pool recipe, fresh network | 21–36–3 vs BigMoney, 15–44–1 vs +terminal (60 games each); still no chaining — rules out entrenchment as the cause |
-| **domibot2.1** | **Phase 2: PPO + GAE, no tree search** | **351–43–6 vs BigMoney (400 games), 159–36–5 vs v4.4 (200 games); real multi-action engine turns** |
+| domibot2.1 | Phase 2: PPO + GAE, no tree search | 351–43–6 vs BigMoney (400 games), 159–36–5 vs v4.4 (200 games); real multi-action engine turns |
+| **domibot2.2** | **PPO resumed with 4x the games per update and a quarter of the learning rate** | **1130–797–73 vs domibot2.1 (2000 games); 367–26–7 vs BigMoney (400), 169–30–1 vs v4.4 (200)** |
 
 **Why it failed.** It plateaued at Big Money + Witch: from v4.2 on, the
 question wasn't win rate but whether it ever discovers multi-step strategy,
@@ -161,15 +162,19 @@ Checkpoints land in `checkpoints/domibot2/` as `<run-name>_latest.pt` plus
 a `<run-name>_iter_N.pt` snapshot every eval; `--run-name` defaults to
 `domibot2`.
 
-A longer run, resumed from the current strongest checkpoint and
-backgrounded with its output logged to a file:
+A longer run, resumed from the current strongest checkpoint with the
+settings that produced it and backgrounded with its output logged to a
+file. Resuming a trained policy at a higher learning rate or with smaller
+batches erodes it first (see "Restarting PPO without losing strength"
+below):
 
 ```bash
 python -m training.ppo.train \
-    --iterations 4000 --games-per-iter 64 \
-    --checkpoint checkpoints/domibot2/domibot2.1.pt \
-    --eval-every 20 --eval-games 20 \
-    --eval-reference-checkpoint checkpoints/domibot1/domibot_v4.4.pt --eval-reference-every 100 \
+    --checkpoint checkpoints/domibot2/domibot2.2.pt --start-iteration 14001 \
+    --iterations 2000 --games-per-iter 256 --minibatch-size 1024 \
+    --lr 5e-5 --lr-final-frac 0.1 --target-kl 0.02 \
+    --eval-every 25 --eval-games 200 \
+    --eval-reference-checkpoint checkpoints/domibot1/domibot_v4.4.pt --eval-reference-every 250 \
     > logs/domibot2/my_run.log 2>&1 &
 ```
 
@@ -180,17 +185,20 @@ merge a resumed run into one history; `--smooth N` plots a rolling mean,
 
 ```bash
 python -m training.ppo.plot_eval logs/domibot2/domibot2_stage1_run{1,2,3,3b}.log \
-    logs/domibot2/domibot2_stage3_pool_run1.log --no-trend --smooth 10 \
-    --vline "2400:warm restart (LR decay, entropy up)" --vline "4400:opponent pool" \
-    --title "domibot2 (PPO) eval win rate, fresh network -> domibot2.1 (20-game evals, rolling mean of 10)" \
+    logs/domibot2/domibot2_stage3_pool_run1.log logs/domibot2/domibot2.2_run1.log \
+    logs/domibot2/domibot2_256x4_control_run1.log --no-trend --smooth 10 \
+    --vline "2400:warm restart" --vline "4400:opponent pool" \
+    --vline "8000:domibot2.1" --vline "12000:gentler restart" \
+    --title "domibot2 (PPO) eval win rate, fresh network -> domibot2.2 (rolling mean of 10 evals)" \
     --out docs/training_curve.png
 ```
 
-**Training arc** (fresh network through 8000 iterations; promoted
+**Training arc** (fresh network through 14000 iterations; promoted
 checkpoints are named `domibotN.M.pt`, with logs/checkpoints under
 `logs/domibot2/` and `checkpoints/domibot2/`). In-training evals are 20
-games each, so single points are noisy (±~20pp); the curve below is a
-rolling mean.
+games each through iteration 8000 (single points noisy, ±~20pp) and 200
+after, on different kingdoms each time; the curve below is a rolling mean.
+Promotion decisions use larger evals on fixed seeds, given below.
 
 ![Training curve](../docs/training_curve.png)
 
@@ -209,8 +217,8 @@ rolling mean.
   58/209), likely because the pool's snapshots were too recent to add real
   diversity. Final eval: 20/20, 13/20, 16/20.
 
-`iter_8000` is promoted as **`domibot2.1.pt`**, the current strongest
-checkpoint (superseding an earlier interim promotion of `iter_400` under
+`iter_8000` is promoted as **`domibot2.1.pt`**, the strongest checkpoint
+until `domibot2.2` (superseding an earlier interim promotion of `iter_400` under
 the same name). A larger post-hoc eval (raw policy, no search, paired random
 kingdoms): 351–43–6 vs BigMoney and 286–103–11 vs BigMoney+terminal over
 400 games each, and 159–36–5 vs `domibot_v4.4.pt` (100-sim MCTS) over 200. Download it from the
@@ -369,8 +377,33 @@ differs from the 2.2 run (4x the games per update, a quarter of the
 learning rate), so it tests whether a gentler restart alone helps the
 256×4 network.
 
-Results: in progress. The bar for promotion to `domibot2.2` is beating
-`domibot2.1` head-to-head over 2000 games with a 95% CI above 50%.
+**Results.** Both runs finished 2000 iterations. Their final checkpoints
+were evaluated on the same seeds as `domibot2.1`, raw policy with no
+search (`logs/domibot2/*_iter_14000_eval.log`; 95% CIs in parentheses):
+
+| | 256×4 control | 512×6, one pass | `domibot2.1` |
+|---|---|---|---|
+| vs `domibot2.1` (2000 games) | 1130–797–73, 58.3% (56.2–60.5%) | 1137–776–87, 59.0% (56.9–61.2%) | — |
+| vs BigMoney+terminal (2000) | 76.8% (75.0–78.6%) | 76.1% (74.2–78.0%) | 72.0% (70.0–74.0%) |
+| vs BigMoney (400) | 92.6% | 91.4% | 88.5% |
+| vs `domibot_v4.4` (200) | 84.8% | 85.2% | 80.8% |
+
+Head-to-head, the two drew: 963–957–80 over 2000 games (50.1%, 95% CI
+48.0–52.3%). So:
+
+- **The gain came from the gentler restart, not the size.** The 256×4
+  control, resumed from `domibot2_iter_12000.pt` with 4x the games per
+  update and a quarter of the 2.2 attempt's learning rate, beat
+  `domibot2.1` 58–42. The 2.2 attempt's higher learning rate spent its
+  4000 iterations recovering from its own restart instead.
+- **5x the parameters bought nothing measurable**, and the larger network
+  was harder to train: it needed one pass per batch to stop fitting
+  advantage noise.
+
+The control's final checkpoint, `domibot2_256x4_iter_14000.pt`, is
+promoted as **`domibot2.2.pt`**: as strong as the 512×6 network, a fifth
+the size, and faster for the relay tool's search. Download it from the
+[Releases page](https://github.com/rafxrs/domibot/releases).
 
 **Playing against / evaluating it**:
 
@@ -381,7 +414,7 @@ from training.evaluate import play_match
 from training.network import DomibotNet, get_device
 
 device = get_device()
-network = DomibotNet.load("checkpoints/domibot2/domibot2.1.pt", map_location=device).to(device)
+network = DomibotNet.load("checkpoints/domibot2/domibot2.2.pt", map_location=device).to(device)
 domibot = DomibotAgent(network, num_simulations=200, device=device)
 
 print(play_match(domibot, BigMoneyAgent(), n_games=50))
@@ -404,9 +437,9 @@ mid-turn choices like an unresolved Chapel trash) falls back to manual
 entry.
 
 ```bash
-python examples/domibot_relay.py --checkpoint checkpoints/domibot2/domibot2.1.pt --simulations 400
+python examples/domibot_relay.py --checkpoint checkpoints/domibot2/domibot2.2.pt --simulations 400
 ```
 
 **Not yet done**: a privileged (full-information) critic, a more varied
-opponent pool (older checkpoints, scripted strategies), further
-hyperparameter tuning.
+opponent pool (older checkpoints, scripted strategies), and continuing
+from `domibot2.2` with its own recipe to see where it plateaus.

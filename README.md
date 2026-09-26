@@ -12,16 +12,18 @@ Laboratory → Laboratory → Militia.*
 
 ## Results
 
-`domibot2.1`, a PPO-trained policy playing with no search, on random
+`domibot2.2`, a PPO-trained policy playing with no search, on random
 10-card kingdoms (each kingdom played twice with seats swapped):
 
-- **vs Big Money** (the standard Dominion baseline): 351–43–6 (W–L–T) over
-  400 games, 88.5% (95% CI 85–91%)
-- **vs Big Money + the kingdom's best terminal Action**: 286–103–11 over
-  400 games, 72.9% (95% CI 68–77%)
+- **vs Big Money** (the standard Dominion baseline): 367–26–7 (W–L–T) over
+  400 games, 92.6% (95% CI 90–95%)
+- **vs Big Money + the kingdom's best terminal Action**: 1509–435–56 over
+  2000 games, 76.8% (95% CI 75–79%)
 - **vs `domibot_v4.4`** (the best AlphaZero-style checkpoint, running
-  100-simulation MCTS at every move): 159–36–5 over 200 games, 80.8%
-  (95% CI 75–86%), with no search of its own
+  100-simulation MCTS at every move): 169–30–1 over 200 games, 84.8%
+  (95% CI 79–89%), with no search of its own
+- **vs `domibot2.1`** (the previous release): 1130–797–73 over 2000 games,
+  58.3% (95% CI 56–61%)
 
 Unlike the MCTS approach it replaced, it learns multi-card engine turns.
 See [training/README.md](training/README.md) for how it got here.
@@ -41,12 +43,12 @@ Python 3.10+. `train` pulls in `torch` (CPU build by default — see
 `gui` pulls in `pygame`. Drop either extra you don't need.
 
 The trained model isn't in git (`checkpoints/` is gitignored). Download
-`domibot2.1.pt` from the [Releases page](https://github.com/rafxrs/domibot/releases)
+`domibot2.2.pt` from the [Releases page](https://github.com/rafxrs/domibot/releases)
 into `checkpoints/domibot2/`, where every script looks for it by default:
 
 ```bash
 mkdir -p checkpoints/domibot2
-curl -L -o checkpoints/domibot2/domibot2.1.pt https://github.com/rafxrs/domibot/releases/download/domibot2.1/domibot2.1.pt
+curl -L -o checkpoints/domibot2/domibot2.2.pt https://github.com/rafxrs/domibot/releases/download/domibot2.2/domibot2.2.pt
 ```
 
 ## Play
@@ -76,17 +78,19 @@ curl -L -o checkpoints/domibot2/domibot2.1.pt https://github.com/rafxrs/domibot/
   python -m training.train
   python -m training.ppo.train
   ```
-- A longer PPO run, resumed from the current strongest checkpoint and
-  backgrounded with its output logged to a file — the reference-checkpoint
-  eval uses real MCTS search and dominates wall-clock time, so
-  `--eval-reference-every` lets it run far less often than the cheap
-  BigMoney evals (see `training/README.md`'s Phase 2 section):
+- A longer PPO run, resumed from the current strongest checkpoint with the
+  settings that produced it, backgrounded with its output logged to a
+  file. Large batches and a low learning rate matter here: a higher one
+  erodes a trained policy (see `training/README.md`'s Phase 2 section).
+  The reference-checkpoint eval uses real MCTS search and dominates
+  wall-clock time, so `--eval-reference-every` runs it far less often:
   ```bash
   python -m training.ppo.train \
-      --iterations 4000 --games-per-iter 64 \
-      --checkpoint checkpoints/domibot2/domibot2.1.pt \
-      --eval-every 20 --eval-games 20 \
-      --eval-reference-checkpoint checkpoints/domibot1/domibot_v4.4.pt --eval-reference-every 100 \
+      --checkpoint checkpoints/domibot2/domibot2.2.pt --start-iteration 14001 \
+      --iterations 2000 --games-per-iter 256 --minibatch-size 1024 \
+      --lr 5e-5 --lr-final-frac 0.1 --target-kl 0.02 \
+      --eval-every 25 --eval-games 200 \
+      --eval-reference-checkpoint checkpoints/domibot1/domibot_v4.4.pt --eval-reference-every 250 \
       > logs/domibot2/my_run.log 2>&1 &
   ```
 - Evaluate a checkpoint against the baseline agents:
@@ -193,6 +197,6 @@ MCTS self-play (`training/train.py`) or PPO (`training/ppo/train.py`). See
 
 ## What's not here yet (next layers)
 
-- Domibot's PPO training is a first working version, not a tuned one —
-  see "Not yet done" in `training/README.md`'s Phase 2 section.
+- More PPO improvements — see "Not yet done" in `training/README.md`'s
+  Phase 2 section.
 - Anything beyond the base set (no other expansions, no >4 players).

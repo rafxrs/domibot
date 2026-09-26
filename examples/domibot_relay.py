@@ -72,7 +72,7 @@ click "end actions" -- this does the same, silently, so the recommendation
 you get is always the useful one (what to buy), not "end your action
 phase" (something you'd never actually see asked on the real site).
 
-Defaults to the strongest checkpoint in the project, `domibot2.1.pt`
+Defaults to the strongest checkpoint in the project, `domibot2.2.pt`
 (domibot 2's PPO lineage -- see training/README.md). This still works
 via MCTS search (`training/mcts.py`'s `run_mcts`) exactly as it did for
 the MCTS lineage's checkpoints, even though domibot 2 itself never
@@ -107,7 +107,7 @@ from training.relay import (  # noqa: E402
     resolve_card_name,
 )
 
-DEFAULT_CHECKPOINT = ROOT / "checkpoints" / "domibot2" / "domibot2.1.pt"
+DEFAULT_CHECKPOINT = ROOT / "checkpoints" / "domibot2" / "domibot2.2.pt"
 
 
 _LEADING_COUNT = re.compile(r"^(\d+)x?$", re.IGNORECASE)
@@ -397,7 +397,7 @@ def main() -> None:
         return
 
     if not Path(args.checkpoint).exists():
-        raise SystemExit(f"no checkpoint at {args.checkpoint} -- download domibot2.1.pt from https://github.com/rafxrs/domibot/releases into checkpoints/domibot2/ (see README Setup), or train your own")
+        raise SystemExit(f"no checkpoint at {args.checkpoint} -- download domibot2.2.pt from https://github.com/rafxrs/domibot/releases into checkpoints/domibot2/ (see README Setup), or train your own")
 
     device = get_device() if args.gpu else torch.device("cpu")
     network = DomibotNet.load(args.checkpoint, map_location=device).to(device)

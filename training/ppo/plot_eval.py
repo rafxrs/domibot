@@ -135,7 +135,7 @@ def plot(series: dict[str, tuple[list[int], list[float]]], title: str, out: Path
     ax.set_ylim(-2, 102)
     ax.axhline(50, color="gray", linewidth=0.8, linestyle="--", alpha=0.6)
     ax.set_title(title)
-    ax.legend(loc="lower right")
+    ax.legend(loc="center right")  # the bottom edge holds the --vline labels
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(out, dpi=150)
