@@ -37,25 +37,6 @@ engine, encoding, and network.
   distillation into a larger network.
 - **`relay.py` / `log_parser.py`** — the real-game move advisor (below).
 
-## Quickstart
-
-```bash
-python -m training.evaluate 200
-```
-
-```python
-from training.env import DominionEnv
-
-env = DominionEnv(num_players=2)
-obs, info = env.reset(seed=0)
-while True:
-    legal = obs["action_mask"].nonzero()[0]
-    action_idx = legal[0]  # replace with your policy
-    obs, reward, terminated, truncated, info = env.step(action_idx)
-    if terminated or truncated:
-        break
-```
-
 ## GPU
 
 `get_device()` uses CUDA automatically once torch is installed against a
