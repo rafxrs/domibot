@@ -1205,71 +1205,10 @@ def test_library_looks_at_a_card_increments_opponent_hand_size():
     assert parsed.opp_hand_size == 5 - 1 + 3
 
 
-# A real log fragment, provided by the user, where the opponent plays a
-# second Throne Room after already playing a Vassal that same turn -- see
-# test_throne_room_after_vassal_bails_instead_of_miscounting below for why
-# this specific ordering breaks exact replay.
-THRONE_VASSAL_KINGDOM = ["Throne Room", "Vassal", "Village", "Market", "Moneylender", "Chapel"]
-
-_THRONE_VASSAL_OPENING = """Game #1, unrated.
-d starts with 7 Coppers.
-d starts with 3 Estates.
-L starts with 7 Coppers.
-L starts with 3 Estates.
-d shuffles their deck.
-L shuffles their deck.
-d draws 4 Coppers and an Estate.
-L draws 5 cards.
-Turn 1 - domibot_v1.4
-d plays 4 Coppers. (+$4)
-d buys and gains a Silver.
-d draws 3 Coppers and 2 Estates.
-Turn 1 - Lord Rattington
-L plays 4 Coppers. (+$4)
-L buys and gains a Throne Room.
-L draws 5 cards.
-Turn 2 - domibot_v1.4
-d plays 3 Coppers. (+$3)
-d buys and gains a Silver.
-d draws 3 Coppers, an Estate, and a Silver.
-Turn 2 - Lord Rattington
-L plays 4 Coppers. (+$4)
-L buys and gains a Throne Room.
-L buys and gains a Vassal.
-L draws 5 cards.
-Turn 3 - domibot_v1.4
-d plays 3 Coppers. (+$3)
-d buys and gains a Silver.
-d draws 3 Coppers, an Estate, and a Silver.
-Turn 3 - Lord Rattington
-"""
-
-# Vassal played BEFORE the second Throne Room -- ambiguous: Vassal can play a
-# card straight off the deck top without it ever touching hand, logged
-# identically to a plain hand play, so once a second Throne Room is in the
-# mix there's no way to tell from the log text alone which "plays"/"discards
-# a Throne Room" lines are independent owned copies vs. a Vassal reveal.
-THRONE_THEN_VASSAL_THEN_THRONE_LOG = _THRONE_VASSAL_OPENING + """L plays a Throne Room.
-L plays a Vassal.
-L gets +$2.
-L discards a Throne Room.
-L plays a Throne Room.
-L plays a Vassal again.
-L gets +$2.
-L discards a Copper.
-L plays 2 Coppers. (+$2)
-L buys and gains a Village.
-L draws 5 cards.
-Turn 4 - domibot_v1.4"""
-
-# The same shape (two Throne Room plays plus a Vassal, one turn), but with
-# Vassal only showing up *after* both Throne Rooms -- unambiguous, since
-# nothing about the second Throne Room's own hand-sourced play could be
-# confused with a Vassal reveal if Vassal hasn't been played yet. Trimmed
-# from a real dominion.games log the user pasted while hitting the bug this
-# module fixes -- turn 9 there has exactly this "TR, unrelated card, TR,
-# Vassal" ordering and worked before and after the fix; this is that same
-# real turn, not a hand-built one (see REAL_LOG's own comment on why real
+# Two Throne Rooms and a Vassal in one turn, trimmed from a real
+# dominion.games log (turn 9): Vassal's deck-top card is logged as a plain
+# "discards X", and playing it as a plain "plays X" from the discard pile,
+# so the whole chain replays exactly (see REAL_LOG's own comment on why real
 # logs make the best fixtures here).
 TWO_THRONES_THEN_VASSAL_KINGDOM = ["Throne Room", "Council Room", "Library", "Market", "Village",
                                    "Moneylender", "Poacher", "Remodel", "Cellar", "Vassal"]
@@ -1468,30 +1407,7 @@ A draws 5 cards.
 Turn 10 - domibot_v1.4"""
 
 
-def test_throne_room_after_vassal_bails_instead_of_miscounting():
-    # Before the fix, this silently over-counted opp_discard/opp_play_area
-    # (both "discards a Throne Room" lines and both "plays a Throne Room"
-    # lines were each treated as independent hand-sourced copies), which
-    # then blew up downstream in reconstruct_game's by-elimination check --
-    # a confusing failure mode one full layer away from the actual cause.
-    # Layer 2 should instead recognize it can't safely replay this exactly
-    # and gracefully fall back (None fields), same as any other
-    # can't-resolve-exactly case (an unnamed card, etc.).
-    parsed = parse_dominion_log(THRONE_THEN_VASSAL_THEN_THRONE_LOG, my_name="domibot_v1.4",
-                                 kingdom=THRONE_VASSAL_KINGDOM)
-    assert parsed.my_hand is None
-    assert parsed.opp_discard is None
-    # Layer 1 (supply/trash/my_total) is independent of the replay and must
-    # still come through even when layer 2 bails.
-    assert parsed.supply is not None
-    assert parsed.my_total is not None
-
-
 def test_two_thrones_then_vassal_still_fully_derives():
-    # The mirror-image ordering (both Throne Rooms resolve before Vassal
-    # ever enters the picture) is unambiguous and must keep working --
-    # confirms the fix is scoped to the actual ambiguous ordering, not to
-    # "two Throne Rooms and a Vassal in the same turn" in general.
     parsed = parse_dominion_log(TWO_THRONES_THEN_VASSAL_LOG, my_name="domibot_v1.4",
                                  kingdom=TWO_THRONES_THEN_VASSAL_KINGDOM)
     assert parsed.my_hand is not None

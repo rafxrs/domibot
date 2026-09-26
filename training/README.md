@@ -409,13 +409,34 @@ discard and hand/deck *sizes*, never contents), filling in what's genuinely
 hidden via determinization, then runs MCTS on top of the network.
 `log_parser.py` does a full turn-by-turn replay of a pasted dominion.games
 log to derive everything automatically, so the common case skips straight
-to the recommendation. Best-effort: anything it can't resolve exactly
-(e.g. a bare, unnamed "a card") falls back to manual entry, pre-filled with
-whatever it did derive. Covers phase-action decisions plus Militia's forced
-discard (when a pasted log ends right after the opponent plays it); every
-other sub-decision (Bureaucrat/Bandit's forced reactions, your own
-mid-turn choices like an unresolved Chapel trash) falls back to manual
-entry.
+to the recommendation. Anything it can't follow exactly (a bare, unnamed
+"a card" in your own lines, or a line it doesn't recognize) stops the
+replay, and the tool falls back to manual entry pre-filled with whatever it
+did derive; so does a derived state that doesn't add up. Besides phase
+decisions it covers the choices a log can leave pending:
+- **your own card, mid-effect** (what Chapel trashes, what Throne Room
+  plays, whether to play what Vassal discarded, Remodel/Mine/Workshop/
+  Artisan gains, Sentry, Harbinger, Poacher, Cellar): `relay.replay_open_play`
+  replays the card through the engine with your deck stacked with the cards
+  the log shows you drawing, plus every choice the log already shows. A
+  choice made in several steps with nothing new revealed in between is
+  shown as the whole sequence.
+- **the opponent's attack**: Militia's discard, Bureaucrat's topdeck,
+  Bandit's trash, and whether to reveal Moat.
+
+Cards known to be on top of a deck (Sentry/Harbinger/Artisan topdecks,
+Bureaucrat's Silver) are placed there rather than shuffled in.
+`tests/test_log_parser_edge_cases.py` replays five real games (one with
+heavy Throne Room + Vassal chains) and requires every point a paste could
+end at to parse and reconstruct.
+
+Still unverified against real logs, so handled defensively: your own
+Library (its set-aside lines stop the replay), whether dominion.games logs
+Merchant's +$1 separately from the treasure line, and the exact Moat-reveal
+wording. Not covered: a reaction to a Throne-Roomed attack or to one played
+after the opponent's Council Room, a card whose draws reshuffle your deck
+mid-effect, the order two Sentry cards go back in, and games with more than
+two players.
 
 ```bash
 python examples/domibot_relay.py --checkpoint checkpoints/domibot2/domibot2.2.pt --simulations 400

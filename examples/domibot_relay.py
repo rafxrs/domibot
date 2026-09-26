@@ -21,20 +21,17 @@ doesn't submit anything and just sits there until you press Enter).
 State is re-entered in full at every decision rather than tracked
 incrementally turn to turn -- more typing per query, but far less risk of
 this tool's internal state silently drifting from the real game's if a
-public event gets missed or mis-entered. Mainly covers your own
-phase-action decisions (what to play/buy) -- state is normally
-reconstructed at a phase-action boundary, so a forced sub-decision (a
-trash/discard/topdeck choice) can't usually be represented here. The one
-exception: if you paste a log ending with the opponent having just played
-Militia and your forced discard not yet shown, this recognizes that a
-reaction is pending on you and recommends the discard directly, instead of
-a nonsense phase-action suggestion. Every other sub-decision (Bureaucrat/
-Bandit's forced reactions, Moat's reveal-or-not against them, or any of
-your own mid-turn choices like an unresolved Chapel trash) still falls
-back to the same "keep the good stuff, give up junk" rule (see
-training/heuristics.py); Domibot itself searches every sub-decision by
-default when playing directly (see training/mcts.py), but this relay tool
-only reaches that path for Militia's discard so far.
+public event gets missed or mis-entered. Besides phase decisions (what to
+play/buy), a pasted log that stops partway through a card gets a
+recommendation for the choice that's actually waiting on you:
+- your own card's choices (what Chapel trashes, what Throne Room plays,
+  whether to play what Vassal discarded, what Remodel gains, ...): the card
+  is replayed through the engine with every choice the log already shows
+  (see training/relay.py's replay_open_play);
+- the opponent's attack: Militia's discard, Bureaucrat's topdeck, Bandit's
+  trash, or whether to reveal Moat.
+A choice made in several steps with nothing new revealed in between (e.g.
+Chapel's trashes) is shown as the whole recommended sequence.
 
 At each query you paste in that game's dominion.games text log (the whole
 thing, fresh, every time -- it keeps growing) and press Enter once more on
@@ -42,16 +39,16 @@ the blank line when done. That alone derives the supply, the trash, your
 own total card ownership, and (via a full turn-by-turn replay) your hand,
 discard, play area, phase, actions, buys, coins, and the opponent's hand
 size, draw-pile size, and discard pile -- covering plays, buys/gains,
-trashes/discards/topdecks (including Sentry/Bandit-style reveals and
-Harbinger's discard-sourced topdeck), Throne-Room-style replays, and
-explicit "+N Action/Buy/$" lines. When all of that lines up, it skips
-straight to the recommendation -- no confirmation step. It's still
-best-effort: dominion.games occasionally renders a card as a bare, unnamed
-"a card" (e.g. some Cellar-style discards), which makes exact replay
-impossible from that point on -- when that happens it falls back to
-showing whatever it *did* derive as editable defaults for manual entry,
-same as before. See training/log_parser.py for the full picture. Paste
-nothing (blank line right away) to skip it for one query entirely.
+trashes/discards/topdecks (including Sentry/Bandit-style reveals,
+Harbinger's discard-sourced topdeck, and Vassal playing its discard),
+Throne-Room-style replays, and explicit "+N Action/Buy/$" lines. When all
+of that lines up, it skips straight to the recommendation -- no
+confirmation step. It's still best-effort: an unnamed "a card" in your own
+lines, or a line it doesn't recognize, stops the replay, and it falls back
+to showing whatever it *did* derive as editable defaults for manual entry
+-- as it also does if the derived state doesn't add up. See
+training/log_parser.py for the full picture. Paste nothing (blank line
+right away) to skip it for one query entirely.
 
 Any card list (the kingdom included -- dominion.games' log never states it,
 so it's typed by hand every game) accepts a short code instead of the full
@@ -62,9 +59,8 @@ kingdom itself also doesn't need commas between entries.
 Your account name defaults to 'domibot_v1.4' (override with
 --account-name) -- it's just whatever your dominion.games username is,
 unrelated to which checkpoint --checkpoint points at. If the pasted log
-has no "name: rating" header at all (e.g. a trimmed practice-game log),
-it defaults to you vs. "Lord Rattington", dominion.games' own built-in
-bot, rather than refusing to parse it.
+has no "name: rating" header (e.g. an unrated game), the players are taken
+from its "Turn N - name" lines instead.
 
 If your hand has nothing playable, dominion.games itself auto-skips
 straight to the Buy phase (treasures auto-played) rather than making you
@@ -104,6 +100,7 @@ from training.relay import (  # noqa: E402
     TableState,
     reconstruct_game,
     reconstruct_opponent_turn_boundary,
+    replay_open_play,
     resolve_card_name,
 )
 
@@ -252,33 +249,27 @@ def prompt_supply(kingdom: list[str], previous: dict[str, int] | None = None) ->
     return supply
 
 
-def prompt_table_state(
-    kingdom: list[str], supply: dict[str, int],
-    default_trash: list[str] | None = None, default_my_total: list[str] | None = None,
-    default_my_turns_taken: int = 0, default_my_hand: list[str] | None = None,
-    default_my_phase: str | None = None, default_my_actions: int | None = None,
-    default_my_buys: int | None = None, default_my_coins: int | None = None,
-    default_my_play_area: list[str] | None = None,
-) -> TableState:
+def prompt_table_state(kingdom: list[str], supply: dict[str, int], defaults: TableState) -> TableState:
+    """Every field, each defaulting to `defaults`' value (press Enter to keep it)."""
     print("\n--- your side ---")
-    my_hand = prompt_cards("Your hand", default_my_hand)
-    my_discard = prompt_cards("Your discard pile")
-    my_play_area = prompt_cards("Your play area (cards played so far this turn, if any)", default_my_play_area)
-    my_total = prompt_cards("EVERY card you currently own, any zone (hand+deck+discard+play area)", default_my_total)
-    my_phase = prompt("Phase (ACTION/BUY)", default_my_phase or "ACTION").upper()
-    my_actions = prompt_int("Your actions remaining", default_my_actions if default_my_actions is not None else (1 if my_phase == "ACTION" else 0))
-    my_buys = prompt_int("Your buys remaining", default_my_buys if default_my_buys is not None else 1)
-    my_coins = prompt_int("Your coins available (treasures already counted)", default_my_coins if default_my_coins is not None else 0)
-    my_turns_taken = prompt_int("Your completed turns before this one (0 on your first turn)", default_my_turns_taken)
+    my_hand = prompt_cards("Your hand", defaults.my_hand)
+    my_discard = prompt_cards("Your discard pile", defaults.my_discard)
+    my_play_area = prompt_cards("Your play area (cards played so far this turn, if any)", defaults.my_play_area)
+    my_total = prompt_cards("EVERY card you currently own, any zone (hand+deck+discard+play area)", defaults.my_total)
+    my_phase = prompt("Phase (ACTION/BUY)", defaults.my_phase).upper()
+    my_actions = prompt_int("Your actions remaining", defaults.my_actions)
+    my_buys = prompt_int("Your buys remaining", defaults.my_buys)
+    my_coins = prompt_int("Your coins available (treasures already counted)", defaults.my_coins)
+    my_turns_taken = prompt_int("Your completed turns before this one (0 on your first turn)", defaults.my_turns_taken)
 
     print("\n--- opponent's side (only what's publicly visible) ---")
-    opp_discard = prompt_cards("Opponent's discard pile")
-    opp_play_area = prompt_cards("Opponent's play area (usually empty between turns)")
-    opp_hand_size = prompt_int("Opponent's hand size", 5)
-    opp_draw_pile_size = prompt_int("Opponent's draw pile size", 5)
+    opp_discard = prompt_cards("Opponent's discard pile", defaults.opp_discard)
+    opp_play_area = prompt_cards("Opponent's play area (usually empty between turns)", defaults.opp_play_area)
+    opp_hand_size = prompt_int("Opponent's hand size", defaults.opp_hand_size)
+    opp_draw_pile_size = prompt_int("Opponent's draw pile size", defaults.opp_draw_pile_size)
 
     print("\n--- shared ---")
-    trash = prompt_cards("Trash pile", default_trash)
+    trash = prompt_cards("Trash pile", defaults.trash)
 
     return TableState(
         kingdom=kingdom, supply=supply, trash=trash,
@@ -286,6 +277,8 @@ def prompt_table_state(
         my_actions=my_actions, my_buys=my_buys, my_coins=my_coins, my_phase=my_phase, my_turns_taken=my_turns_taken,
         opp_discard=opp_discard, opp_play_area=opp_play_area,
         opp_hand_size=opp_hand_size, opp_draw_pile_size=opp_draw_pile_size,
+        my_deck_top=defaults.my_deck_top, opp_deck_top=defaults.opp_deck_top,
+        my_merchant_bonus=defaults.my_merchant_bonus, my_silver_played=defaults.my_silver_played,
     )
 
 
@@ -316,15 +309,51 @@ def recommend(state: TableState, network: torch.nn.Module, simulations: int, dev
     print_recommendation(root)
 
 
-def recommend_pending_reaction(
-    state: TableState, opp_turn_start_discard: list[str], path: list[Action], network: torch.nn.Module,
-    simulations: int, device: torch.device,
-) -> None:
-    """Militia's forced discard only, for now (see log_parser's
-    _SUPPORTED_TERMINAL_ATTACKS) -- reuses the same replay-based search
-    training.mcts already does for self-play/DomibotAgent sub-decisions,
-    just from a boundary at the *opponent's* turn start instead of yours."""
-    boundary = reconstruct_opponent_turn_boundary(state, opp_turn_start_discard, path=path)
+def _nothing_new_revealed(before, after) -> bool:
+    """No card drawn, looked at, or shuffled between the two positions --
+    so the next step of a choice can be recommended now, not only after you
+    see what came up."""
+    return (after.rng.getstate() == before.rng.getstate()
+            and len(after.players[0].deck) >= len(before.players[0].deck))
+
+
+def recommend_choice(boundary, path: list[Action], network: torch.nn.Module, simulations: int,
+                     device: torch.device) -> None:
+    """A choice pending inside a card's effect, reached by replaying `path`
+    from `boundary`: the search's read on it, then -- for a choice made in
+    several steps with nothing new revealed in between (Chapel's trashes,
+    Militia's discards, Sentry's trash/discard/order) -- the whole
+    recommended sequence."""
+    game = materialize(boundary, path)
+    print(f"\n{game.pending_decision.prompt}")
+    root = run_mcts(boundary, network, simulations, device=device, path=path)
+    print_recommendation(root)
+    chain = [select_action(root, temperature=0.0)]
+    before = game
+    while len(chain) < 12:
+        after = materialize(boundary, path + chain)
+        if (after.pending_decision is None or after.pending_decision.player != 0
+                or not _nothing_new_revealed(before, after)):
+            break
+        root = run_mcts(boundary, network, simulations, device=device, path=path + chain)
+        chain.append(select_action(root, temperature=0.0))
+        before = after
+    if len(chain) > 1:
+        print("==> the whole choice: " + ", ".join(str(a) for a in chain) + "\n")
+
+
+def recommend_pending_reaction(state: TableState, parsed, network: torch.nn.Module, simulations: int,
+                               device: torch.device) -> None:
+    """The opponent's attack, with your reaction not yet in the log (see
+    log_parser's _SUPPORTED_TERMINAL_ATTACKS) -- reuses the same
+    replay-based search training.mcts already does for self-play/
+    DomibotAgent sub-decisions, just from a boundary at the *opponent's*
+    turn start instead of yours."""
+    path = parsed.pending_reaction_path
+    boundary = reconstruct_opponent_turn_boundary(
+        state, parsed.pending_reaction_opp_discard, path=path,
+        my_deck_top=parsed.pending_reaction_my_deck_top, opp_gains=parsed.pending_reaction_opp_gains,
+    )
     game = materialize(boundary, path)
     if game.pending_decision is None:
         print("(no reaction needed here -- paste more of the log once the opponent's turn continues)\n")
@@ -332,9 +361,7 @@ def recommend_pending_reaction(
     if game.pending_decision.player != 0:
         print("(a decision is pending, but it's not yours -- paste more of the log)\n")
         return
-    print(f"\n{game.pending_decision.prompt}")
-    root = run_mcts(boundary, network, simulations, device=device, path=path)
-    print_recommendation(root)
+    recommend_choice(boundary, path, network, simulations, device)
 
 
 def try_parse_log(kingdom: list[str], my_name: str):
@@ -361,15 +388,25 @@ def _fully_derived(parsed) -> bool:
     ))
 
 
-def state_from_parsed(kingdom: list[str], parsed, my_name: str) -> TableState:
+def state_from_parsed(kingdom: list[str], parsed, supply: dict[str, int] | None = None) -> TableState:
+    """Every field `parsed` has, and a fresh-turn default for any it doesn't
+    (a log the full replay couldn't finish still gives supply/trash/total)."""
+    def get(value, default):
+        return default if value is None else value
+
+    phase = get(parsed.my_phase, "ACTION") if parsed else "ACTION"
+    if parsed is None:
+        return TableState(kingdom=kingdom, supply=supply or {}, trash=[], my_hand=[], my_discard=[])
     return TableState(
-        kingdom=kingdom, supply=parsed.supply, trash=parsed.trash,
-        my_hand=parsed.my_hand, my_discard=parsed.my_discard, my_play_area=parsed.my_play_area,
-        my_total=parsed.my_total, my_actions=parsed.my_actions, my_buys=parsed.my_buys,
-        my_coins=parsed.my_coins, my_phase=parsed.my_phase,
-        my_turns_taken=parsed.turns_taken.get(my_name, 0),
-        opp_discard=parsed.opp_discard, opp_play_area=parsed.opp_play_area,
-        opp_hand_size=parsed.opp_hand_size, opp_draw_pile_size=parsed.opp_draw_pile_size,
+        kingdom=kingdom, supply=supply or parsed.supply, trash=parsed.trash,
+        my_hand=get(parsed.my_hand, []), my_discard=get(parsed.my_discard, []),
+        my_play_area=get(parsed.my_play_area, []), my_total=parsed.my_total,
+        my_actions=get(parsed.my_actions, 1 if phase == "ACTION" else 0), my_buys=get(parsed.my_buys, 1),
+        my_coins=get(parsed.my_coins, 0), my_phase=phase, my_turns_taken=parsed.my_turns_taken,
+        opp_discard=get(parsed.opp_discard, []), opp_play_area=get(parsed.opp_play_area, []),
+        opp_hand_size=get(parsed.opp_hand_size, 5), opp_draw_pile_size=get(parsed.opp_draw_pile_size, 5),
+        my_deck_top=get(parsed.my_deck_top, []), opp_deck_top=get(parsed.opp_deck_top, []),
+        my_merchant_bonus=get(parsed.my_merchant_bonus, 0), my_silver_played=get(parsed.my_silver_played, False),
     )
 
 
@@ -417,43 +454,49 @@ def main() -> None:
                 supply = parsed.supply
 
             if parsed is not None and parsed.pending_reaction_path is not None:
-                print("The opponent's turn is still open and a reaction is pending on you:")
-                state = state_from_parsed(kingdom, parsed, my_name)
+                print("The opponent's turn is still open and a reaction may be pending on you:")
                 try:
-                    recommend_pending_reaction(
-                        state, parsed.pending_reaction_opp_discard, parsed.pending_reaction_path,
-                        network, args.simulations, device,
-                    )
+                    recommend_pending_reaction(state_from_parsed(kingdom, parsed), parsed,
+                                               network, args.simulations, device)
                 except ValueError as e:
                     print(f"\nInput doesn't add up: {e}\n")
                 continue
 
             if parsed is not None and _fully_derived(parsed):
+                if parsed.open_play is not None:
+                    card = parsed.open_play.card
+                    result = replay_open_play(parsed.open_play, kingdom, parsed.my_hand)
+                    if result.status == "pending":
+                        print(f"Your {card} is waiting on a choice:")
+                        recommend_choice(result.boundary, result.path, network, args.simulations, device)
+                        continue
+                    if result.status == "opponent":
+                        print(f"(your {card} is waiting on the opponent -- paste the log again once it's "
+                              f"your move)\n")
+                        continue
+                    if result.status == "unsupported":
+                        print(f"(couldn't tell whether your {card} is still waiting on a choice: {result.reason} "
+                              f"-- the recommendation below assumes it has finished)")
                 print("Everything needed was fully derived from the log -- here's the recommendation:")
-                state = state_from_parsed(kingdom, parsed, my_name)
-            else:
-                if parsed is not None:
-                    print(f"  derived from the log: trash={format_cards(parsed.trash) or '(empty)'}, "
-                          f"your total={format_cards(parsed.my_total)}")
-                    if parsed.my_hand is not None:
-                        print(f"  your hand: {format_cards(parsed.my_hand)}")
-                    print("  (the rest still needs manual entry -- shown as editable defaults below)\n")
-                elif supply is None or prompt("Update supply counts this query? (y/N)", "n").lower().startswith("y"):
-                    supply = prompt_supply(kingdom, previous=supply)
+                state = state_from_parsed(kingdom, parsed)
+                try:
+                    recommend(state, network, args.simulations, device)
+                    continue
+                except ValueError as e:
+                    # Don't dead-end every later query on the same mismatch:
+                    # show everything the log gave, editable.
+                    print(f"\nThe log-derived state doesn't add up: {e}\n"
+                          f"  (falling back to manual entry, pre-filled from the log -- fix whatever's off)\n")
+            elif parsed is not None:
+                print(f"  derived from the log: trash={format_cards(parsed.trash) or '(empty)'}, "
+                      f"your total={format_cards(parsed.my_total)}")
+                if parsed.my_hand is not None:
+                    print(f"  your hand: {format_cards(parsed.my_hand)}")
+                print("  (the rest still needs manual entry -- shown as editable defaults below)\n")
+            elif supply is None or prompt("Update supply counts this query? (y/N)", "n").lower().startswith("y"):
+                supply = prompt_supply(kingdom, previous=supply)
 
-                default_turns = parsed.turns_taken.get(my_name, 0) if parsed else 0
-                state = prompt_table_state(
-                    kingdom, supply,
-                    default_trash=parsed.trash if parsed else None,
-                    default_my_total=parsed.my_total if parsed else None,
-                    default_my_turns_taken=default_turns,
-                    default_my_hand=parsed.my_hand if parsed else None,
-                    default_my_phase=parsed.my_phase if parsed else None,
-                    default_my_actions=parsed.my_actions if parsed else None,
-                    default_my_buys=parsed.my_buys if parsed else None,
-                    default_my_coins=parsed.my_coins if parsed else None,
-                    default_my_play_area=parsed.my_play_area if parsed else None,
-                )
+            state = prompt_table_state(kingdom, supply, state_from_parsed(kingdom, parsed, supply))
             try:
                 recommend(state, network, args.simulations, device)
             except ValueError as e:
