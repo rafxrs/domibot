@@ -123,7 +123,8 @@ side sharing one batched forward pass per round — no MCTS tree, so no
 `boundary`/`path`/`materialize` needed; `collect_cross_play_rollouts` for an
 opponent pool), `train.py` (clipped surrogate, value MSE, entropy bonus,
 advantage normalization, cosine LR decay), `distill.py` (copies a trained
-network into a larger one, below). Tests: `tests/test_ppo.py`.
+network into a larger one, below), `league.py` (a pool of varied opponents,
+below). Tests: `tests/test_ppo.py`, `tests/test_ppo_league.py`.
 
 **Running it**:
 
@@ -133,7 +134,8 @@ python -m training.ppo.train
 
 Key flags (see `--help`): `--iterations`, `--games-per-iter`,
 `--lr`/`--lr-final-frac` (cosine LR decay), `--entropy-coef` (PPO's
-exploration driver), `--opponent-pool-size`/`--opponent-pool-frac`,
+exploration driver), `--league-*` (varied opponents, below),
+`--opponent-pool-size`/`--opponent-pool-frac` (this run's own snapshots),
 `--eval-every`/`--eval-games`, `--eval-reference-checkpoint <path>` (a fixed
 MCTS checkpoint as a second eval opponent, via real search;
 `--eval-reference-every` lets it run less often than the cheap BigMoney
@@ -402,6 +404,50 @@ Not promoted. With a 5x larger network landing at the same strength too,
 more of the same self-play is unlikely to help; varying the opponents is
 the next lever.
 
+**Opponent league (in progress).** `ppo/league.py` plays part of every
+iteration's games against a pool of fixed, genuinely different opponents
+instead of the current network. Only the learner's seat produces training
+data, and network opponents play their own raw policy. The pool:
+
+- past checkpoints from across the arc (`domibot2_iter_{2000..12000}`, every
+  2000 iterations, `iter_8000` being `domibot2.1`): the strategies it
+  played on the way here;
+- `domibot2_512x6e1_iter_14000`: 2.2's strength, but a separately trained
+  network;
+- `domibot_v4.4`'s network (the MCTS lineage's Big Money + Witch player);
+- scripted Big Money and Big Money + terminal -- the latter still takes
+  ~23% of games off 2.2;
+- a frozen copy of the learner every 250 iterations (the last 4 kept).
+
+Opponents are drawn by prioritized fictitious self-play (PFSP, as in
+AlphaStar): weight (1 - p)^2, where p is the learner's recent score against
+that opponent (wins + half of ties, decayed 5% per iteration so it tracks
+the current learner), with 20% of the weight spread evenly so no opponent
+disappears. Each iteration draws 4 opponents and splits the league games
+between them; the log shows each one's result (`league=name:score/games`)
+and, at every eval, the whole pool's scores and weights.
+
+The run keeps 2.2's recipe, with half of its 256 games per iteration going
+to the league, and evals against `domibot2.2`'s raw policy every 25
+iterations (`--eval-rival-checkpoint`) to track the promotion bar as it
+goes:
+
+```bash
+python -m training.ppo.train \
+    --checkpoint checkpoints/domibot2/domibot2.2.pt --run-name domibot2_league \
+    --iterations 2000 --games-per-iter 256 --minibatch-size 1024 --start-iteration 14001 \
+    --lr 5e-5 --lr-final-frac 0.1 --entropy-coef 0.01 --target-kl 0.02 \
+    --league-frac 0.5 --league-opponents-per-iter 4 \
+    --league-snapshot-every 250 --league-max-snapshots 4 \
+    --league-checkpoints checkpoints/domibot2/domibot2_iter_{2000,4000,6000,8000,10000,12000}.pt \
+        checkpoints/domibot2/domibot2_512x6e1_iter_14000.pt checkpoints/domibot1/domibot_v4.4.pt \
+    --league-scripted bigmoney bigmoney_terminal \
+    --eval-every 25 --eval-games 200 --eval-rival-checkpoint checkpoints/domibot2/domibot2.2.pt \
+    --eval-reference-checkpoint checkpoints/domibot1/domibot_v4.4.pt \
+    --eval-reference-every 250 --eval-reference-games 40 \
+    > logs/domibot2/domibot2_league_run1.log 2>&1 &
+```
+
 **Playing against / evaluating it**:
 
 ```python
@@ -459,6 +505,6 @@ cards go back in, and games with more than two players.
 python examples/domibot_relay.py --checkpoint checkpoints/domibot2/domibot2.2.pt --simulations 400
 ```
 
-**Not yet done**: a more varied opponent pool (older checkpoints, scripted
-strategies), a privileged (full-information) critic, and a larger search
-budget at play time.
+**Not yet done**: a privileged (full-information) critic, a larger search
+budget at play time, and more scripted strategies for the league (e.g. an
+engine-building one).

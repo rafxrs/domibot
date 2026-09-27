@@ -31,6 +31,7 @@ from ..evaluate import play_match
 from ..network import HIDDEN_DIM, NUM_RESIDUAL_BLOCKS, DomibotNet, get_device
 from ..self_play import DEFAULT_MAX_MOVES
 from .gae import Transition, win_weighted_value
+from .league import SCRIPTED_OPPONENTS, collect_league_rollouts, load_league
 from .rollout import collect_cross_play_rollouts, collect_rollouts
 
 CHECKPOINT_DIR = Path(__file__).resolve().parent.parent.parent / "checkpoints" / "domibot2"
@@ -203,6 +204,27 @@ def main() -> None:
                          help="fraction of --games-per-iter played as cross-play against a sampled opponent-pool "
                               "checkpoint instead of pure self-play (only meaningful when --opponent-pool-size > "
                               "0). Only the current network's own seat produces training examples in these games.")
+    parser.add_argument("--league-frac", type=float, default=0.0,
+                         help="fraction of --games-per-iter played against the opponent league (ppo/league.py) "
+                              "instead of pure self-play; 0 (default) disables it")
+    parser.add_argument("--league-checkpoints", type=str, nargs="*", default=[],
+                         help="league opponents: checkpoint paths or glob patterns (any network size, with or "
+                              "without public features), each played by its own raw policy")
+    parser.add_argument("--league-scripted", type=str, nargs="*", default=[], choices=sorted(SCRIPTED_OPPONENTS),
+                         help="scripted league opponents")
+    parser.add_argument("--league-opponents-per-iter", type=int, default=4,
+                         help="opponents drawn per iteration (by PFSP weight), splitting the league games evenly")
+    parser.add_argument("--league-snapshot-every", type=int, default=0,
+                         help="add a frozen copy of the learner to the league every this many iterations (0: never)")
+    parser.add_argument("--league-max-snapshots", type=int, default=4,
+                         help="keep only this many of those copies (oldest dropped)")
+    parser.add_argument("--league-hard-power", type=float, default=2.0,
+                         help="PFSP: opponent weight (1 - learner's score vs it) ** this -- higher focuses harder "
+                              "on the opponents the learner beats least")
+    parser.add_argument("--league-uniform-mix", type=float, default=0.2,
+                         help="share of the sampling weight spread evenly, so every opponent keeps appearing")
+    parser.add_argument("--league-decay", type=float, default=0.95,
+                         help="per-iteration decay of the learner's recorded results vs each opponent")
     parser.add_argument("--eval-every", type=int, default=5)
     parser.add_argument("--eval-games", type=int, default=20)
     parser.add_argument("--eval-reference-checkpoint", type=str, default=None,
@@ -219,6 +241,10 @@ def main() -> None:
                               "BigMoney+terminal evals (which still run every --eval-every) -- decoupling lets "
                               "you monitor cheaply and validate against the real bar less often. Default: same "
                               "cadence as --eval-every, i.e. no behavior change from leaving this unset.")
+    parser.add_argument("--eval-rival-checkpoint", type=str, default=None,
+                         help="also eval against this checkpoint's raw policy (no search) at every eval -- e.g. "
+                              "the current release, to track progress against the promotion bar during the run")
+    parser.add_argument("--eval-rival-games", type=int, default=None, help="games per rival eval (default: --eval-games)")
     parser.add_argument("--checkpoint", type=str, default=None, help="resume from this checkpoint file")
     parser.add_argument("--start-iteration", type=int, default=1)
     parser.add_argument("--run-name", type=str, default="domibot2",
@@ -239,6 +265,8 @@ def main() -> None:
     print(f"opponent_pool_size: {args.opponent_pool_size}  |  opponent_pool_frac: {args.opponent_pool_frac}  |  "
           f"reward_win_weight: {args.reward_win_weight}  |  public_features: {args.public_features}  |  "
           f"target_kl: {args.target_kl}")
+    if args.league_frac > 0 and args.opponent_pool_frac > 0:
+        raise SystemExit("use either --league-frac or --opponent-pool-frac, not both")
     reward_fn = functools.partial(win_weighted_value, win_weight=args.reward_win_weight)
 
     if args.checkpoint:
@@ -261,6 +289,21 @@ def main() -> None:
         ref_net.eval()
         reference_agent = DomibotAgent(ref_net, num_simulations=args.eval_reference_simulations, device=device)
         print(f"reference opponent: {args.eval_reference_checkpoint}")
+
+    rival_agent = None
+    if args.eval_rival_checkpoint:
+        rival_net = DomibotNet.load(args.eval_rival_checkpoint, map_location=device).to(device)
+        rival_net.eval()
+        rival_agent = PPOAgent(rival_net, device=device)
+        print(f"rival opponent (raw policy): {args.eval_rival_checkpoint}")
+
+    league = None
+    if args.league_frac > 0:
+        league = load_league(args.league_checkpoints, args.league_scripted, device,
+                             hard_power=args.league_hard_power, uniform_mix=args.league_uniform_mix,
+                             decay=args.league_decay, max_snapshots=args.league_max_snapshots)
+        print(f"league ({args.league_frac:.0%} of games, {args.league_opponents_per_iter} opponents/iter): "
+              + ", ".join(o.name for o in league.opponents))
 
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
     rng = random.Random(args.seed)
@@ -285,8 +328,9 @@ def main() -> None:
             opponent_network = DomibotNet.load(opponent_path, map_location=device).to(device)
             opponent_network.eval()
 
+        league_games = round(args.games_per_iter * args.league_frac) if league is not None else 0
         games = []
-        remaining = args.games_per_iter - pool_games
+        remaining = args.games_per_iter - pool_games - league_games
         if remaining > 0:
             games += collect_rollouts(
                 network, remaining, max_moves=max_moves, device=device,
@@ -299,6 +343,23 @@ def main() -> None:
                 seed=rng.randrange(2**31), min_sub_decision_cards=args.min_sub_decision_cards,
                 reward_fn=reward_fn, gamma=args.gamma, lam=args.gae_lambda,
             )
+        league_note = ""
+        if league_games > 0:
+            drawn = league.sample(args.league_opponents_per_iter, rng)
+            per_game = [drawn[j % len(drawn)] for j in range(league_games)]
+            league_transitions, results = collect_league_rollouts(
+                network, per_game, max_moves=max_moves, device=device, seed=rng.randrange(2**31),
+                min_sub_decision_cards=args.min_sub_decision_cards, reward_fn=reward_fn,
+                gamma=args.gamma, lam=args.gae_lambda,
+            )
+            games += league_transitions
+            league.end_iteration()
+            by_name: dict[str, list[float]] = {}
+            for opponent, result in zip(per_game, results):
+                by_name.setdefault(opponent.name, []).append(result)
+            for opponent in set(per_game):
+                league.record(opponent, by_name[opponent.name])
+            league_note = "  league=" + ",".join(f"{name}:{sum(r):g}/{len(r)}" for name, r in by_name.items())
         rollout_time = time.time() - t0
         transitions = [t for game in games for t in game]
 
@@ -321,6 +382,7 @@ def main() -> None:
                f"updates={st['updates']}")
         if pool_games > 0:
             msg += f"  pool_games={pool_games}({Path(opponent_path).stem})"
+        msg += league_note
         if scheduler is not None:
             msg += f"  lr={optimizer.param_groups[0]['lr']:.2e}"
         print(msg, flush=True)
@@ -339,11 +401,21 @@ def main() -> None:
                                         seed=iteration)
                 print(f"  eval vs {Path(args.eval_reference_checkpoint).stem}: "
                       f"{ref_result['agent_a_wins']}/{ref_result['games']} wins, {ref_result['ties']} ties", flush=True)
+            if rival_agent is not None:
+                rival_result = play_match(agent, rival_agent, n_games=args.eval_rival_games or args.eval_games,
+                                          seed=iteration)
+                print(f"  eval vs {Path(args.eval_rival_checkpoint).stem}: "
+                      f"{rival_result['agent_a_wins']}/{rival_result['games']} wins, {rival_result['ties']} ties",
+                      flush=True)
+            if league is not None:
+                print(f"  league (learner score/weight): {league.summary()}", flush=True)
             iter_path = CHECKPOINT_DIR / f"{args.run_name}_iter_{iteration}.pt"
             network.save(iter_path)
             if args.opponent_pool_size > 0:
                 recent_checkpoint_paths.append(iter_path)
                 del recent_checkpoint_paths[:-args.opponent_pool_size]
+        if league is not None and args.league_snapshot_every and iteration % args.league_snapshot_every == 0:
+            league.add_snapshot(network, f"self@{iteration}")
 
 
 if __name__ == "__main__":
