@@ -1,0 +1,547 @@
+CEL MOA VIL WOR GAR REM LAB WIT SMI FES
+Game #183977272, rated.
+domibot_v1.4: 42.33
+Sam: 41.87
+Timer: Patient
+Card Pool: level 1
+S starts with 3 Estates.
+S starts with 7 Coppers.
+d starts with 3 Estates.
+d starts with 7 Coppers.
+S shuffles their deck.
+d shuffles their deck.
+S draws 5 cards.
+d draws 4 Coppers and an Estate.
+Turn 1 - Sam
+S plays 5 Coppers. (+$5)
+S buys and gains a Witch.
+S draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Moat.
+d draws 3 Coppers and 2 Estates.
+Turn 2 - Sam
+S plays 2 Coppers. (+$2)
+S buys and gains a Cellar.
+S shuffles their deck.
+S draws 5 cards.
+Turn 2 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d shuffles their deck.
+d draws 3 Coppers, a Silver, and an Estate.
+Turn 3 - Sam
+S plays 3 Coppers. (+$3)
+S buys and gains a Village.
+S draws 5 cards.
+Turn 3 - domibot_v1.4
+d plays a Silver and 3 Coppers. (+$5)
+d buys and gains a Witch.
+d draws 2 Coppers, 2 Estates, and a Moat.
+Turn 4 - Sam
+S plays a Cellar.
+S gets +1 Action.
+S discards 2 other cards and a Copper.
+S shuffles their deck.
+S draws 3 cards.
+S plays a Witch.
+d reacts with a Moat.
+S draws 2 cards.
+S plays 3 Coppers. (+$3)
+S buys and gains a Village.
+S draws 5 cards.
+Turn 4 - domibot_v1.4
+d plays a Moat.
+d draws 2 Coppers.
+d plays 4 Coppers. (+$4)
+d buys and gains a Silver.
+d shuffles their deck.
+d draws 4 Coppers and an Estate.
+Turn 5 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays 3 Coppers. (+$3)
+S buys and gains a Workshop.
+S shuffles their deck.
+S draws 5 cards.
+Turn 5 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Silver.
+d draws a Copper, 2 Estates, a Moat, and a Witch.
+Turn 6 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Witch.
+d reacts with a Moat.
+S draws 2 cards.
+S plays a Workshop.
+S gains a Village.
+S plays 3 Coppers. (+$3)
+S buys and gains a Village.
+S draws 5 cards.
+Turn 6 - domibot_v1.4
+d plays a Witch.
+d draws a Copper and a Silver.
+S gains a Curse.
+d plays a Silver and 2 Coppers. (+$4)
+d buys and gains a Silver.
+d shuffles their deck.
+d draws 2 Coppers, 2 Silvers, and an Estate.
+Turn 7 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Cellar.
+S gets +1 Action.
+S discards 3 other cards and a Copper.
+S shuffles their deck.
+S draws 4 cards.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays 3 Coppers. (+$3)
+S buys and gains a Silver.
+S draws 5 cards.
+Turn 7 - domibot_v1.4
+d plays 2 Silvers and 2 Coppers. (+$6)
+d buys and gains a Gold.
+d draws 3 Coppers, a Silver, and an Estate.
+Turn 8 - Sam
+S plays a Workshop.
+S gains a Remodel.
+S plays 2 Coppers. (+$2)
+S buys and gains a Moat.
+S draws 5 cards.
+Turn 8 - domibot_v1.4
+d plays a Silver and 3 Coppers. (+$5)
+d buys and gains a Witch.
+d draws a Copper, a Silver, an Estate, a Moat, and a Witch.
+Turn 9 - Sam
+S plays a Village.
+S shuffles their deck.
+S draws a card.
+S gets +2 Actions.
+S plays a Witch.
+d reacts with a Moat.
+S draws 2 cards.
+S plays a Remodel.
+S trashes an Estate.
+S gains a Remodel.
+S plays 2 Coppers. (+$2)
+S buys and gains a Moat.
+S draws 5 cards.
+Turn 9 - domibot_v1.4
+d plays a Witch.
+d shuffles their deck.
+d draws 2 Coppers.
+S gains a Curse.
+d plays a Silver and 3 Coppers. (+$5)
+d buys and gains a Silver.
+d draws a Copper, 2 Silvers, an Estate, and a Witch.
+Turn 10 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Cellar.
+S gets +1 Action.
+S discards 2 other cards and an Estate.
+S draws 3 cards.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Workshop.
+S gains a Silver.
+S plays a Silver and a Copper. (+$3)
+S buys and gains a Village.
+S shuffles their deck.
+S draws 5 cards.
+Turn 10 - domibot_v1.4
+d plays a Witch.
+S reacts with a Moat.
+d draws a Silver and an Estate.
+d plays 3 Silvers and a Copper. (+$7)
+d buys and gains a Gold.
+d shuffles their deck.
+d draws 4 Coppers and a Gold.
+Turn 11 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Moat.
+S draws 2 cards.
+S plays a Cellar.
+S gets +1 Action.
+S discards 3 other cards and an Estate.
+S draws 4 cards.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Moat.
+S draws 2 cards.
+S plays a Remodel.
+S trashes a Curse.
+S gains a Moat.
+S plays 2 Coppers. (+$2)
+S buys and gains a Cellar.
+S draws 5 cards.
+Turn 11 - domibot_v1.4
+d plays a Gold and 4 Coppers. (+$7)
+d buys and gains a Gold.
+d draws a Copper, a Gold, an Estate, a Moat, and a Witch.
+Turn 12 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Remodel.
+S trashes a Curse.
+S gains a Cellar.
+S plays 2 Silvers and a Copper. (+$5)
+S buys and gains a Laboratory.
+S shuffles their deck.
+S draws 5 cards.
+Turn 12 - domibot_v1.4
+d plays a Witch.
+d draws 2 Silvers.
+S gains a Curse.
+d plays a Gold, 2 Silvers, and a Copper. (+$8)
+d buys and gains a Province.
+d draws 2 Coppers, 2 Silvers, and an Estate.
+Turn 13 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Witch.
+S draws 2 cards.
+d gains a Curse.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Moat.
+S draws 2 cards.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Laboratory.
+S draws 2 cards.
+S gets +1 Action.
+S plays a Moat.
+S draws 2 cards.
+S plays a Moat.
+S draws 2 cards.
+S plays a Cellar.
+S gets +1 Action.
+S discards a card and a Remodel.
+S draws 2 cards.
+S plays a Workshop.
+S gains a Gardens.
+S plays a Silver and 6 Coppers. (+$8)
+S buys and gains a Province.
+S draws 5 cards.
+Turn 13 - domibot_v1.4
+d plays 2 Silvers and 2 Coppers. (+$6)
+d buys and gains a Gold.
+d shuffles their deck.
+d draws a Copper, 2 Silvers, an Estate, and a Witch.
+Turn 14 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Cellar.
+S gets +1 Action.
+S discards a Copper.
+S shuffles their deck.
+S draws a card.
+S plays a Cellar.
+S gets +1 Action.
+S discards a Copper.
+S draws a card.
+S plays a Laboratory.
+S draws 2 cards.
+S gets +1 Action.
+S plays a Moat.
+S draws 2 cards.
+S plays a Cellar.
+S gets +1 Action.
+S discards a card and a Copper.
+S draws 2 cards.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Witch.
+S draws 2 cards.
+d gains a Curse.
+S plays a Remodel.
+S trashes a Curse.
+S gains a Moat.
+S plays a Silver and a Copper. (+$3)
+S buys and gains a Village.
+S draws 5 cards.
+Turn 14 - domibot_v1.4
+d plays a Witch.
+S reacts with a Moat.
+d draws a Gold and a Moat.
+d plays a Gold, 2 Silvers, and a Copper. (+$8)
+d buys and gains a Province.
+d draws a Copper, 2 Silvers, a Gold, and an Estate.
+Turn 15 - Sam
+S plays a Remodel.
+S trashes a Moat.
+S gains a Gardens.
+S plays a Silver and 2 Coppers. (+$4)
+S buys and gains a Gardens.
+S draws 5 cards.
+Turn 15 - domibot_v1.4
+d plays a Gold, 2 Silvers, and a Copper. (+$8)
+d buys and gains a Province.
+d draws 2 Coppers, a Silver, a Gold, and an Estate.
+Turn 16 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Moat.
+S shuffles their deck.
+S draws 2 cards.
+S plays a Workshop.
+S gains a Gardens.
+S plays a Silver and 2 Coppers. (+$4)
+S buys and gains a Gardens.
+S draws 5 cards.
+Turn 16 - domibot_v1.4
+d plays a Gold, a Silver, and 2 Coppers. (+$7)
+d buys and gains a Gardens.
+d draws 2 Coppers, a Gold, a Province, and a Witch.
+Turn 17 - Sam
+S plays a Cellar.
+S gets +1 Action.
+S discards 2 other cards and a Copper.
+S draws 3 cards.
+S plays a Remodel.
+S trashes a Moat.
+S gains a Gardens.
+S draws 5 cards.
+Turn 17 - domibot_v1.4
+d plays a Witch.
+d draws a Curse and a Copper.
+S gains a Curse.
+d plays a Gold and 3 Coppers. (+$6)
+d buys and gains a Gardens.
+d shuffles their deck.
+d draws a Copper, a Silver, a Gold, an Estate, and a Province.
+Turn 18 - Sam
+S plays a Laboratory.
+S draws 2 cards.
+S gets +1 Action.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Moat.
+S draws 2 cards.
+S plays a Cellar.
+S gets +1 Action.
+S discards 3 other cards and a Copper.
+S shuffles their deck.
+S draws 4 cards.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Witch.
+S draws 2 cards.
+d gains a Curse.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Cellar.
+S gets +1 Action.
+S discards 2 other cards and a Province.
+S draws 3 cards.
+S plays a Cellar.
+S gets +1 Action.
+S discards a Gardens.
+S draws a card.
+S plays a Moat.
+S draws 2 cards.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Workshop.
+S gains an Estate.
+S plays a Remodel.
+S trashes a Copper.
+S gains an Estate.
+S plays 2 Silvers and a Copper. (+$5)
+S buys and gains a Duchy.
+S draws 5 cards.
+Turn 18 - domibot_v1.4
+d plays a Gold, a Silver, and a Copper. (+$6)
+d buys and gains a Duchy.
+d draws 2 Coppers, a Silver, an Estate, and a Province.
+Turn 19 - Sam
+S plays 2 Coppers. (+$2)
+S buys and gains an Estate.
+S draws 5 cards.
+Turn 19 - domibot_v1.4
+d plays a Silver and 2 Coppers. (+$4)
+d buys and gains a Silver.
+d draws a Curse, a Copper, a Gold, a Gardens, and a Moat.
+Turn 20 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Remodel.
+S trashes a Curse.
+S gains an Estate.
+S buys and gains a Copper.
+S shuffles their deck.
+S draws 5 cards.
+Turn 20 - domibot_v1.4
+d plays a Moat.
+d draws a Curse and a Silver.
+d plays a Gold, a Silver, and a Copper. (+$6)
+d buys and gains a Duchy.
+d draws a Copper, a Silver, an Estate, a Gardens, and a Witch.
+Turn 21 - Sam
+S buys and gains a Copper.
+S draws 5 cards.
+Turn 21 - domibot_v1.4
+d plays a Witch.
+d draws 2 Golds.
+S gains a Curse.
+d plays 2 Golds, a Silver, and a Copper. (+$9)
+d buys and gains a Province.
+d draws 2 Coppers, a Silver, a Province, and a Witch.
+Turn 22 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Remodel.
+S trashes a Copper.
+S gains an Estate.
+S buys and gains a Copper.
+S draws 5 cards.
+Turn 22 - domibot_v1.4
+d plays a Witch.
+d shuffles their deck.
+d draws a Silver and an Estate.
+S gains a Curse.
+d plays 2 Silvers and 2 Coppers. (+$6)
+d buys and gains a Duchy.
+d draws 2 Golds, an Estate, a Duchy, and a Gardens.
+Turn 23 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Cellar.
+S gets +1 Action.
+S discards 2 other cards and an Estate.
+S draws 3 cards.
+S plays a Moat.
+S draws 2 cards.
+S plays a Cellar.
+S gets +1 Action.
+S discards a card and a Gardens.
+S draws 2 cards.
+S plays a Workshop.
+S gains an Estate.
+S plays a Remodel.
+S trashes a Copper.
+S gains an Estate.
+S buys and gains a Copper.
+S draws 5 cards.
+Turn 23 - domibot_v1.4
+d plays 2 Golds. (+$6)
+d buys and gains a Duchy.
+d draws 3 Coppers, a Gold, and a Moat.
+Turn 24 - Sam
+S plays a Laboratory.
+S draws 2 cards.
+S gets +1 Action.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Witch.
+d reacts with a Moat.
+S draws 2 cards.
+S plays a Moat.
+S draws 2 cards.
+S plays a Cellar.
+S gets +1 Action.
+S discards 2 other cards and a Duchy.
+S shuffles their deck.
+S draws 3 cards.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays 2 Silvers and a Copper. (+$5)
+S buys and gains a Duchy.
+S draws 5 cards.
+Turn 24 - domibot_v1.4
+d plays a Moat.
+d draws a Curse and a Silver.
+d plays a Gold, a Silver, and 3 Coppers. (+$8)
+d buys and gains a Province.
+d draws a Curse, a Silver, a Gold, an Estate, and a Gardens.
+Turn 25 - Sam
+S buys and gains a Copper.
+S draws 5 cards.
+Turn 25 - domibot_v1.4
+d plays a Gold and a Silver. (+$5)
+d buys and gains a Duchy.
+d draws a Curse, a Copper, a Silver, a Province, and a Witch.
+Turn 26 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S buys and gains a Copper.
+S draws 5 cards.
+Turn 26 - domibot_v1.4
+d plays a Witch.
+S reacts with a Moat.
+d draws a Copper and a Province.
+d plays a Silver and 2 Coppers. (+$4)
+d buys and gains an Estate.
+d shuffles their deck.
+d draws a Silver, a Gold, an Estate, a Duchy, and a Province.
+Turn 27 - Sam
+S plays a Cellar.
+S gets +1 Action.
+S discards 3 other cards and a Moat.
+S draws 4 cards.
+S buys and gains a Copper.
+S draws 5 cards.
+Turn 27 - domibot_v1.4
+d plays a Gold and a Silver. (+$5)
+d buys and gains a Duchy.
+d draws a Copper, a Gold, a Duchy, a Gardens, and a Witch.
+The game has ended.

@@ -490,13 +490,12 @@ Cards known to be on top of a deck (Sentry/Harbinger/Artisan topdecks,
 Bureaucrat's Silver) are placed there rather than shuffled in, and cards
 known to be in the opponent's hand (a Moat they reacted with, a hand
 Bureaucrat revealed) are dealt to them rather than left to chance.
-`tests/test_log_parser_edge_cases.py` replays eight real games (three kept
-whole in `tests/fixtures/dominion_logs/`) and requires every point a paste
-could end at to parse and reconstruct.
+`tests/test_log_parser_edge_cases.py` replays thirteen real games (eight
+kept whole in `tests/fixtures/dominion_logs/`) and requires every point a
+paste could end at to parse and reconstruct.
 
 Still unverified against real logs, so handled defensively: your own
-Library (its set-aside lines stop the replay) and whether dominion.games
-logs Merchant's +$1 separately from the treasure line. Not covered: a
+Library (its set-aside lines stop the replay). Not covered: a
 reaction to a Throne-Roomed attack or to one played after the opponent's
 Council Room, a card that reshuffles your deck twice, the order two Sentry
 cards go back in, and games with more than two players.

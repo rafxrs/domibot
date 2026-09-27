@@ -1,0 +1,309 @@
+MOA HAR VIL SMI BAN LAB MAR FES CEL CHA
+Game #183977142, rated.
+domibot_v1.4: 41.73
+Sam: 41.92
+Timer: Friendly
+Card Pool: level 1
+d starts with 3 Estates.
+d starts with 7 Coppers.
+S starts with 3 Estates.
+S starts with 7 Coppers.
+d shuffles their deck.
+S shuffles their deck.
+d draws 2 Coppers and 3 Estates.
+S draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 2 Coppers. (+$2)
+d buys and gains a Moat.
+d draws 5 Coppers.
+Turn 1 - Sam
+S plays 4 Coppers. (+$4)
+S buys and gains a Smithy.
+S draws 5 cards.
+Turn 2 - domibot_v1.4
+d plays 5 Coppers. (+$5)
+d buys and gains a Bandit.
+d shuffles their deck.
+d draws 3 Coppers, an Estate, and a Bandit.
+Turn 2 - Sam
+S plays 3 Coppers. (+$3)
+S buys and gains a Village.
+S shuffles their deck.
+S draws 5 cards.
+Turn 3 - domibot_v1.4
+d plays a Bandit.
+d gains a Gold.
+S reveals a Copper and an Estate.
+S discards a Copper and an Estate.
+d plays 3 Coppers. (+$3)
+d buys and gains a Harbinger.
+d draws 3 Coppers, an Estate, and a Moat.
+Turn 3 - Sam
+S plays 3 Coppers. (+$3)
+S buys and gains a Silver.
+S draws 5 cards.
+Turn 4 - domibot_v1.4
+d plays a Moat.
+d draws a Copper and an Estate.
+d plays 4 Coppers. (+$4)
+d buys and gains a Harbinger.
+d shuffles their deck.
+d draws 3 Coppers, a Bandit, and a Harbinger.
+Turn 4 - Sam
+S plays a Village.
+S shuffles their deck.
+S draws a card.
+S gets +2 Actions.
+S plays a Smithy.
+S draws 3 cards.
+S plays 5 Coppers. (+$5)
+S buys and gains a Bandit.
+S shuffles their deck.
+S draws 5 cards.
+Turn 5 - domibot_v1.4
+d plays a Harbinger.
+d draws a Moat.
+d gets +1 Action.
+d plays a Bandit.
+d gains a Gold.
+S reveals a Copper and a Village.
+S discards a Copper and a Village.
+d plays 3 Coppers. (+$3)
+d buys and gains a Harbinger.
+d draws 2 Coppers, a Gold, and 2 Estates.
+Turn 5 - Sam
+S plays a Silver and a Copper. (+$3)
+S buys and gains a Village.
+S draws 5 cards.
+Turn 6 - domibot_v1.4
+d plays a Gold and 2 Coppers. (+$5)
+d buys and gains a Market.
+d shuffles their deck.
+d draws 2 Coppers, a Gold, an Estate, and a Harbinger.
+Turn 6 - Sam
+S plays a Bandit.
+S gains a Gold.
+d reveals a Copper and a Moat.
+d discards a Copper and a Moat.
+S plays 4 Coppers. (+$4)
+S buys and gains a Smithy.
+S shuffles their deck.
+S draws 5 cards.
+Turn 7 - domibot_v1.4
+d plays a Harbinger.
+d draws a Market.
+d gets +1 Action.
+d looks at a Copper and a Moat.
+d plays a Market.
+d draws a Harbinger.
+d gets +1 Action.
+d gets +1 Buy.
+d gets +$1.
+d plays a Harbinger.
+d draws a Copper.
+d gets +1 Action.
+d looks at a Copper and a Moat.
+d plays a Gold and 3 Coppers. (+$6)
+d buys and gains a Gold.
+d draws 2 Coppers, 2 Estates, and a Harbinger.
+Turn 7 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Smithy.
+S draws 3 cards.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Smithy.
+S draws 3 cards.
+S plays a Bandit.
+S gains a Gold.
+d reveals a Copper and a Gold.
+d trashes a Gold.
+d discards a Copper.
+S plays 5 Coppers. (+$5)
+S buys and gains a Market.
+S shuffles their deck.
+S draws 5 cards.
+Turn 8 - domibot_v1.4
+d plays a Harbinger.
+d draws a Bandit.
+d gets +1 Action.
+d looks at 5 Coppers, 2 Golds, an Estate, 2 Harbingers, a Market, and a Moat.
+d topdecks a Gold.
+d plays a Bandit.
+d gains a Gold.
+S reveals a Smithy and a Village.
+S discards a Smithy and a Village.
+d shuffles their deck.
+d draws a Copper, 2 Golds, an Estate, and a Harbinger.
+Turn 8 - Sam
+S plays 3 Coppers. (+$3)
+S buys and gains a Village.
+S draws 5 cards.
+Turn 9 - domibot_v1.4
+d plays a Harbinger.
+d draws a Copper.
+d gets +1 Action.
+d plays 2 Golds and 2 Coppers. (+$8)
+d buys and gains a Province.
+d draws a Copper, a Gold, an Estate, a Bandit, and a Market.
+Turn 9 - Sam
+S plays a Bandit.
+S gains a Gold.
+d reveals a Harbinger and a Moat.
+d discards a Harbinger and a Moat.
+S plays a Gold and 2 Coppers. (+$5)
+S buys and gains a Laboratory.
+S draws 5 cards.
+Turn 10 - domibot_v1.4
+d plays a Market.
+d draws a Copper.
+d gets +1 Action.
+d gets +1 Buy.
+d gets +$1.
+d plays a Bandit.
+d gains a Gold.
+S reveals a Market and a Village.
+S discards a Market and a Village.
+d plays a Gold and 2 Coppers. (+$5)
+d buys and gains a Gold.
+d draws 3 Coppers, an Estate, and a Harbinger.
+Turn 10 - Sam
+S plays a Smithy.
+S shuffles their deck.
+S draws 3 cards.
+S plays a Gold and 2 Coppers. (+$5)
+S buys and gains a Market.
+S draws 5 cards.
+Turn 11 - domibot_v1.4
+d plays a Harbinger.
+d shuffles their deck.
+d draws a Copper.
+d gets +1 Action.
+d plays 4 Coppers. (+$4)
+d buys and gains a Smithy.
+d draws an Estate, a Province, 2 Harbingers, and a Market.
+Turn 11 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Laboratory.
+S draws 2 cards.
+S gets +1 Action.
+S plays 2 Golds and 2 Coppers. (+$8)
+S buys and gains a Province.
+S draws 5 cards.
+Turn 12 - domibot_v1.4
+d plays a Harbinger.
+d draws a Gold.
+d gets +1 Action.
+d looks at 4 Coppers, an Estate, a Harbinger, and a Smithy.
+d topdecks a Smithy.
+d plays a Harbinger.
+d draws a Smithy.
+d gets +1 Action.
+d looks at 4 Coppers, an Estate, and a Harbinger.
+d topdecks a Harbinger.
+d plays a Market.
+d draws a Harbinger.
+d gets +1 Action.
+d gets +1 Buy.
+d gets +$1.
+d plays a Harbinger.
+d draws a Gold.
+d gets +1 Action.
+d looks at 4 Coppers and an Estate.
+d plays a Smithy.
+d draws a Copper, a Gold, and a Moat.
+d plays 3 Golds and a Copper. (+$10)
+d buys and gains a Province.
+d draws 2 Coppers, 2 Golds, and a Bandit.
+Turn 12 - Sam
+S plays a Market.
+S draws a card.
+S gets +1 Action.
+S gets +1 Buy.
+S gets +$1.
+S plays a Smithy.
+S shuffles their deck.
+S draws 3 cards.
+S plays a Silver and 2 Coppers. (+$4)
+S buys and gains a Market.
+S draws 5 cards.
+Turn 13 - domibot_v1.4
+d plays a Bandit.
+d gains a Gold.
+S reveals a Copper and a Province.
+S discards a Copper and a Province.
+d plays 2 Golds and 2 Coppers. (+$8)
+d buys and gains a Province.
+d shuffles their deck.
+d draws a Copper, a Gold, an Estate, a Province, and a Smithy.
+Turn 13 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Laboratory.
+S draws 2 cards.
+S gets +1 Action.
+S plays a Market.
+S draws a card.
+S gets +1 Action.
+S gets +1 Buy.
+S gets +$1.
+S plays a Smithy.
+S draws 3 cards.
+S plays 3 Golds and 4 Coppers. (+$13)
+S buys and gains a Province.
+S buys and gains a Laboratory.
+S shuffles their deck.
+S draws 5 cards.
+Turn 14 - domibot_v1.4
+d plays a Smithy.
+d draws 2 Golds and a Moat.
+d plays 3 Golds and a Copper. (+$10)
+d buys and gains a Province.
+d draws 2 Coppers, an Estate, and 2 Harbingers.
+Turn 14 - Sam
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Smithy.
+S draws 3 cards.
+S plays a Village.
+S draws a card.
+S gets +2 Actions.
+S plays a Market.
+S draws a card.
+S gets +1 Action.
+S gets +1 Buy.
+S gets +$1.
+S plays a Market.
+S draws a card.
+S gets +1 Action.
+S gets +1 Buy.
+S gets +$1.
+S plays a Gold, a Silver, and 4 Coppers. (+$9)
+S buys and gains 2 Duchies.
+S draws 5 cards.
+Turn 15 - domibot_v1.4
+d plays a Harbinger.
+d draws a Province.
+d gets +1 Action.
+d looks at a Copper, 3 Golds, an Estate, 2 Provinces, a Moat, and a Smithy.
+d topdecks a Gold.
+d plays a Harbinger.
+d draws a Gold.
+d gets +1 Action.
+d looks at a Copper, 2 Golds, an Estate, 2 Provinces, a Moat, and a Smithy.
+d topdecks a Gold.
+The game has ended.
+Sam has resigned.

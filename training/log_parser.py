@@ -347,6 +347,13 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
     # a hand Bureaucrat revealed) until they play/discard/trash/topdeck them
     # or their turn ends.
     opp_known_hand: list[str] = []
+    # Every card the opponent owns (gains and trashes are always named) --
+    # used to work out which card an unnamed Harbinger topdeck took.
+    opp_owned: Counter = Counter({"Copper": _STARTING_COPPER, "Estate": _STARTING_ESTATE})
+    # Cards the opponent's Harbinger has put back on their deck unnamed:
+    # still in the tracked discard until we can tell which they were (see
+    # settle_opp_discard); a shuffle clears them with the rest.
+    opp_discard_unnamed_out = 0
     # Vassal always discards its deck-top card (logged as a plain
     # "discards X"), and may then play it *from the discard pile* (logged
     # as a plain "plays X"): None, "await" (Vassal played, discard not yet
@@ -413,6 +420,22 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
         for card in cards:
             known_top[player].insert(0, card)
 
+    def settle_opp_discard() -> list[str]:
+        """The opponent's discard without the cards an unnamed Harbinger
+        topdeck took: first any card the discard and play area now show
+        more copies of than they own (it must have been one of those), then
+        -- if still undetermined -- the most recently discarded, since which
+        one doesn't affect any count."""
+        discard = list(opp.discard)
+        n = opp_discard_unnamed_out
+        excess = Counter(discard) + Counter(opp.play_area)
+        excess.subtract(opp_owned)
+        for card, extra in excess.items():
+            while extra > 0 and n > 0 and _remove_one(discard, card):
+                extra -= 1
+                n -= 1
+        return discard[: len(discard) - n]
+
     def take_revealed(player: str, card: str) -> bool:
         """`card` resolving a pending reveal/look of `player`'s, if any."""
         if _remove_one(pending_reveal[player], card):
@@ -457,7 +480,7 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
             my_open_play_index = None
             me.merchant_bonus, me.silver_played = 0, False
             if current_turn_player == opp_full_name:
-                opp_turn_start_discard = list(opp.discard)
+                opp_turn_start_discard = settle_opp_discard()
             continue
         if _GAME_END_LINE.match(line):
             break
@@ -542,6 +565,7 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                     current_turn_disqualified = True
             else:
                 opp.discard = []
+                opp_discard_unnamed_out = 0
                 if upcoming_cleanup:
                     opp.play_area = []
             continue
@@ -628,6 +652,7 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                     else:
                         me.discard.append(card)
                 else:
+                    opp_owned[card] += 1
                     if to_hand:
                         opp.hand_size += 1
                     elif to_deck_top:
@@ -736,6 +761,8 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                 elif not from_reveal:
                     opp.hand_size -= 1
                     _remove_one(opp_known_hand, card)
+                if not mine:
+                    opp_owned[card] -= 1
             if not mine:
                 current_turn_disqualified = True
             if attacked_me:
@@ -790,13 +817,13 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                     pending_anon[player] -= count  # Sentry putting back cards it looked at
                 elif harbinger_context:
                     # dominion.games sometimes renders Harbinger's own
-                    # discard-sourced topdeck unnamed. The discard it came
-                    # from is tracked exactly, so which card moved doesn't
-                    # matter here (only zone *counts* feed reconstruct_game)
-                    # -- a don't-care, not a guess.
-                    if len(opp.discard) < count:
+                    # discard-sourced topdeck unnamed. Which card it was only
+                    # shows later, if at all (e.g. it's drawn and played while
+                    # still counted in the discard), so it's settled then --
+                    # see settle_opp_discard.
+                    if len(opp.discard) - opp_discard_unnamed_out < count:
                         raise ValueError("opponent's unnamed Harbinger topdeck exceeds their tracked discard")
-                    del opp.discard[-count:]
+                    opp_discard_unnamed_out += count
                 else:
                     opp.hand_size -= count  # Artisan's topdeck from their hidden hand
                     opp_known_hand.clear()
@@ -872,6 +899,7 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
         pending_reaction = _PendingReaction(current_turn_safe_path, opp_turn_start_discard, my_top,
                                             current_turn_self_gains)
     open_play = my_open_play_index if current_turn_player == my_full_name else None
+    opp.discard = settle_opp_discard()
     return _Replay(me, opp, [c for c in known_top[my_full_name] if c is not None],
                    list(known_top[opp_full_name]), opp_known_hand[: max(opp.hand_size, 0)],
                    pending_reaction, open_play)

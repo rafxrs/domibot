@@ -1,0 +1,464 @@
+MER MIL REM CR SEN VIL SMI FES MAR LAB
+Game #183976797, rated.
+ada: 42.72
+domibot_v1.4: 40.95
+Timer: Friendly
+Card Pool: level 1
+a starts with 3 Estates.
+a starts with 7 Coppers.
+d starts with 3 Estates.
+d starts with 7 Coppers.
+a shuffles their deck.
+d shuffles their deck.
+a draws 5 cards.
+d draws 3 Coppers and 2 Estates.
+Turn 1 - ada
+a plays 4 Coppers. (+$4)
+a buys and gains a Remodel.
+a draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d draws 4 Coppers and an Estate.
+Turn 2 - ada
+a plays 3 Coppers. (+$3)
+a buys and gains a Silver.
+a shuffles their deck.
+a draws 5 cards.
+Turn 2 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Militia.
+d shuffles their deck.
+d draws 2 Coppers, a Silver, an Estate, and a Militia.
+Turn 3 - ada
+a plays 4 Coppers. (+$4)
+a buys and gains a Militia.
+a draws 5 cards.
+Turn 3 - domibot_v1.4
+d plays a Militia.
+d gets +$2.
+a discards a card and an Estate.
+d plays a Silver and 2 Coppers. (+$4)
+d buys and gains a Sentry.
+d draws 4 Coppers and an Estate.
+Turn 4 - ada
+a plays a Silver and 2 Coppers. (+$4)
+a buys and gains a Merchant.
+a shuffles their deck.
+a draws 5 cards.
+Turn 4 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Merchant.
+d shuffles their deck.
+d draws 2 Coppers, 2 Estates, and a Militia.
+Turn 5 - ada
+a plays a Merchant.
+a draws a card.
+a gets +1 Action.
+a plays a Remodel.
+a trashes an Estate.
+a gains a Merchant.
+a plays a Silver and 2 Coppers. (+$4)
+a gets +$1. (Merchant)
+a buys and gains a Sentry.
+a draws 5 cards.
+Turn 5 - domibot_v1.4
+d plays a Militia.
+d gets +$2.
+a discards a card and a Copper.
+d plays 2 Coppers. (+$2)
+d buys and gains a Merchant.
+d draws 2 Coppers, an Estate, a Merchant, and a Sentry.
+Turn 6 - ada
+a plays a Militia.
+a gets +$2.
+d discards a Copper and an Estate.
+a plays 2 Coppers. (+$2)
+a buys and gains a Merchant.
+a shuffles their deck.
+a draws 5 cards.
+Turn 6 - domibot_v1.4
+d plays a Sentry.
+d draws a Copper.
+d gets +1 Action.
+d looks at a Copper and a Silver.
+d trashes a Copper.
+d topdecks a Silver.
+d plays 2 Coppers. (+$2)
+d shuffles their deck.
+d draws 3 Coppers, a Silver, and a Merchant.
+Turn 7 - ada
+a plays a Militia.
+a gets +$2.
+d discards 2 Coppers.
+a plays 3 Coppers. (+$3)
+a buys and gains a Sentry.
+a draws 5 cards.
+Turn 7 - domibot_v1.4
+d plays a Merchant.
+d draws a Copper.
+d gets +1 Action.
+d plays a Silver and 2 Coppers. (+$4)
+d gets +$1. (Merchant)
+d buys and gains a Sentry.
+d draws a Copper, 2 Estates, a Merchant, and a Militia.
+Turn 8 - ada
+a plays a Merchant.
+a draws a card.
+a gets +1 Action.
+a plays a Silver and 3 Coppers. (+$5)
+a gets +$1. (Merchant)
+a buys and gains a Gold.
+a draws 5 cards.
+Turn 8 - domibot_v1.4
+d plays a Merchant.
+d draws a Sentry.
+d gets +1 Action.
+d plays a Sentry.
+d draws an Estate.
+d gets +1 Action.
+d shuffles their deck.
+d looks at a Copper and a Sentry.
+d trashes a Copper.
+d topdecks a Sentry.
+d plays a Militia.
+d gets +$2.
+a discards a card and a Copper.
+d plays a Copper. (+$1)
+d buys and gains a Merchant.
+d draws 2 Coppers, a Silver, a Merchant, and a Sentry.
+Turn 9 - ada
+a plays a Sentry.
+a shuffles their deck.
+a draws a card.
+a gets +1 Action.
+a looks at 2 cards.
+a trashes 2 Estates.
+a plays a Merchant.
+a draws a card.
+a gets +1 Action.
+a plays a Merchant.
+a draws a card.
+a gets +1 Action.
+a plays a Merchant.
+a draws a card.
+a gets +1 Action.
+a plays a Silver and a Copper. (+$3)
+a gets +$2. (Merchant)
+a gets +$1. (Merchant)
+a buys and gains a Gold.
+a draws 5 cards.
+Turn 9 - domibot_v1.4
+d plays a Sentry.
+d draws a Copper.
+d gets +1 Action.
+d shuffles their deck.
+d looks at a Copper and an Estate.
+d trashes a Copper and an Estate.
+d plays a Merchant.
+d draws an Estate.
+d gets +1 Action.
+d plays a Silver and 3 Coppers. (+$5)
+d gets +$1. (Merchant)
+d buys and gains a Sentry.
+d draws a Copper, an Estate, 2 Merchants, and a Militia.
+Turn 10 - ada
+a plays a Sentry.
+a draws a card.
+a gets +1 Action.
+a looks at 2 cards.
+a trashes 2 Coppers.
+a plays a Militia.
+a gets +$2.
+d discards a Copper and an Estate.
+a plays 4 Coppers. (+$4)
+a buys and gains a Gold.
+a shuffles their deck.
+a draws 5 cards.
+Turn 10 - domibot_v1.4
+d plays a Merchant.
+d draws a Sentry.
+d gets +1 Action.
+d plays a Merchant.
+d shuffles their deck.
+d draws a Merchant.
+d gets +1 Action.
+d plays a Sentry.
+d draws a Copper.
+d gets +1 Action.
+d looks at a Copper and a Silver.
+d trashes a Copper.
+d topdecks a Silver.
+d plays a Merchant.
+d draws a Silver.
+d gets +1 Action.
+d plays a Militia.
+d gets +$2.
+a discards a card and a Sentry.
+d plays a Silver and a Copper. (+$3)
+d gets +$2. (Merchant)
+d gets +$1. (Merchant)
+d buys and gains a Province.
+d draws 2 Coppers, 2 Estates, and a Sentry.
+Turn 11 - ada
+a plays a Sentry.
+a draws a card.
+a gets +1 Action.
+a looks at 2 cards.
+a trashes a Copper.
+a topdecks a card.
+a plays a Gold, a Silver, and a Copper. (+$6)
+a buys and gains a Council Room.
+a draws 5 cards.
+Turn 11 - domibot_v1.4
+d plays a Sentry.
+d draws a Sentry.
+d gets +1 Action.
+d shuffles their deck.
+d looks at a Copper and a Province.
+d trashes a Copper.
+d discards a Province.
+d plays a Sentry.
+d draws a Merchant.
+d gets +1 Action.
+d looks at a Silver and a Merchant.
+d topdecks a Silver and a Merchant.
+d plays a Merchant.
+d draws a Merchant.
+d gets +1 Action.
+d plays a Merchant.
+d draws a Silver.
+d gets +1 Action.
+d plays a Silver and 2 Coppers. (+$4)
+d gets +$2. (Merchant)
+d buys and gains a Gold.
+d shuffles their deck.
+d draws an Estate, 2 Merchants, a Militia, and a Sentry.
+Turn 12 - ada
+a plays a Merchant.
+a draws a card.
+a gets +1 Action.
+a plays a Merchant.
+a draws a card.
+a gets +1 Action.
+a plays a Merchant.
+a draws a card.
+a gets +1 Action.
+a plays a Militia.
+a gets +$2.
+d discards an Estate and a Merchant.
+a plays a Gold and 2 Coppers. (+$5)
+a buys and gains a Gold.
+a shuffles their deck.
+a draws 5 cards.
+Turn 12 - domibot_v1.4
+d plays a Sentry.
+d draws a Copper.
+d gets +1 Action.
+d looks at a Gold and a Province.
+d discards a Province.
+d topdecks a Gold.
+d plays a Merchant.
+d draws a Gold.
+d gets +1 Action.
+d plays a Militia.
+d gets +$2.
+a discards a card and a Sentry.
+d plays a Gold and a Copper. (+$4)
+d buys and gains a Gold.
+d draws a Copper, a Silver, an Estate, and 2 Sentries.
+Turn 13 - ada
+a plays a Sentry.
+a draws a card.
+a gets +1 Action.
+a looks at 2 cards.
+a trashes a Copper.
+a topdecks a card.
+a plays 3 Golds. (+$9)
+a buys and gains a Province.
+a draws 5 cards.
+Turn 13 - domibot_v1.4
+d plays a Sentry.
+d draws a Merchant.
+d gets +1 Action.
+d shuffles their deck.
+d looks at an Estate and a Merchant.
+d trashes an Estate.
+d topdecks a Merchant.
+d plays a Sentry.
+d draws a Merchant.
+d gets +1 Action.
+d looks at a Province and a Sentry.
+d discards a Province.
+d topdecks a Sentry.
+d plays a Merchant.
+d draws a Sentry.
+d gets +1 Action.
+d plays a Sentry.
+d draws a Merchant.
+d gets +1 Action.
+d looks at a Copper and a Gold.
+d trashes a Copper.
+d topdecks a Gold.
+d plays a Merchant.
+d draws a Gold.
+d gets +1 Action.
+d plays a Merchant.
+d draws a Gold.
+d gets +1 Action.
+d plays a Silver and a Copper. (+$3)
+d gets +$2. (Merchant)
+d gets +$1. (Merchant)
+d plays 2 Golds. (+$6)
+d buys and gains a Province.
+d shuffles their deck.
+d draws an Estate, 2 Provinces, a Militia, and a Sentry.
+Turn 14 - ada
+a plays a Merchant.
+a draws a card.
+a gets +1 Action.
+a plays a Merchant.
+a draws a card.
+a gets +1 Action.
+a plays a Council Room.
+a shuffles their deck.
+a draws 4 cards.
+a gets +1 Buy.
+d draws a Merchant.
+a plays a Silver and 3 Coppers. (+$5)
+a gets +$2. (Merchant)
+a plays 2 Golds. (+$6)
+a buys and gains a Province.
+a buys and gains a Council Room.
+a draws 5 cards.
+Turn 14 - domibot_v1.4
+d plays a Sentry.
+d draws a Gold.
+d gets +1 Action.
+d looks at a Copper and a Merchant.
+d trashes a Copper.
+d topdecks a Merchant.
+d plays a Merchant.
+d draws a Merchant.
+d gets +1 Action.
+d plays a Merchant.
+d draws a Sentry.
+d gets +1 Action.
+d plays a Sentry.
+d draws a Gold.
+d gets +1 Action.
+d looks at a Merchant and a Sentry.
+d topdecks a Merchant and a Sentry.
+d plays a Militia.
+d gets +$2.
+a discards a card and a Sentry.
+d plays 2 Golds. (+$6)
+d buys and gains a Province.
+d shuffles their deck.
+d draws a Silver, a Province, a Merchant, a Militia, and a Sentry.
+Turn 15 - ada
+a plays a Merchant.
+a draws a card.
+a gets +1 Action.
+a plays a Sentry.
+a shuffles their deck.
+a draws a card.
+a gets +1 Action.
+a looks at 2 cards.
+a discards a Province.
+a topdecks a card.
+a plays a Sentry.
+a draws a card.
+a gets +1 Action.
+a looks at 2 cards.
+a topdecks 2 cards.
+a plays a Merchant.
+a draws a card.
+a gets +1 Action.
+a plays 3 Golds. (+$9)
+a buys and gains a Province.
+a draws 5 cards.
+Turn 15 - domibot_v1.4
+d plays a Sentry.
+d draws a Merchant.
+d gets +1 Action.
+d looks at a Gold and a Sentry.
+d topdecks a Gold and a Sentry.
+d plays a Merchant.
+d draws a Sentry.
+d gets +1 Action.
+d plays a Sentry.
+d draws a Gold.
+d gets +1 Action.
+d looks at a Gold and a Merchant.
+d topdecks a Gold and a Merchant.
+d plays a Merchant.
+d draws a Merchant.
+d gets +1 Action.
+d plays a Merchant.
+d draws a Gold.
+d gets +1 Action.
+d plays a Militia.
+d gets +$2.
+a discards a card and a Copper.
+d plays a Silver. (+$2)
+d gets +$2. (Merchant)
+d gets +$1. (Merchant)
+d plays 2 Golds. (+$6)
+d buys and gains a Province.
+d shuffles their deck.
+d draws an Estate, 2 Provinces, and 2 Sentries.
+Turn 16 - ada
+a plays a Merchant.
+a draws a card.
+a gets +1 Action.
+a plays a Remodel.
+a trashes a Copper.
+a gains an Estate.
+a plays a Gold. (+$3)
+a buys and gains an Estate.
+a draws 5 cards.
+Turn 16 - domibot_v1.4
+d plays a Sentry.
+d draws a Merchant.
+d gets +1 Action.
+d looks at a Province and a Merchant.
+d discards a Province.
+d topdecks a Merchant.
+d plays a Sentry.
+d draws a Merchant.
+d gets +1 Action.
+d looks at a Merchant and a Militia.
+d topdecks a Merchant and a Militia.
+d plays a Merchant.
+d draws a Militia.
+d gets +1 Action.
+d plays a Merchant.
+d draws a Merchant.
+d gets +1 Action.
+d plays a Merchant.
+d draws a Gold.
+d gets +1 Action.
+d plays a Militia.
+d gets +$2.
+a discards a card and a Militia.
+d plays a Gold. (+$3)
+d buys and gains a Duchy.
+d shuffles their deck.
+d draws a Silver, a Gold, a Province, a Merchant, and a Sentry.
+Turn 17 - ada
+a plays a Council Room.
+a shuffles their deck.
+a draws 4 cards.
+a gets +1 Buy.
+d draws a Province.
+a plays a Silver and a Copper. (+$3)
+a buys and gains an Estate.
+a draws 5 cards.
+Turn 17 - domibot_v1.4
+d plays a Sentry.
+d draws a Gold.
+d gets +1 Action.
+d looks at a Merchant and a Sentry.
+The game has ended.
+ada has resigned.

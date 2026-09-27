@@ -1,0 +1,255 @@
+MIL MLR SEN VAS VIL SMI FES MAR LAB CEL
+LAB LIB MIN SEN WIT CEL VAS GAR MIL MLR
+Game #183977502, rated.
+eve: 36.97
+domibot_v1.4: 42.88
+Timer: Friendly
+Card Pool: level 1
+d starts with 3 Estates.
+d starts with 7 Coppers.
+e starts with 3 Estates.
+e starts with 7 Coppers.
+d shuffles their deck.
+e shuffles their deck.
+d draws 4 Coppers and an Estate.
+e draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Militia.
+d draws 3 Coppers and 2 Estates.
+Turn 1 - eve
+e plays 3 Coppers. (+$3)
+e buys and gains a Vassal.
+e draws 5 cards.
+Turn 2 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d shuffles their deck.
+d draws 3 Coppers, a Silver, and an Estate.
+Turn 2 - eve
+e plays 4 Coppers. (+$4)
+e buys and gains a Militia.
+e shuffles their deck.
+e draws 5 cards.
+Turn 3 - domibot_v1.4
+d plays a Silver and 3 Coppers. (+$5)
+d buys and gains a Sentry.
+d draws 3 Coppers, an Estate, and a Militia.
+Turn 3 - eve
+e plays 3 Coppers. (+$3)
+e buys and gains a Vassal.
+e draws 5 cards.
+Turn 4 - domibot_v1.4
+d plays a Militia.
+d gets +$2.
+e discards a card and a Copper.
+d plays 3 Coppers. (+$3)
+d buys and gains a Sentry.
+d shuffles their deck.
+d draws 3 Coppers, an Estate, and a Sentry.
+Turn 4 - eve
+e plays a Militia.
+e gets +$2.
+d discards a Copper and an Estate.
+e plays 2 Coppers. (+$2)
+e buys and gains a Moneylender.
+e shuffles their deck.
+e draws 5 cards.
+Turn 5 - domibot_v1.4
+d plays a Sentry.
+d draws a Militia.
+d gets +1 Action.
+d looks at 2 Estates.
+d trashes 2 Estates.
+d plays a Militia.
+d gets +$2.
+e discards a card and a Vassal.
+d plays 2 Coppers. (+$2)
+d buys and gains a Silver.
+d draws 3 Coppers, a Silver, and a Sentry.
+Turn 5 - eve
+e plays a Militia.
+e gets +$2.
+d discards 2 Coppers.
+e plays 2 Coppers. (+$2)
+e buys and gains a Vassal.
+e draws 5 cards.
+Turn 6 - domibot_v1.4
+d plays a Sentry.
+d draws a Copper.
+d gets +1 Action.
+d shuffles their deck.
+d looks at a Copper and an Estate.
+d trashes a Copper and an Estate.
+d plays a Silver and 2 Coppers. (+$4)
+d buys and gains a Silver.
+d draws 3 Coppers, a Silver, and a Militia.
+Turn 6 - eve
+e plays 4 Coppers. (+$4)
+e buys and gains a Vassal.
+e shuffles their deck.
+e draws 5 cards.
+Turn 7 - domibot_v1.4
+d plays a Militia.
+d gets +$2.
+e discards a card and a Vassal.
+d plays a Silver and 3 Coppers. (+$5)
+d buys and gains a Sentry.
+d shuffles their deck.
+d draws a Copper, a Silver, a Militia, and 2 Sentries.
+Turn 7 - eve
+e plays a Moneylender.
+e trashes a Copper.
+e gets +$3.
+e plays a Copper. (+$1)
+e buys and gains a Vassal.
+e draws 5 cards.
+Turn 8 - domibot_v1.4
+d plays a Sentry.
+d draws a Sentry.
+d gets +1 Action.
+d looks at a Copper and a Silver.
+d trashes a Copper.
+d topdecks a Silver.
+d plays a Sentry.
+d draws a Silver.
+d gets +1 Action.
+d looks at 2 Coppers.
+d trashes 2 Coppers.
+d plays a Sentry.
+d draws a Silver.
+d gets +1 Action.
+d looks at 2 Coppers.
+d trashes 2 Coppers.
+d plays a Militia.
+d gets +$2.
+e discards a card and an Estate.
+d plays 3 Silvers and a Copper. (+$7)
+d buys and gains a Gold.
+d shuffles their deck.
+d draws a Copper, a Silver, a Gold, and 2 Sentries.
+Turn 8 - eve
+e plays a Vassal.
+e gets +$2.
+e discards a Militia.
+e plays a Militia.
+e gets +$2.
+d discards a Copper and a Silver.
+e plays 2 Coppers. (+$2)
+e buys and gains a Sentry.
+e draws 5 cards.
+Turn 9 - domibot_v1.4
+d plays a Sentry.
+d draws a Militia.
+d gets +1 Action.
+d looks at a Silver and a Sentry.
+d discards a Silver.
+d topdecks a Sentry.
+d plays a Sentry.
+d draws a Sentry.
+d gets +1 Action.
+d shuffles their deck.
+d looks at 2 Silvers.
+d discards 2 Silvers.
+d plays a Sentry.
+d draws a Copper.
+d gets +1 Action.
+d shuffles their deck.
+d looks at 2 Silvers.
+d trashes 2 Silvers.
+d plays a Militia.
+d gets +$2.
+e discards a card and a Vassal.
+d plays a Gold and a Copper. (+$4)
+d buys and gains a Gold.
+d shuffles their deck.
+d draws a Silver, 2 Golds, and 2 Sentries.
+Turn 9 - eve
+e plays a Vassal.
+e gets +$2.
+e shuffles their deck.
+e discards a Copper.
+e plays 2 Coppers. (+$2)
+e buys and gains a Vassal.
+e draws 5 cards.
+Turn 10 - domibot_v1.4
+d plays a Sentry.
+d draws a Copper.
+d gets +1 Action.
+d looks at a Militia and a Sentry.
+d topdecks a Militia and a Sentry.
+d plays a Sentry.
+d draws a Sentry.
+d gets +1 Action.
+d looks at a Militia.
+d topdecks a Militia.
+d plays a Sentry.
+d draws a Militia.
+d gets +1 Action.
+d plays a Militia.
+d gets +$2.
+e discards a card and a Vassal.
+d plays 2 Golds, a Silver, and a Copper. (+$9)
+d buys and gains a Gold.
+d shuffles their deck.
+d draws a Copper, 3 Golds, and a Sentry.
+Turn 10 - eve
+e plays a Sentry.
+e draws a card.
+e gets +1 Action.
+e looks at 2 cards.
+e trashes a Copper and an Estate.
+e plays a Moneylender.
+e trashes a Copper.
+e gets +$3.
+e buys and gains a Vassal.
+e draws 5 cards.
+Turn 11 - domibot_v1.4
+d plays a Sentry.
+d draws a Sentry.
+d gets +1 Action.
+d looks at a Silver and a Militia.
+d discards a Silver.
+d topdecks a Militia.
+d plays a Sentry.
+d draws a Militia.
+d gets +1 Action.
+d shuffles their deck.
+d looks at a Silver and a Sentry.
+d discards a Silver.
+d topdecks a Sentry.
+d plays a Militia.
+d gets +$2.
+e discards a card and a Copper.
+d plays 3 Golds and a Copper. (+$10)
+d buys and gains a Province.
+d shuffles their deck.
+d draws a Silver, a Gold, a Militia, and 2 Sentries.
+Turn 11 - eve
+e plays a Vassal.
+e gets +$2.
+e shuffles their deck.
+e discards a Vassal.
+e plays a Vassal.
+e gets +$2.
+e discards a Copper.
+e buys and gains a Vassal.
+e draws 5 cards.
+Turn 12 - domibot_v1.4
+d plays a Sentry.
+d draws a Province.
+d gets +1 Action.
+d looks at a Gold and a Sentry.
+d topdecks a Gold and a Sentry.
+d plays a Sentry.
+d draws a Sentry.
+d gets +1 Action.
+d looks at a Copper and a Gold.
+d trashes a Copper.
+d topdecks a Gold.
+d plays a Sentry.
+d draws a Gold.
+d gets +1 Action.
+d looks at a Gold.
+The game has ended.
+eve has resigned.

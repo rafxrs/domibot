@@ -1,0 +1,495 @@
+REM SMI TR FES WIT HAR VIL WOR MIL POA
+REM SMI TR FES WIT HAR VIL WOR MIL POA
+Game #183977692, rated.
+sara: 45.17
+domibot_v1.4: 43.34
+Timer: Friendly
+Card Pool: level 1
+d starts with 3 Estates.
+d starts with 7 Coppers.
+s starts with 3 Estates.
+s starts with 7 Coppers.
+d shuffles their deck.
+s shuffles their deck.
+d draws 4 Coppers and an Estate.
+s draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Militia.
+d draws 3 Coppers and 2 Estates.
+Turn 1 - sara
+s plays 4 Coppers. (+$4)
+s buys and gains a Remodel.
+s draws 5 cards.
+Turn 2 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d shuffles their deck.
+d draws 3 Coppers, a Silver, and an Estate.
+Turn 2 - sara
+s plays 3 Coppers. (+$3)
+s buys and gains a Workshop.
+s shuffles their deck.
+s draws 5 cards.
+Turn 3 - domibot_v1.4
+d plays a Silver and 3 Coppers. (+$5)
+d buys and gains a Witch.
+d draws 2 Coppers, 2 Estates, and a Militia.
+Turn 3 - sara
+s plays a Workshop.
+s gains a Smithy.
+s plays 3 Coppers. (+$3)
+s buys and gains a Village.
+s draws 5 cards.
+Turn 4 - domibot_v1.4
+d plays a Militia.
+d gets +$2.
+s discards a card and a Copper.
+d plays a Copper. (+$1)
+d buys and gains a Silver.
+d shuffles their deck.
+d draws 3 Coppers, a Silver, and an Estate.
+Turn 4 - sara
+s plays a Remodel.
+s trashes an Estate.
+s gains a Smithy.
+s shuffles their deck.
+s draws 5 cards.
+Turn 5 - domibot_v1.4
+d plays a Silver and 3 Coppers. (+$5)
+d buys and gains a Witch.
+d draws 3 Coppers, an Estate, and a Militia.
+Turn 5 - sara
+s plays a Remodel.
+s trashes an Estate.
+s gains a Throne Room.
+s plays 3 Coppers. (+$3)
+s buys and gains a Village.
+s draws 5 cards.
+Turn 6 - domibot_v1.4
+d plays a Militia.
+d gets +$2.
+s discards a card and a Smithy.
+d plays 3 Coppers. (+$3)
+d buys and gains a Festival.
+d shuffles their deck.
+d draws 2 Coppers, a Silver, an Estate, and a Witch.
+Turn 6 - sara
+s plays a Village.
+s draws a card.
+s gets +2 Actions.
+s plays a Smithy.
+s draws 3 cards.
+s plays a Workshop.
+s gains a Throne Room.
+s plays 4 Coppers. (+$4)
+s buys and gains a Village.
+s shuffles their deck.
+s draws 5 cards.
+Turn 7 - domibot_v1.4
+d plays a Witch.
+d draws a Militia and a Witch.
+s gains a Curse.
+d plays a Silver and a Copper. (+$3)
+d buys and gains a Silver.
+d draws 3 Coppers, a Silver, and an Estate.
+Turn 7 - sara
+s plays a Village.
+s draws a card.
+s gets +2 Actions.
+s plays a Throne Room.
+s plays a Smithy.
+s draws 3 cards.
+s plays a Smithy again.
+s draws 3 cards.
+s plays a Village.
+s draws a card.
+s gets +2 Actions.
+s plays a Village.
+s draws a card.
+s gets +2 Actions.
+s plays a Throne Room.
+s plays a Smithy.
+s draws 3 cards.
+s plays a Smithy again.
+s shuffles their deck.
+s draws a card.
+s plays a Workshop.
+s gains a Militia.
+s plays a Remodel.
+s trashes a Curse.
+s gains an Estate.
+s plays 7 Coppers. (+$7)
+s buys and gains a Festival.
+s shuffles their deck.
+s draws 5 cards.
+Turn 8 - domibot_v1.4
+d plays a Silver and 3 Coppers. (+$5)
+d buys and gains a Festival.
+d shuffles their deck.
+d draws 2 Coppers, an Estate, a Festival, and a Witch.
+Turn 8 - sara
+s plays a Throne Room.
+s plays a Militia.
+s gets +$2.
+d discards a Copper and an Estate.
+s plays a Militia again.
+s gets +$2.
+s plays a Copper. (+$1)
+s buys and gains a Festival.
+s draws 5 cards.
+Turn 9 - domibot_v1.4
+d plays a Festival.
+d gets +2 Actions.
+d gets +1 Buy.
+d gets +$2.
+d plays a Witch.
+d draws a Silver and a Militia.
+s gains a Curse.
+d plays a Militia.
+d gets +$2.
+s discards a card and a Copper.
+d plays a Silver. (+$2)
+d buys and gains a Gold.
+d draws 2 Coppers, 2 Silvers, and an Estate.
+Turn 9 - sara
+s plays a Throne Room.
+s plays a Festival.
+s gets +2 Actions.
+s gets +1 Buy.
+s gets +$2.
+s plays a Festival again.
+s gets +2 Actions.
+s gets +1 Buy.
+s gets +$2.
+s plays a Copper. (+$1)
+s buys and gains a Witch.
+s draws 5 cards.
+Turn 10 - domibot_v1.4
+d plays 2 Silvers and 2 Coppers. (+$6)
+d buys and gains a Gold.
+d draws 2 Coppers, an Estate, a Festival, and a Witch.
+Turn 10 - sara
+s plays a Village.
+s draws a card.
+s gets +2 Actions.
+s plays a Village.
+s draws a card.
+s gets +2 Actions.
+s plays a Smithy.
+s draws 3 cards.
+s plays a Village.
+s shuffles their deck.
+s draws a card.
+s gets +2 Actions.
+s plays a Festival.
+s gets +2 Actions.
+s gets +1 Buy.
+s gets +$2.
+s plays a Workshop.
+s gains a Throne Room.
+s plays 3 Coppers. (+$3)
+s buys and gains a Festival.
+s draws 5 cards.
+Turn 11 - domibot_v1.4
+d plays a Festival.
+d gets +2 Actions.
+d gets +1 Buy.
+d gets +$2.
+d plays a Witch.
+d shuffles their deck.
+d draws a Copper and a Silver.
+s gains a Curse.
+d plays a Silver and 2 Coppers. (+$4)
+d buys and gains a Gold.
+d draws a Copper, a Silver, a Gold, an Estate, and a Militia.
+Turn 11 - sara
+s plays a Witch.
+s draws 2 cards.
+d gains a Curse.
+s plays 4 Coppers. (+$4)
+s buys and gains a Throne Room.
+s draws 5 cards.
+Turn 12 - domibot_v1.4
+d plays a Militia.
+d gets +$2.
+s discards a card and a Throne Room.
+d plays a Gold, a Silver, and a Copper. (+$6)
+d buys and gains a Province.
+d draws 3 Coppers, a Silver, and a Witch.
+Turn 12 - sara
+s plays a Remodel.
+s trashes a Curse.
+s gains an Estate.
+s shuffles their deck.
+s draws 5 cards.
+Turn 13 - domibot_v1.4
+d plays a Witch.
+d draws a Gold and a Festival.
+s gains a Curse.
+d plays a Gold, a Silver, and 3 Coppers. (+$8)
+d buys and gains a Province.
+d shuffles their deck.
+d draws 3 Coppers, a Gold, and an Estate.
+Turn 13 - sara
+s plays a Throne Room.
+s plays a Throne Room.
+s plays a Workshop.
+s gains a Throne Room.
+s plays a Workshop again.
+s gains a Smithy.
+s plays a Throne Room again.
+s plays a Remodel.
+s trashes a Copper.
+s gains an Estate.
+s plays a Remodel again.
+s draws 5 cards.
+Turn 14 - domibot_v1.4
+d plays a Gold and 3 Coppers. (+$6)
+d buys and gains a Gold.
+d draws a Copper, a Silver, a Gold, an Estate, and a Festival.
+Turn 14 - sara
+s plays a Throne Room.
+s plays a Festival.
+s gets +2 Actions.
+s gets +1 Buy.
+s gets +$2.
+s plays a Festival again.
+s gets +2 Actions.
+s gets +1 Buy.
+s gets +$2.
+s plays a Copper. (+$1)
+s buys and gains a Festival.
+s draws 5 cards.
+Turn 15 - domibot_v1.4
+d plays a Festival.
+d gets +2 Actions.
+d gets +1 Buy.
+d gets +$2.
+d plays a Gold, a Silver, and a Copper. (+$6)
+d buys and gains a Province.
+d draws an Estate, a Province, a Festival, a Militia, and a Witch.
+Turn 15 - sara
+s plays a Festival.
+s gets +2 Actions.
+s gets +1 Buy.
+s gets +$2.
+s plays a Smithy.
+s draws 3 cards.
+s plays a Village.
+s draws a card.
+s gets +2 Actions.
+s plays a Witch.
+s draws 2 cards.
+d gains a Curse.
+s plays a Village.
+s draws a card.
+s gets +2 Actions.
+s plays a Smithy.
+s draws 3 cards.
+s plays a Village.
+s draws a card.
+s gets +2 Actions.
+s plays a Throne Room.
+s plays a Militia.
+s gets +$2.
+d discards an Estate and a Province.
+s plays a Militia again.
+s gets +$2.
+s plays 5 Coppers. (+$5)
+s buys and gains a Province.
+s buys and gains a Harbinger.
+s shuffles their deck.
+s draws 5 cards.
+Turn 16 - domibot_v1.4
+d plays a Festival.
+d gets +2 Actions.
+d gets +1 Buy.
+d gets +$2.
+d plays a Witch.
+d draws a Copper and a Silver.
+s gains a Curse.
+d plays a Militia.
+d gets +$2.
+s discards a card and an Estate.
+d plays a Silver and a Copper. (+$3)
+d buys and gains a Duchy.
+d draws a Curse, a Copper, a Silver, a Province, and a Witch.
+Turn 16 - sara
+s plays a Festival.
+s gets +2 Actions.
+s gets +1 Buy.
+s gets +$2.
+s plays a Throne Room.
+s plays a Smithy.
+s draws 3 cards.
+s plays a Smithy again.
+s draws 3 cards.
+s plays a Festival.
+s gets +2 Actions.
+s gets +1 Buy.
+s gets +$2.
+s plays a Throne Room.
+s plays a Smithy.
+s draws 3 cards.
+s plays a Smithy again.
+s draws 3 cards.
+s plays a Festival.
+s gets +2 Actions.
+s gets +1 Buy.
+s gets +$2.
+s plays a Smithy.
+s draws 3 cards.
+s plays a Festival.
+s gets +2 Actions.
+s gets +1 Buy.
+s gets +$2.
+s plays a Militia.
+s gets +$2.
+d discards a Curse and a Province.
+s plays a Remodel.
+s trashes a Curse.
+s gains an Estate.
+s plays 2 Coppers. (+$2)
+s buys and gains a Province.
+s buys and gains a Smithy.
+s draws 5 cards.
+Turn 17 - domibot_v1.4
+d plays a Witch.
+d draws a Copper and a Gold.
+s gains a Curse.
+d plays a Gold, a Silver, and 2 Coppers. (+$7)
+d buys and gains a Duchy.
+d shuffles their deck.
+d draws a Copper, a Gold, 2 Estates, and a Duchy.
+Turn 17 - sara
+s plays a Village.
+s draws a card.
+s gets +2 Actions.
+s plays a Village.
+s draws a card.
+s gets +2 Actions.
+s plays a Throne Room.
+s plays a Witch.
+s draws 2 cards.
+d gains a Curse.
+s plays a Witch again.
+s draws 2 cards.
+d gains a Curse.
+s plays a Throne Room.
+s plays a Throne Room.
+s plays a Harbinger.
+s draws a card.
+s gets +1 Action.
+s looks at 23 other cards and a Curse.
+s topdecks a card.
+s plays a Harbinger again.
+s draws a card.
+s gets +1 Action.
+s looks at 22 other cards and a Curse.
+s topdecks a card.
+s plays a Throne Room again.
+s plays a Smithy.
+s shuffles their deck.
+s draws 3 cards.
+s plays a Smithy again.
+s draws 3 cards.
+s plays a Village.
+s draws a card.
+s gets +2 Actions.
+s plays a Festival.
+s gets +2 Actions.
+s gets +1 Buy.
+s gets +$2.
+s plays a Smithy.
+s draws 3 cards.
+s plays a Throne Room.
+s plays a Smithy.
+s draws 3 cards.
+s plays a Smithy again.
+s draws 3 cards.
+s plays a Throne Room.
+s plays a Smithy.
+s draws 3 cards.
+s plays a Smithy again.
+s draws 3 cards.
+s plays a Festival.
+s gets +2 Actions.
+s gets +1 Buy.
+s gets +$2.
+s plays a Festival.
+s gets +2 Actions.
+s gets +1 Buy.
+s gets +$2.
+s plays a Militia.
+s gets +$2.
+d discards an Estate and a Duchy.
+s plays a Remodel.
+s trashes a Curse.
+s gains an Estate.
+s plays a Workshop.
+s gains a Smithy.
+s plays 6 Coppers. (+$6)
+s buys and gains a Province.
+s buys and gains a Duchy.
+s shuffles their deck.
+s draws 5 cards.
+Turn 18 - domibot_v1.4
+d plays a Gold and a Copper. (+$4)
+d buys and gains an Estate.
+d draws 2 Coppers, a Silver, a Province, and a Militia.
+Turn 18 - sara
+s plays a Village.
+s draws a card.
+s gets +2 Actions.
+s plays a Village.
+s draws a card.
+s gets +2 Actions.
+s plays a Festival.
+s gets +2 Actions.
+s gets +1 Buy.
+s gets +$2.
+s plays a Smithy.
+s draws 3 cards.
+s plays a Witch.
+s draws 2 cards.
+s plays a Village.
+s draws a card.
+s gets +2 Actions.
+s plays a Throne Room.
+s plays a Militia.
+s gets +$2.
+d discards a Copper and a Province.
+s plays a Militia again.
+s gets +$2.
+s plays 2 Coppers. (+$2)
+s buys and gains a Province.
+s draws 5 cards.
+Turn 19 - domibot_v1.4
+d plays a Militia.
+d gets +$2.
+s discards a card and a Province.
+d plays a Silver and a Copper. (+$3)
+d buys and gains a Duchy.
+d draws a Curse, a Copper, a Duchy, a Province, and a Witch.
+Turn 19 - sara
+s draws 5 cards.
+Turn 20 - domibot_v1.4
+d plays a Witch.
+d draws a Copper and a Festival.
+d plays 2 Coppers. (+$2)
+d buys and gains an Estate.
+d draws a Curse, a Copper, a Silver, a Gold, and a Festival.
+Turn 20 - sara
+s plays 2 Coppers. (+$2)
+s buys and gains an Estate.
+s draws 5 cards.
+Turn 21 - domibot_v1.4
+d plays a Festival.
+d gets +2 Actions.
+d gets +1 Buy.
+d gets +$2.
+d plays a Gold, a Silver, and a Copper. (+$6)
+d buys and gains a Province.
+d draws a Silver, 2 Golds, an Estate, and a Witch.
+The game has ended.
