@@ -20,7 +20,8 @@ Laboratory → Laboratory → Militia.*
 - **vs Big Money + the kingdom's best terminal Action**: 1509–435–56 over
   2000 games, 76.8% (95% CI 75–79%)
 - **vs `domibot_v4.4`** (the best AlphaZero-style checkpoint, running
-  100-simulation MCTS at every move): 169–30–1 over 200 games, 84.8%
+  100-simulation MCTS at every move on the true game state, i.e. seeing
+  2.2's hand and every deck's order): 169–30–1 over 200 games, 84.8%
   (95% CI 79–89%), with no search of its own
 - **vs `domibot2.1`** (the previous release): 1130–797–73 over 2000 games,
   58.3% (95% CI 56–61%)

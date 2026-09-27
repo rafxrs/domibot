@@ -69,14 +69,14 @@ you get is always the useful one (what to buy), not "end your action
 phase" (something you'd never actually see asked on the real site).
 
 Defaults to the strongest checkpoint in the project, `domibot2.2.pt`
-(domibot 2's PPO lineage -- see training/README.md). This still works
-via MCTS search (`training/mcts.py`'s `run_mcts`) exactly as it did for
-the MCTS lineage's checkpoints, even though domibot 2 itself never
-searches during training: the network's `(obs) -> (policy_logits,
-value)` interface never changed, so search-at-inference-time on top of a
-PPO-trained network is just an unrelated, orthogonal choice -- and search
-should still help here the same way it always has, refining the policy's
-own recommendation with lookahead instead of taking it greedily.
+(domibot 2's PPO lineage -- see training/README.md). Recommendations
+come from MCTS search (`training/mcts.py`'s `run_mcts`) on top of the
+network, but for a PPO-trained network that adds nothing measurable: the
+search picks the same move as the network's own policy on ~97-100% of
+decisions and, measured head to head, doesn't beat it (see
+training/README.md, "What search adds"). The recommendation is in
+practice the network's own move; the percentages shown are mostly its
+policy.
 """
 from __future__ import annotations
 

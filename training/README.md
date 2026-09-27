@@ -461,13 +461,52 @@ snapshots: ~50%).
 
 Three different changes -- more self-play, a 5x larger network, and a
 varied league -- all land exactly at 2.2's strength, so what the raw policy
-can learn this way looks exhausted. Meanwhile the same network *with
-search* on top (the relay tool, 400 simulations per move) went 5-0 against
-human players rated around and above the relay account's own
-dominion.games rating (37-45). The next gains are more likely to come from
-search: measuring 2.2 + search against raw 2.2, and training the policy
-toward search results (expert iteration, starting from 2.2 rather than
-from scratch as Phase 1 did).
+can learn this way looks exhausted. Meanwhile the relay tool (2.2 with
+400 simulations of search per move) went 5-0 against human players rated
+around and above the relay account's own dominion.games rating (37-45),
+which suggested search as the next lever.
+
+**What search adds: nothing measurable.** `ppo/search_eval.py` plays 2.2
+with search against 2.2's raw policy on paired random kingdoms. A fair
+search (`agents.DeterminizedSearchAgent`) searches only what a player could
+know, like the relay: the opponent's hand and deck reshuffled together, its
+own deck order reshuffled, a fresh random seed. Within one search every
+simulation replays the same copy, so it sees one sampled future;
+`--determinizations K` searches K independent copies and adds up their
+visits instead. Card-effect choices use the raw policy. Results
+(`logs/domibot2/search_eval/`):
+
+| search | vs raw 2.2 |
+|---|---|
+| 100 simulations | 480–479–41 over 1000, 50.0% (95% CI 47.0-53.1%) |
+| 400 (the relay's setting) | 906–982–112 over 2000, 48.1% (45.9-50.3%) |
+| 1600 | 235–244–21 over 500, 49.1% (44.7-53.5%) |
+| 8 copies x 50 | 974–940–86 over 2000, 50.8% (48.7-53.0%) |
+| 16 copies x 100 | 479–474–47 over 1000, 50.2% (47.2-53.3%) |
+| 400, seeing the true game (hidden hand, deck order) | 498–457–45 over 1000, 52.0% (49.0-55.1%) |
+
+Against BigMoney+terminal, 400-simulation search scored 77.8% (764–208–28
+over 1000), level with the raw policy's 76.8%.
+
+Why: the search almost never changes the move. Over 24 games of 2.2
+against itself, 400-simulation search picked the policy's own move on
+811/815 action-phase decisions and 988/1015 buys; the 8-copy search on
+815/815 and 1013/1015. 2.2's policy is sharp (entropy ~0.1), so the search
+follows its prior unless the value head sees a clear difference, and the
+value head isn't accurate enough to see one -- even searching the true
+game, with no hidden information at all, gains only ~2 points. The rare
+single-copy disagreements are mostly noise from its one sampled future.
+
+So the 5-0 against humans was the network's own play, and expert
+iteration (training the policy toward search results) has nothing to
+learn from while the search agrees with the policy. A better value
+estimate is what search, and anything built on it, would need first.
+
+`--perfect-info` in `ppo/search_eval.py` uses `agents.DomibotAgent`, which
+with its default settings searches the true game state. That is also how
+`domibot_v4.4` searched in every "vs `domibot_v4.4` (100-sim MCTS)" eval
+in this README, including the in-training ones: it saw its opponent's hand
+and every deck's order.
 
 **Playing against / evaluating it**:
 
@@ -525,5 +564,7 @@ cards go back in, and games with more than two players.
 python examples/domibot_relay.py --checkpoint checkpoints/domibot2/domibot2.2.pt --simulations 400
 ```
 
-**Not yet done**: measuring what search adds on top of 2.2, expert
-iteration from 2.2, and a privileged (full-information) critic.
+**Not yet done**: a better value estimate -- a privileged
+(full-information) critic during training, or a value network trained
+separately on many 2.2 games -- measured by how well it predicts outcomes,
+then whether search on top of it finally helps.
