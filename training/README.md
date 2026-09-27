@@ -404,7 +404,7 @@ Not promoted. With a 5x larger network landing at the same strength too,
 more of the same self-play is unlikely to help; varying the opponents is
 the next lever.
 
-**Opponent league (in progress).** `ppo/league.py` plays part of every
+**Opponent league: no gain either.** `ppo/league.py` plays part of every
 iteration's games against a pool of fixed, genuinely different opponents
 instead of the current network. Only the learner's seat produces training
 data, and network opponents play their own raw policy. The pool:
@@ -447,6 +447,27 @@ python -m training.ppo.train \
     --eval-reference-every 250 --eval-reference-games 40 \
     > logs/domibot2/domibot2_league_run1.log 2>&1 &
 ```
+
+It ran all 2000 iterations (`logs/domibot2/domibot2_league_run1.log`)
+and stayed level with 2.2 throughout: the in-training eval against it
+averaged 47.7-50.6% in every 250-iteration block, and the final checkpoint
+went 974–954–72 over 2000 games (50.5%, 95% CI 48.3-52.7%). Not promoted.
+BigMoney+terminal (~75%) and BigMoney (~92%) didn't move either. Against
+the league itself it gained a few points on the older opponents (e.g.
+`iter_8000`, i.e. 2.1: 60% -> 68%; `iter_10000`: 68% -> 74%;
+BigMoney+terminal: 74% -> 78%; 32-game samples, so noisy) but none against
+the ones at its own level (the 512×6 network: 48% -> 47%; its own
+snapshots: ~50%).
+
+Three different changes -- more self-play, a 5x larger network, and a
+varied league -- all land exactly at 2.2's strength, so what the raw policy
+can learn this way looks exhausted. Meanwhile the same network *with
+search* on top (the relay tool, 400 simulations per move) went 5-0 against
+human players rated around and above the relay account's own
+dominion.games rating (37-45). The next gains are more likely to come from
+search: measuring 2.2 + search against raw 2.2, and training the policy
+toward search results (expert iteration, starting from 2.2 rather than
+from scratch as Phase 1 did).
 
 **Playing against / evaluating it**:
 
@@ -504,6 +525,5 @@ cards go back in, and games with more than two players.
 python examples/domibot_relay.py --checkpoint checkpoints/domibot2/domibot2.2.pt --simulations 400
 ```
 
-**Not yet done**: a privileged (full-information) critic, a larger search
-budget at play time, and more scripted strategies for the league (e.g. an
-engine-building one).
+**Not yet done**: measuring what search adds on top of 2.2, expert
+iteration from 2.2, and a privileged (full-information) critic.
