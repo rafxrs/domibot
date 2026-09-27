@@ -1,0 +1,530 @@
+CEL MOA POA FES LIB SEN WIT VIL SMI MAR
+Game #183976507, rated.
+domibot_v1.4: 40.09
+Gwen: 44.57
+Timer: Friendly
+Card Pool: level 1
+d starts with 3 Estates.
+d starts with 7 Coppers.
+G starts with 3 Estates.
+G starts with 7 Coppers.
+d shuffles their deck.
+G shuffles their deck.
+d draws 3 Coppers and 2 Estates.
+G draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d draws 4 Coppers and an Estate.
+Turn 1 - Gwen
+G plays 5 Coppers. (+$5)
+G buys and gains a Sentry.
+G draws 5 cards.
+Turn 2 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Poacher.
+d shuffles their deck.
+d draws 3 Coppers and 2 Estates.
+Turn 2 - Gwen
+G plays 2 Coppers. (+$2)
+G buys and gains a Moat.
+G shuffles their deck.
+G draws 5 cards.
+Turn 3 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d draws 2 Coppers, a Silver, an Estate, and a Poacher.
+Turn 3 - Gwen
+G plays a Moat.
+G draws 2 cards.
+G plays 3 Coppers. (+$3)
+G buys and gains a Silver.
+G draws 5 cards.
+Turn 4 - domibot_v1.4
+d plays a Poacher.
+d draws a Copper.
+d gets +1 Action.
+d gets +$1.
+d plays a Silver and 3 Coppers. (+$5)
+d buys and gains a Sentry.
+d shuffles their deck.
+d draws 2 Coppers, 2 Estates, and a Sentry.
+Turn 4 - Gwen
+G plays 4 Coppers. (+$4)
+G buys and gains a Poacher.
+G shuffles their deck.
+G draws 5 cards.
+Turn 5 - domibot_v1.4
+d plays a Sentry.
+d draws a Silver.
+d gets +1 Action.
+d looks at a Copper and an Estate.
+d trashes a Copper and an Estate.
+d plays a Silver and 2 Coppers. (+$4)
+d buys and gains a Poacher.
+d draws 3 Coppers, a Silver, and a Poacher.
+Turn 5 - Gwen
+G plays 5 Coppers. (+$5)
+G buys and gains a Sentry.
+G draws 5 cards.
+Turn 6 - domibot_v1.4
+d plays a Poacher.
+d draws a Copper.
+d gets +1 Action.
+d gets +$1.
+d plays a Silver and 4 Coppers. (+$6)
+d buys and gains a Sentry.
+d shuffles their deck.
+d draws a Copper, a Silver, an Estate, a Poacher, and a Sentry.
+Turn 6 - Gwen
+G plays a Sentry.
+G draws a card.
+G gets +1 Action.
+G looks at 2 cards.
+G trashes a Copper and an Estate.
+G plays a Poacher.
+G draws a card.
+G gets +1 Action.
+G gets +$1.
+G plays a Moat.
+G shuffles their deck.
+G draws 2 cards.
+G plays a Silver and 3 Coppers. (+$5)
+G buys and gains a Festival.
+G shuffles their deck.
+G draws 5 cards.
+Turn 7 - domibot_v1.4
+d plays a Sentry.
+d draws a Copper.
+d gets +1 Action.
+d looks at a Copper and an Estate.
+d trashes a Copper and an Estate.
+d plays a Poacher.
+d draws a Copper.
+d gets +1 Action.
+d gets +$1.
+d plays a Silver and 3 Coppers. (+$5)
+d buys and gains a Sentry.
+d draws 2 Coppers, a Silver, a Poacher, and a Sentry.
+Turn 7 - Gwen
+G plays a Sentry.
+G draws a card.
+G gets +1 Action.
+G looks at 2 cards.
+G trashes a Copper.
+G discards a Poacher.
+G plays a Moat.
+G draws 2 cards.
+G plays a Silver and 4 Coppers. (+$6)
+G buys and gains a Festival.
+G shuffles their deck.
+G draws 5 cards.
+Turn 8 - domibot_v1.4
+d plays a Sentry.
+d shuffles their deck.
+d draws a Sentry.
+d gets +1 Action.
+d looks at an Estate and a Sentry.
+d trashes an Estate.
+d topdecks a Sentry.
+d plays a Sentry.
+d draws a Sentry.
+d gets +1 Action.
+d looks at a Copper and a Poacher.
+d trashes a Copper.
+d topdecks a Poacher.
+d plays a Sentry.
+d draws a Poacher.
+d gets +1 Action.
+d looks at 2 Coppers.
+d trashes 2 Coppers.
+d plays a Poacher.
+d draws a Silver.
+d gets +1 Action.
+d gets +$1.
+d plays a Poacher.
+d gets +1 Action.
+d gets +$1.
+d plays 2 Silvers and 2 Coppers. (+$6)
+d buys and gains a Witch.
+d shuffles their deck.
+d draws 2 Coppers, 2 Silvers, and a Sentry.
+Turn 8 - Gwen
+G plays a Sentry.
+G draws a card.
+G gets +1 Action.
+G looks at 2 cards.
+G trashes a Copper.
+G topdecks a card.
+G plays a Sentry.
+G draws a card.
+G gets +1 Action.
+G looks at 2 cards.
+G trashes a Copper.
+G topdecks a card.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Silver and a Copper. (+$3)
+G buys and gains a Festival.
+G draws 5 cards.
+Turn 9 - domibot_v1.4
+d plays a Sentry.
+d draws a Sentry.
+d gets +1 Action.
+d looks at a Poacher and a Witch.
+d topdecks a Poacher and a Witch.
+d plays a Sentry.
+d draws a Witch.
+d gets +1 Action.
+d looks at 2 Poachers.
+d topdecks 2 Poachers.
+d plays a Witch.
+G reacts with a Moat.
+d draws 2 Poachers.
+d plays 2 Silvers and 2 Coppers. (+$6)
+d buys and gains a Gold.
+d shuffles their deck.
+d draws 2 Silvers, a Gold, a Poacher, and a Sentry.
+Turn 9 - Gwen
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Moat.
+G shuffles their deck.
+G draws 2 cards.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Sentry.
+G draws a card.
+G gets +1 Action.
+G looks at 2 cards.
+G trashes an Estate.
+G topdecks a card.
+G plays a Poacher.
+G draws a card.
+G gets +1 Action.
+G gets +$1.
+G plays a Sentry.
+G draws a card.
+G gets +1 Action.
+G looks at 2 cards.
+G trashes an Estate.
+G topdecks a card.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays 3 Coppers. (+$3)
+G buys and gains a Festival.
+G buys and gains a Witch.
+G shuffles their deck.
+G draws 5 cards.
+Turn 10 - domibot_v1.4
+d plays a Sentry.
+d draws a Copper.
+d gets +1 Action.
+d looks at a Sentry and a Witch.
+d topdecks a Sentry and a Witch.
+d plays a Poacher.
+d draws a Sentry.
+d gets +1 Action.
+d gets +$1.
+d plays a Sentry.
+d draws a Witch.
+d gets +1 Action.
+d looks at a Copper and a Poacher.
+d trashes a Copper.
+d discards a Poacher.
+d plays a Witch.
+d shuffles their deck.
+d draws a Poacher and a Sentry.
+G gains a Curse.
+d plays a Gold, 2 Silvers, and a Copper. (+$8)
+d buys and gains a Province.
+d shuffles their deck.
+d draws a Silver, a Province, a Poacher, a Sentry, and a Witch.
+Turn 10 - Gwen
+G plays a Sentry.
+G draws a card.
+G gets +1 Action.
+G looks at 2 cards.
+G discards a Festival.
+G topdecks a card.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Witch.
+G draws 2 cards.
+d gains a Curse.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Poacher.
+G draws a card.
+G gets +1 Action.
+G gets +$1.
+G plays a Sentry.
+G draws a card.
+G gets +1 Action.
+G looks at 2 cards.
+G trashes a Copper.
+G topdecks a card.
+G plays a Silver and 2 Coppers. (+$4)
+G buys and gains a Festival.
+G buys and gains a Gold.
+G shuffles their deck.
+G draws 5 cards.
+Turn 11 - domibot_v1.4
+d plays a Sentry.
+d draws a Sentry.
+d gets +1 Action.
+d looks at a Copper and a Silver.
+d trashes a Copper.
+d topdecks a Silver.
+d plays a Sentry.
+d draws a Silver.
+d gets +1 Action.
+d looks at a Gold and a Sentry.
+d topdecks a Gold and a Sentry.
+d plays a Poacher.
+d draws a Sentry.
+d gets +1 Action.
+d gets +$1.
+d plays a Sentry.
+d draws a Gold.
+d gets +1 Action.
+d shuffles their deck.
+d looks at a Curse and a Poacher.
+d trashes a Curse.
+d discards a Poacher.
+d plays a Witch.
+G reacts with a Moat.
+d shuffles their deck.
+d draws a Poacher.
+d plays a Gold and 2 Silvers. (+$7)
+d buys and gains a Province.
+d shuffles their deck.
+d draws a Silver, a Gold, a Province, a Poacher, and a Witch.
+Turn 11 - Gwen
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Moat.
+G draws 2 cards.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Poacher.
+G draws a card.
+G gets +1 Action.
+G gets +$1.
+G plays a Gold and a Silver. (+$5)
+G buys and gains a Province.
+G buys and gains a Library.
+G draws 5 cards.
+Turn 12 - domibot_v1.4
+d plays a Poacher.
+d draws a Sentry.
+d gets +1 Action.
+d gets +$1.
+d plays a Sentry.
+d draws a Province.
+d gets +1 Action.
+d looks at a Silver and a Poacher.
+d discards a Poacher.
+d topdecks a Silver.
+d plays a Witch.
+d draws a Silver and a Sentry.
+G gains a Curse.
+d plays a Gold and 2 Silvers. (+$7)
+d buys and gains a Province.
+d shuffles their deck.
+d draws 2 Silvers, a Province, a Poacher, and a Sentry.
+Turn 12 - Gwen
+G plays a Sentry.
+G draws a card.
+G gets +1 Action.
+G shuffles their deck.
+G looks at 2 cards.
+G trashes a Curse.
+G topdecks a card.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Witch.
+G draws 2 cards.
+d gains a Curse.
+G plays a Sentry.
+G draws a card.
+G gets +1 Action.
+G looks at 2 cards.
+G topdecks 2 cards.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays 2 Coppers. (+$2)
+G buys and gains a Gold.
+G draws 5 cards.
+Turn 13 - domibot_v1.4
+d plays a Poacher.
+d draws a Province.
+d gets +1 Action.
+d gets +$1.
+d plays a Sentry.
+d draws a Province.
+d gets +1 Action.
+d looks at a Poacher and a Sentry.
+d topdecks a Poacher and a Sentry.
+d plays 2 Silvers. (+$4)
+d buys and gains a Duchy.
+d draws a Gold, a Poacher, 2 Sentries, and a Witch.
+Turn 13 - Gwen
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Moat.
+G draws 2 cards.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Poacher.
+G draws a card.
+G gets +1 Action.
+G gets +$1.
+G plays a Library.
+G shuffles their deck.
+G looks at a card.
+G looks at a card.
+G looks at a card.
+G looks at a card.
+G looks at a card.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays 2 Golds, a Silver, and a Copper. (+$9)
+G buys and gains 2 Provinces.
+G buys and gains a Cellar.
+G draws 5 cards.
+Turn 14 - domibot_v1.4
+d plays a Sentry.
+d shuffles their deck.
+d draws a Poacher.
+d gets +1 Action.
+d looks at 2 Silvers.
+d topdecks 2 Silvers.
+d plays a Poacher.
+d draws a Silver.
+d gets +1 Action.
+d gets +$1.
+d plays a Sentry.
+d draws a Silver.
+d gets +1 Action.
+d looks at a Curse and a Province.
+d trashes a Curse.
+d discards a Province.
+d plays a Poacher.
+d draws a Province.
+d gets +1 Action.
+d gets +$1.
+d plays a Witch.
+d draws a Duchy and a Province.
+G gains a Curse.
+d plays a Gold and 2 Silvers. (+$7)
+d buys and gains a Province.
+d shuffles their deck.
+d draws a Silver, a Gold, a Province, and 2 Sentries.
+Turn 14 - Gwen
+G plays a Sentry.
+G shuffles their deck.
+G draws a card.
+G gets +1 Action.
+G looks at 2 cards.
+G topdecks 2 cards.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Cellar.
+G gets +1 Action.
+G discards a Copper.
+G draws a card.
+G plays a Sentry.
+G draws a card.
+G gets +1 Action.
+G looks at 2 cards.
+G topdecks 2 cards.
+G plays a Witch.
+G draws 2 cards.
+d gains a Curse.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Library.
+G looks at a card.
+G looks at a card.
+G looks at a card.
+G looks at a card.
+G looks at a card.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays a Festival.
+G gets +2 Actions.
+G gets +1 Buy.
+G gets +$2.
+G plays 2 Golds and a Silver. (+$8)
+G buys and gains 2 Duchies.
+G buys and gains a Gold.
+G draws 5 cards.
+Turn 15 - domibot_v1.4
+d plays a Sentry.
+d draws a Duchy.
+d gets +1 Action.
+d looks at a Silver and a Poacher.
+d topdecks a Silver and a Poacher.
+d plays a Sentry.
+d draws a Poacher.
+d gets +1 Action.
+d looks at a Silver and a Province.
+d discards a Province.
+d topdecks a Silver.
+d plays a Poacher.
+d draws a Silver.
+d gets +1 Action.
+d gets +$1.
+d plays a Gold and 2 Silvers. (+$7)
+d buys and gains a Province.
+d draws 2 Provinces, a Poacher, a Sentry, and a Witch.
+The game has ended.

@@ -72,6 +72,9 @@ _LOOKS_AT_LINE = re.compile(r"^(\S+) looks at (.+)\.$")
 # as proof, but nothing moves anywhere -- a different phrasing from a
 # Sentry/Bandit-style reveal-then-resolve, and purely informational.
 _REVEALS_HAND_LINE = re.compile(r"^(\S+) reveals their hand: (.+)\.$")
+# A Reaction shown from hand in answer to an attack ("G reacts with a
+# Moat."): nothing moves, but it's now known to be in that hand.
+_REACTS_LINE = re.compile(r"^(\S+) reacts with (?:an? )?(.+)\.$")
 _GETS_ACTIONS_LINE = re.compile(r"^(\S+) gets \+(\d+) Actions?\.$")
 _GETS_BUYS_LINE = re.compile(r"^(\S+) gets \+(\d+) Buys?\.$")
 _GETS_COINS_LINE = re.compile(r"^(\S+) gets \+\$(\d+)\.")
@@ -165,6 +168,9 @@ class ParsedLog:
     # (e.g. their unnamed Artisan topdeck).
     my_deck_top: list[str] | None = None
     opp_deck_top: list[str | None] | None = None
+    # Cards known to be in the opponent's hand right now: a Moat they
+    # reacted with, or the hand Bureaucrat made them reveal.
+    opp_known_hand: list[str] | None = None
     # Set only when the log ends with the opponent's turn still open and a
     # reaction possibly pending on you (see _SUPPORTED_TERMINAL_ATTACKS) --
     # the ordered PLAY actions of their turn so far (ending in the attack),
@@ -308,6 +314,7 @@ class _Replay:
     opp: _OppState
     my_deck_top: list[str]
     opp_deck_top: list[str | None]
+    opp_known_hand: list[str]
     pending_reaction: _PendingReaction | None
     # Line index of your most recent phase-level Action play, if the log
     # ends during your own turn.
@@ -336,6 +343,10 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
     # known-to-be-there but unnamed card.
     known_top: dict[str, list[str | None]] = {p: [] for p in players}
     last_played: dict[str, str | None] = {p: None for p in players}
+    # Cards known to be in the opponent's hand (a Moat they reacted with,
+    # a hand Bureaucrat revealed) until they play/discard/trash/topdeck them
+    # or their turn ends.
+    opp_known_hand: list[str] = []
     # Vassal always discards its deck-top card (logged as a plain
     # "discards X"), and may then play it *from the discard pile* (logged
     # as a plain "plays X"): None, "await" (Vassal played, discard not yet
@@ -382,6 +393,7 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
             opp.discard.extend(opp.play_area)
             opp.play_area = []
             opp.hand_size = 0
+            opp_known_hand.clear()
 
     def take_from_top(player: str, cards: list[str | None]) -> None:
         """Cards leaving `player`'s deck top: drop matching known entries.
@@ -549,6 +561,8 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
             else:
                 opp.hand_size -= len(cards)
                 opp.play_area.extend(cards)
+                for c in cards:
+                    _remove_one(opp_known_hand, c)
                 # Treasures are played in the Buy phase, after any attack
                 # in the same turn's Action phase would already have
                 # appeared -- their turn has moved past any reaction.
@@ -577,6 +591,7 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                 if not again:
                     opp.hand_size -= 1
                     opp.play_area.append(card_name)
+                    _remove_one(opp_known_hand, card_name)
                 # A Throne-Room-style replay (`again`) would need its own
                 # sub-decision (which card to double) represented in the
                 # path, which nothing here builds -- and any card outside
@@ -632,7 +647,22 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
         if m:
             if attacked_me:
                 reaction_pending = False  # Bureaucrat found no Victory card: nothing to choose
-            continue  # informational only -- nothing moves
+            if not mine:
+                try:
+                    opp_known_hand[:] = _parse_card_list(m.group(2))
+                except ValueError:
+                    pass  # informational only; an odd rendering just isn't used
+            continue  # nothing moves
+
+        m = _REACTS_LINE.match(line)
+        if m:
+            if _card_name_from_play_line(m.group(2)) != "Moat":
+                raise ValueError(f"unexpected reaction: {line!r}")
+            if attacked_me:
+                reaction_pending = False  # blocked: nothing left to decide
+            if not mine and "Moat" not in opp_known_hand:
+                opp_known_hand.append("Moat")
+            continue
 
         m = _LOOKS_AT_LINE.match(line)
         if m:
@@ -687,6 +717,8 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                 # Moat shown from hand to block an attack: nothing moves.
                 if attacked_me:
                     reaction_pending = False
+                if not mine and "Moat" not in opp_known_hand:
+                    opp_known_hand.append("Moat")
                 continue
             take_from_top(player, revealed)
             pending_reveal[player].extend(revealed)
@@ -703,6 +735,7 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                         raise ValueError(f"trashed {card!r} not found in tracked hand")
                 elif not from_reveal:
                     opp.hand_size -= 1
+                    _remove_one(opp_known_hand, card)
             if not mine:
                 current_turn_disqualified = True
             if attacked_me:
@@ -721,6 +754,7 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                 else:
                     if not from_reveal:
                         opp.hand_size -= 1
+                        _remove_one(opp_known_hand, card)
                     opp.discard.append(card)
             if anonymous:
                 if mine:
@@ -728,7 +762,9 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                 # A real card each, just not one we can name -- counted out
                 # of the opponent's hand, but left out of their tracked
                 # discard (which must stay a list of actually-known cards).
+                # It may have been one of their known hand cards.
                 opp.hand_size -= anonymous
+                opp_known_hand.clear()
             if not mine:
                 # A discard of theirs during their own turn can only be
                 # self-caused (Cellar/Sentry/Poacher); a reaction they
@@ -763,6 +799,7 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                     del opp.discard[-count:]
                 else:
                     opp.hand_size -= count  # Artisan's topdeck from their hidden hand
+                    opp_known_hand.clear()
                 put_on_top(player, [None] * count)
                 continue
             cards = _parse_card_list(text)
@@ -777,6 +814,7 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                         raise ValueError(f"topdecked {card!r} not found in tracked hand")
                 else:
                     opp.hand_size -= 1
+                    _remove_one(opp_known_hand, card)
             put_on_top(player, cards)
             continue
 
@@ -835,7 +873,8 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                                             current_turn_self_gains)
     open_play = my_open_play_index if current_turn_player == my_full_name else None
     return _Replay(me, opp, [c for c in known_top[my_full_name] if c is not None],
-                   list(known_top[opp_full_name]), pending_reaction, open_play)
+                   list(known_top[opp_full_name]), opp_known_hand[: max(opp.hand_size, 0)],
+                   pending_reaction, open_play)
 
 
 def _event_for_line(line: str, player_of, my_full_name: str, last_played: dict) -> LogEvent | None:
@@ -1050,6 +1089,7 @@ def parse_dominion_log(text: str, my_name: str, kingdom: list[str], num_players:
             result.opp_draw_pile_size = opp_draw_pile_size
             result.my_deck_top = replay.my_deck_top
             result.opp_deck_top = replay.opp_deck_top[:opp_draw_pile_size]
+            result.opp_known_hand = replay.opp_known_hand
             if replay.pending_reaction is not None:
                 result.pending_reaction_path = replay.pending_reaction.path
                 result.pending_reaction_opp_discard = replay.pending_reaction.opp_turn_start_discard

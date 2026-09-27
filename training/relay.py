@@ -128,6 +128,9 @@ class TableState:
     # opponent, None is a card known to be there without knowing which.
     my_deck_top: list[str] = field(default_factory=list)
     opp_deck_top: list[str | None] = field(default_factory=list)
+    # Cards known to be in the opponent's hand (a Moat they reacted with,
+    # a hand Bureaucrat made them reveal).
+    opp_known_hand: list[str] = field(default_factory=list)
     # Merchants you've played this turn, and whether you've played a
     # Silver yet (each Merchant adds $1 to the first Silver).
     my_merchant_bonus: int = 0
@@ -253,17 +256,23 @@ def reconstruct_game(state: TableState, seed: int | None = None) -> Game:
             f"not on your own side, since it throws off the opponent's total by elimination)"
         )
     rng.shuffle(opp_hidden)
-    opp.hand = opp_hidden[: state.opp_hand_size]
-    opp.deck = opp_hidden[state.opp_hand_size:]
-    if state.opp_deck_top and len(state.opp_deck_top) <= state.opp_draw_pile_size:
-        # Keep the named top cards out of the random hand, then stack them.
-        known_top = [c for c in state.opp_deck_top if c is not None]
-        pool = list(opp_hidden)
-        if all(_remove_one(pool, c) for c in known_top):
-            deck = _with_known_top(pool[state.opp_hand_size:] + known_top, state.opp_deck_top)
-            if deck is not None:
-                opp.hand = pool[: state.opp_hand_size]
-                opp.deck = deck
+    # Their hand gets any cards known to be in it, the rest at random; their
+    # deck any cards known to be on top. Knowledge that doesn't fit the
+    # counts (the tracking behind it is off) is dropped, not trusted.
+    pool = list(opp_hidden)
+    known_hand = list(state.opp_known_hand)
+    if len(known_hand) > state.opp_hand_size or not all(_remove_one(pool, c) for c in known_hand):
+        pool, known_hand = list(opp_hidden), []
+    top = list(state.opp_deck_top) if len(state.opp_deck_top) <= state.opp_draw_pile_size else []
+    top_named = [c for c in top if c is not None]
+    before_top = list(pool)
+    if not all(_remove_one(pool, c) for c in top_named):
+        pool, top, top_named = before_top, [], []
+    n_random = state.opp_hand_size - len(known_hand)
+    opp.hand = known_hand + pool[:n_random]
+    opp.deck = pool[n_random:] + top_named
+    if top:
+        opp.deck = _with_known_top(opp.deck, top) or opp.deck
     opp.actions = opp.buys = opp.coins = 0
     opp.turns_taken = max(state.my_turns_taken - 1, 0)  # never read for a non-perspective player; kept plausible
 
@@ -416,32 +425,63 @@ def replay_open_play(open_play, kingdom: list[str], final_my_hand: list[str],
 
     Your deck is stacked with exactly the cards the log shows it giving up
     (draws, Sentry/Library looks, Vassal's discard), so the engine draws
-    what you actually drew. A multi-card choice the log shows (Chapel
+    what you actually drew -- including across a reshuffle partway through
+    the card, arranged as the deck will be right after it. A multi-card
+    choice the log shows (Chapel
     trashing 3 cards) is one confirmed selection: whatever the engine still
     offers afterward is declined (DONE/NONE). `final_my_hand` (the hand
     parsed from the whole log) must match the replay's, as a check."""
     events = open_play.events
-    if any(e.mine and e.kind == "shuffle" for e in events):
-        return OpenPlayResult("unsupported", reason="your deck was reshuffled partway through it")
+    shuffles = [i for i, e in enumerate(events) if e.mine and e.kind == "shuffle"]
+    if len(shuffles) > 1:
+        return OpenPlayResult("unsupported", reason="your deck was reshuffled twice partway through it")
     b = open_play.boundary
-    top = _cards_off_my_deck(events)
-    known = b.my_deck_top or []
-    if top[:len(known)] == known[:len(top)]:
-        top = top + known[len(top):]
+    if shuffles:
+        # The deck ran out partway: whatever it still held is drawn first,
+        # then the reshuffled discard. dominion.games prints the shuffle
+        # *before* the draw line, which lists both (see below).
+        before = _cards_off_my_deck(events[: shuffles[0]])
+        after = _cards_off_my_deck(events[shuffles[0] + 1:])
+        top: list[str] = []
+    else:
+        before = after = []
+        top = _cards_off_my_deck(events)
+        known = b.my_deck_top or []
+        if top[:len(known)] == known[:len(top)]:
+            top = top + known[len(top):]
     state = TableState(
         kingdom=kingdom, supply=b.supply, trash=b.trash,
         my_hand=b.my_hand, my_discard=b.my_discard, my_play_area=b.my_play_area, my_total=b.my_total,
         my_actions=b.my_actions, my_buys=b.my_buys, my_coins=b.my_coins, my_phase=b.my_phase,
         my_turns_taken=b.my_turns_taken, opp_discard=b.opp_discard, opp_play_area=b.opp_play_area,
         opp_hand_size=b.opp_hand_size, opp_draw_pile_size=b.opp_draw_pile_size,
-        my_deck_top=top, opp_deck_top=b.opp_deck_top or [],
+        my_deck_top=top, opp_deck_top=b.opp_deck_top or [], opp_known_hand=b.opp_known_hand or [],
         my_merchant_bonus=b.my_merchant_bonus or 0, my_silver_played=bool(b.my_silver_played),
     )
     try:
         boundary = reconstruct_game(state, seed=seed)
     except ValueError as e:
         return OpenPlayResult("unsupported", reason=f"the state before it doesn't add up ({e})")
-    if top and boundary.players[0].deck[-len(top):][::-1] != top[: len(boundary.players[0].deck)]:
+    me = boundary.players[0]
+    if shuffles:
+        # Arranged as it'll be right after the shuffle (so the engine never
+        # shuffles): the cards taken before the shuffle line, then the old
+        # deck's leftovers (listed in the first draw after it), then the rest
+        # of that draw and later ones from the old discard. Anything
+        # discarded partway stays in the discard here instead of joining the
+        # new deck -- same cards, different pile.
+        leftover = Counter(me.deck)
+        leftover.subtract(Counter(before))
+        from_discard = list(after)
+        pool = list(me.discard)
+        if (-leftover or not all(_remove_one(from_discard, c) for c in leftover.elements())
+                or not all(_remove_one(pool, c) for c in from_discard)):
+            return OpenPlayResult("unsupported", reason="the cards drawn around its reshuffle don't match your "
+                                                        "deck and discard")
+        random.Random(seed).shuffle(pool)
+        me.deck = pool + from_discard[::-1] + list(leftover.elements())[::-1] + before[::-1]
+        me.discard = []
+    elif top and me.deck[-len(top):][::-1] != top[: len(me.deck)]:
         return OpenPlayResult("unsupported", reason="the cards it drew aren't all in your deck by elimination")
 
     path = [Action("PLAY", open_play.card)]
@@ -525,5 +565,5 @@ def replay_open_play(open_play, kingdom: list[str], final_my_hand: list[str],
     if game.pending_decision.player != 0:
         return OpenPlayResult("opponent", boundary, path)
     if Counter(game.players[0].hand) != Counter(final_my_hand):
-        return OpenPlayResult("unsupported", reason="the replayed hand doesn't match the log's")
+        return OpenPlayResult("unsupported", boundary, path, reason="the replayed hand doesn't match the log's")
     return OpenPlayResult("pending", boundary, path)

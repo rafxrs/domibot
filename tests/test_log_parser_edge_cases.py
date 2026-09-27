@@ -3,6 +3,7 @@ whole-game regression harness: every one of my turn starts in every real
 dominion.games log fixture must parse fully *and* reconstruct into a Game.
 """
 from collections import Counter
+from pathlib import Path
 
 import pytest
 
@@ -11,7 +12,8 @@ from domibot import Action
 from domibot.enums import DecisionKind
 from training.log_parser import parse_dominion_log
 from training.mcts import materialize
-from training.relay import TableState, reconstruct_game, reconstruct_opponent_turn_boundary, replay_open_play
+from training.relay import (TableState, reconstruct_game, reconstruct_opponent_turn_boundary, replay_open_play,
+                            resolve_card_name)
 
 ME = "domibot_v1.4"
 
@@ -384,6 +386,7 @@ def _state(parsed, kingdom) -> TableState:
         opp_discard=parsed.opp_discard, opp_play_area=parsed.opp_play_area,
         opp_hand_size=parsed.opp_hand_size, opp_draw_pile_size=parsed.opp_draw_pile_size,
         my_deck_top=parsed.my_deck_top or [], opp_deck_top=parsed.opp_deck_top or [],
+        opp_known_hand=parsed.opp_known_hand or [],
         my_merchant_bonus=parsed.my_merchant_bonus or 0, my_silver_played=bool(parsed.my_silver_played),
     )
 
@@ -412,13 +415,23 @@ def _pasteable_prefixes(log: str):
         yield lines[i], "\n".join(lines[: i + 1])
 
 
+# Whole real games saved from dominion.games (human opponents renamed); the
+# first line of each is its kingdom in the relay's short codes.
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "dominion_logs"
+
+
+def _fixture(name: str) -> tuple[str, list[str]]:
+    kingdom_line, log = (FIXTURE_DIR / name).read_text(encoding="utf-8").split("\n", 1)
+    return log, [resolve_card_name(code) for code in kingdom_line.split()]
+
+
 _REAL_LOGS = [
     ("REAL", T.REAL_LOG, T.KINGDOM),
     ("WITCH_MIRROR", T.WITCH_MIRROR_LOG, T.WITCH_MIRROR_KINGDOM),
     ("TWO_THRONES_THEN_VASSAL", T.TWO_THRONES_THEN_VASSAL_LOG, T.TWO_THRONES_THEN_VASSAL_KINGDOM),
     ("HARBINGER", T.HARBINGER_LOG, T.HARBINGER_KINGDOM),
     ("USER_VASSAL", USER_VASSAL_LOG, USER_VASSAL_KINGDOM),
-]
+] + [(path.stem, *_fixture(path.name)) for path in sorted(FIXTURE_DIR.glob("*.txt"))]
 
 
 @pytest.mark.parametrize("name,log,kingdom", _REAL_LOGS, ids=[c[0] for c in _REAL_LOGS])
@@ -778,3 +791,44 @@ d draws a Copper and an Estate."""
     parsed = _parse(log)
     assert sorted(parsed.my_hand) == sorted(["Copper"] * 4 + ["Estate"] * 2)
     reconstruct_game(_state(parsed, EDGE_KINGDOM), seed=0)
+
+
+# --- Moat reactions ("G reacts with a Moat.") and reshuffles mid-card, from
+# the real game in fixtures/dominion_logs/moat_reaction_sentry_reshuffles.txt ---
+
+MOAT_LOG, MOAT_KINGDOM = _fixture("moat_reaction_sentry_reshuffles.txt")
+
+
+def _cut_after(log: str, line: str) -> str:
+    lines = log.splitlines()
+    return "\n".join(lines[: lines.index(line) + 1])
+
+
+def test_opponent_moat_reaction_is_known_to_be_in_their_hand():
+    parsed = _parse(_cut_after(MOAT_LOG, "d draws 2 Poachers."), MOAT_KINGDOM)
+    assert parsed.my_hand is not None
+    assert parsed.opp_known_hand == ["Moat"]
+    assert parsed.my_actions == 0 and parsed.my_play_area == ["Sentry", "Sentry", "Witch"]
+    game = reconstruct_game(_state(parsed, MOAT_KINGDOM), seed=0)
+    assert "Moat" in game.players[1].hand
+    # My Witch resolved (they blocked it): a plain phase decision is next.
+    assert replay_open_play(parsed.open_play, MOAT_KINGDOM, parsed.my_hand, seed=0).status == "resolved"
+
+
+def test_my_own_moat_reaction_resolves_the_attack():
+    log = _opponent_turn("f plays a Witch.\nd reacts with a Moat.", buy1="a Moat",
+                         draw3="a Moat, 3 Coppers, and an Estate", opp_buy1="a Witch")
+    parsed = _parse(log)
+    assert parsed.pending_reaction_path is None
+    assert "Moat" in parsed.my_hand
+
+
+def test_sentry_whose_draw_reshuffles_my_deck_is_replayed():
+    # "d plays a Sentry. d shuffles their deck. d draws a Sentry. ... d looks
+    # at an Estate and a Sentry." -- the draw and both looks come out of the
+    # reshuffled discard, and the replay must reveal exactly those.
+    log = _cut_after(MOAT_LOG, "d looks at an Estate and a Sentry.")
+    result, decision = _open(log, MOAT_KINGDOM)
+    assert result.status == "pending"
+    assert set(decision.options) == {Action("TRASH", "Estate"), Action("TRASH", "Sentry"), Action("DONE")}
+

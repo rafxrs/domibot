@@ -277,7 +277,7 @@ def prompt_table_state(kingdom: list[str], supply: dict[str, int], defaults: Tab
         my_actions=my_actions, my_buys=my_buys, my_coins=my_coins, my_phase=my_phase, my_turns_taken=my_turns_taken,
         opp_discard=opp_discard, opp_play_area=opp_play_area,
         opp_hand_size=opp_hand_size, opp_draw_pile_size=opp_draw_pile_size,
-        my_deck_top=defaults.my_deck_top, opp_deck_top=defaults.opp_deck_top,
+        my_deck_top=defaults.my_deck_top, opp_deck_top=defaults.opp_deck_top, opp_known_hand=defaults.opp_known_hand,
         my_merchant_bonus=defaults.my_merchant_bonus, my_silver_played=defaults.my_silver_played,
     )
 
@@ -406,6 +406,7 @@ def state_from_parsed(kingdom: list[str], parsed, supply: dict[str, int] | None 
         opp_discard=get(parsed.opp_discard, []), opp_play_area=get(parsed.opp_play_area, []),
         opp_hand_size=get(parsed.opp_hand_size, 5), opp_draw_pile_size=get(parsed.opp_draw_pile_size, 5),
         my_deck_top=get(parsed.my_deck_top, []), opp_deck_top=get(parsed.opp_deck_top, []),
+        opp_known_hand=get(parsed.opp_known_hand, []),
         my_merchant_bonus=get(parsed.my_merchant_bonus, 0), my_silver_played=get(parsed.my_silver_played, False),
     )
 
