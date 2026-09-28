@@ -622,7 +622,26 @@ python -m training.ppo.train \
     > logs/domibot2/domibot2_zones_run1.log 2>&1 &
 ```
 
-Results: in progress.
+**Result: level with 2.2, not promoted.** The final checkpoint, evaluated
+on the same seeds as 2.2 (`logs/domibot2/domibot2_zones_iter_16000_eval.log`),
+went 978–921–101 against 2.2 over 2000 games (51.4%, 95% CI 49.2-53.6%),
+the same as the continuation without the new inputs (51.5%). Against the
+baselines: 78.0% vs BigMoney+terminal over 2000 games (2.2: 76.8%),
+92.9% vs BigMoney over 400, 86.5% vs `domibot_v4.4` over 200. The
+in-training evals against 2.2 averaged 49.3-51.7% per 500-iteration block.
+
+The gauntlet didn't move either
+(`logs/domibot2/gauntlet/domibot2_zones_iter_16000_gauntlet.log`): 61.3%
+vs Workshop/Gardens (2.2: 65.8%), 74.1% vs Chapel/Witch (72.8%), 91.4% vs
+the Throne Room engine (90.3%). Neither did card use: the same nine cards
+stay out of its decks, and it never played a Throne Room in 600 games.
+
+The network does read the new inputs, lightly: replacing them with
+another position's changes its greedy move on 2.5% of decisions and its
+value estimate by 0.085 on average. That they add nothing measurable is
+not surprising for information that matters most in engine decks, which
+it never builds. They stay in, on by default, for the work on getting the
+unused cards back into play.
 
 **Playing against / evaluating it**:
 
