@@ -122,7 +122,8 @@ def main() -> None:
     teacher = DomibotNet.load(args.teacher, map_location=device).to(device)
     teacher.eval()
     student = DomibotNet(obs_dim=teacher.obs_dim, num_actions=teacher.num_actions, hidden_dim=args.hidden_dim,
-                         num_blocks=args.num_blocks, extra_dim=teacher.extra_dim).to(device)
+                         num_blocks=args.num_blocks, extra_dim=teacher.extra_dim,
+                         zones_dim=teacher.zones_dim).to(device)
     n_params = lambda net: sum(p.numel() for p in net.parameters())
     print(f"device: {device}  |  teacher: {args.teacher} ({teacher.hidden_dim}x{teacher.num_blocks}, "
           f"{n_params(teacher):,} params)  |  student: {args.hidden_dim}x{args.num_blocks}, "

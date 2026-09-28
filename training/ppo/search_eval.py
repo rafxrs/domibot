@@ -15,24 +15,14 @@ different --seed values in parallel and add up their W-L-T lines.
 from __future__ import annotations
 
 import argparse
-import math
 import time
 
 import torch
 
 from ..agents import BigMoneyAgent, BigMoneyTerminalAgent, DeterminizedSearchAgent, DomibotAgent
-from ..evaluate import play_match
+from ..evaluate import play_match, wilson
 from ..network import DomibotNet
 from .train import PPOAgent
-
-
-def wilson(wins: int, ties: int, games: int) -> tuple[float, float, float]:
-    p = (wins + 0.5 * ties) / games
-    z = 1.96
-    d = 1 + z * z / games
-    c = (p + z * z / (2 * games)) / d
-    h = z * math.sqrt(p * (1 - p) / games + z * z / (4 * games * games)) / d
-    return p, c - h, c + h
 
 
 def main() -> None:

@@ -183,6 +183,11 @@ def main() -> None:
                               "scores, kingdom membership, empty piles). Resuming from a checkpoint without "
                               "them adds them via DomibotNet.with_extra_inputs, which leaves its outputs "
                               "unchanged until trained")
+    parser.add_argument("--zone-features", action=argparse.BooleanOptionalAction, default=True,
+                         help="network reads encoding.encode_own_zones (its own draw pile, discard pile and play "
+                              "area as counts, plus draw pile and discard sizes); needs --public-features. "
+                              "Resuming from a checkpoint without them adds them via DomibotNet.with_zone_inputs, "
+                              "which leaves its outputs unchanged until trained")
     parser.add_argument("--hidden-dim", type=int, default=HIDDEN_DIM,
                          help="width of a fresh network (ignored on --checkpoint, whose size is saved in it). "
                               "For a larger network, distill it from a trained one first (ppo/distill.py) and "
@@ -264,7 +269,9 @@ def main() -> None:
           f"entropy_coef: {args.entropy_coef}")
     print(f"opponent_pool_size: {args.opponent_pool_size}  |  opponent_pool_frac: {args.opponent_pool_frac}  |  "
           f"reward_win_weight: {args.reward_win_weight}  |  public_features: {args.public_features}  |  "
-          f"target_kl: {args.target_kl}")
+          f"zone_features: {args.zone_features}  |  target_kl: {args.target_kl}")
+    if args.zone_features and not args.public_features:
+        raise SystemExit("--zone-features needs --public-features (use --no-zone-features without them)")
     if args.league_frac > 0 and args.opponent_pool_frac > 0:
         raise SystemExit("use either --league-frac or --opponent-pool-frac, not both")
     reward_fn = functools.partial(win_weighted_value, win_weight=args.reward_win_weight)
@@ -275,9 +282,13 @@ def main() -> None:
         if args.public_features and not network.extra_dim:
             network = network.with_extra_inputs()
             print(f"added {network.extra_dim} public-feature inputs (zero-initialized)")
+        if args.zone_features and not network.zones_dim:
+            network = network.with_zone_inputs()
+            print(f"added {network.zones_dim} own-zone inputs (zero-initialized)")
     else:
         network = DomibotNet(hidden_dim=args.hidden_dim, num_blocks=args.num_blocks,
-                             extra_dim=encoding.EXTRA_DIM if args.public_features else 0).to(device)
+                             extra_dim=encoding.EXTRA_DIM if args.public_features else 0,
+                             zones_dim=encoding.ZONES_DIM if args.zone_features else 0).to(device)
     optimizer = torch.optim.Adam(network.parameters(), lr=args.lr)
     scheduler = (torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=max(args.iterations, 1), eta_min=args.lr * args.lr_final_frac)

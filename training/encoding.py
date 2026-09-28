@@ -148,7 +148,18 @@ def encode_observation(game: Game, player_idx: int) -> np.ndarray:
 # membership and empty-pile count are explicit too.
 # kingdom membership + empty piles + my VP + MAX_OPPONENTS * (total cards + VP) + VP lead
 EXTRA_DIM = NUM_CARDS + 1 + 1 + MAX_OPPONENTS * (NUM_CARDS + 1) + 1
-FULL_OBS_DIM = OBS_DIM + EXTRA_DIM
+
+# The player's own zones, appended after the public extras. The base
+# encoding gives the opponent's discard pile and play area but, for the
+# player itself, only its hand and total ownership -- not how the rest
+# splits between draw pile, discard pile and play area, which a player with
+# perfect memory knows (every card it draws, gains, discards and shuffles is
+# shown to it). Engine play turns on that split: what's left to draw before
+# the next shuffle, and when the shuffle comes. The draw pile's order stays
+# unknown, so it's counts only.
+# my draw pile + my discard + my play area + [draw pile size, discard size]
+ZONES_DIM = NUM_CARDS * 3 + 2
+FULL_OBS_DIM = OBS_DIM + EXTRA_DIM + ZONES_DIM
 
 
 def encode_public_extras(game: Game, player_idx: int) -> np.ndarray:
@@ -173,14 +184,25 @@ def encode_public_extras(game: Game, player_idx: int) -> np.ndarray:
     return extras
 
 
+def encode_own_zones(game: Game, player_idx: int) -> np.ndarray:
+    me = game.players[player_idx]
+    zones = np.concatenate([_card_counts(me.deck), _card_counts(me.discard), _card_counts(me.play_area),
+                            np.array([len(me.deck), len(me.discard)], dtype=np.float32)])
+    assert zones.shape == (ZONES_DIM,)
+    return zones
+
+
 def encode_full_observation(game: Game, player_idx: int) -> np.ndarray:
-    """`encode_observation` followed by `encode_public_extras`."""
-    return np.concatenate([encode_observation(game, player_idx), encode_public_extras(game, player_idx)])
+    """`encode_observation`, then `encode_public_extras`, then
+    `encode_own_zones`. A network reads only the parts it was built for
+    (see DomibotNet.forward), so every network takes this encoding."""
+    return np.concatenate([encode_observation(game, player_idx), encode_public_extras(game, player_idx),
+                           encode_own_zones(game, player_idx)])
 
 
 def encode_for(network, game: Game, player_idx: int) -> np.ndarray:
     """Whichever encoding `network` consumes: the full one if it was built
-    with public-extras inputs, the base one otherwise."""
-    if getattr(network, "extra_dim", 0):
+    with any inputs beyond the base encoding, the base one otherwise."""
+    if getattr(network, "extra_dim", 0) or getattr(network, "zones_dim", 0):
         return encode_full_observation(game, player_idx)
     return encode_observation(game, player_idx)

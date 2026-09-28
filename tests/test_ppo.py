@@ -260,3 +260,64 @@ def test_distillation_pulls_a_different_size_student_toward_the_teacher():
     assert after["kl"] < 0.5 * before["kl"]
     assert after["value_mse"] < before["value_mse"]
     assert after["top1_agree"] >= before["top1_agree"]
+
+
+def test_own_zones_count_draw_pile_discard_and_play_area():
+    game = Game(_tiny_kingdom(), num_players=2, seed=0)
+    me = game.players[0]
+    me.discard += ["Silver", "Silver", "Estate"]
+    me.play_area.append("Gold")
+    zones = encoding.encode_own_zones(game, 0)
+    assert zones.shape == (encoding.ZONES_DIM,)
+    n = encoding.NUM_CARDS
+    deck, discard, play = zones[:n], zones[n:2 * n], zones[2 * n:3 * n]
+    for name in encoding.CARD_NAMES:
+        i = encoding.CARD_INDEX[name]
+        assert deck[i] == me.deck.count(name)
+        assert discard[i] == me.discard.count(name)
+        assert play[i] == me.play_area.count(name)
+    assert zones[-2] == len(me.deck) == 5 and zones[-1] == 3
+    full = encoding.encode_full_observation(game, 0)
+    assert full.shape == (encoding.FULL_OBS_DIM,)
+    assert np.array_equal(full[encoding.OBS_DIM + encoding.EXTRA_DIM:], zones)
+
+
+def test_full_encoding_hides_the_opponents_hand_and_deck():
+    # Everything in the full encoding is public or the player's own: moving
+    # cards between the opponent's hand and draw pile changes nothing.
+    game = Game(_tiny_kingdom(), num_players=2, seed=0)
+    before = encoding.encode_full_observation(game, 0)
+    opp = game.players[1]
+    pool = opp.hand + opp.deck
+    opp.hand, opp.deck = sorted(pool)[:5], sorted(pool)[5:]
+    assert np.array_equal(before, encoding.encode_full_observation(game, 0))
+
+
+def test_with_zone_inputs_preserves_outputs_and_round_trips(tmp_path):
+    torch.manual_seed(0)
+    base = DomibotNet(extra_dim=encoding.EXTRA_DIM)
+    base.eval()
+    upgraded = base.with_zone_inputs()
+    upgraded.eval()
+    obs = torch.randn(8, encoding.FULL_OBS_DIM)
+    with torch.no_grad():
+        lb, vb = base(obs)
+        lu, vu = upgraded(obs)
+    assert torch.allclose(lb, lu) and torch.allclose(vb, vu)
+    game = Game(_tiny_kingdom(), num_players=2, seed=0)
+    assert encoding.encode_for(upgraded, game, 0).shape == (encoding.FULL_OBS_DIM,)
+
+    upgraded.save(tmp_path / "net.pt")
+    loaded = DomibotNet.load(tmp_path / "net.pt")
+    assert (loaded.extra_dim, loaded.zones_dim) == (encoding.EXTRA_DIM, encoding.ZONES_DIM)
+    loaded.eval()
+    with torch.no_grad():
+        ll, vl = loaded(obs)
+    assert torch.allclose(lu, ll) and torch.allclose(vu, vl)
+
+
+def test_zone_inputs_need_the_public_extras():
+    import pytest
+
+    with pytest.raises(ValueError):
+        DomibotNet(zones_dim=encoding.ZONES_DIM)

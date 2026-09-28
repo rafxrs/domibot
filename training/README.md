@@ -16,18 +16,23 @@ engine, encoding, and network.
   float32 vector that respects hidden info — opponents expose only their
   discard, play area, and hand/deck *sizes*), `encode_public_extras` (138
   more public features: scores, opponent card ownership, kingdom, empty
-  piles), `legal_action_mask`.
+  piles), `encode_own_zones` (101 more: the player's own draw pile, discard
+  pile and play area), `legal_action_mask`.
 - **`env.py`** — `DominionEnv`, a Gym-shaped masked-discrete-action wrapper
   around `Game`. Each `step` acts for whoever `Game.current_decider()` is;
   reward is sparse (0 until game end, then +1/-1/0).
 - **`agents.py`** — the `Agent` protocol (`act(game) -> Action`) plus
   `RandomAgent`, `BigMoneyAgent`, and `DomibotAgent` (a network + MCTS).
 - **`evaluate.py`** — `play_match(agent_a, agent_b, n_games)`, a head-to-head
-  series across random kingdoms.
+  series across random kingdoms, and `wilson` for its confidence interval.
+- **`strategy_profile.py` / `strategy_bots.py` / `gauntlet.py`** — what a
+  checkpoint actually plays (which cards it buys and plays), scripted bots
+  for specific strategies it doesn't play, and the gauntlet that pits it
+  against them (see "Card use" below).
 - **`network.py`** — `DomibotNet`, a residual MLP (observation → 256 wide ×
   4 blocks by default → policy logits (206) + tanh value), shared by both
-  phases. Width, depth, and whether it reads the public extras are saved in
-  each checkpoint.
+  phases. Width, depth, and which extra inputs it reads are saved in each
+  checkpoint.
 - **`mcts.py`** — PUCT search, built for Phase 1's self-play loop; still
   used today as an inference-time search layer on top of Phase 2's network
   (the relay tool runs it that way).
@@ -508,6 +513,117 @@ with its default settings searches the true game state. That is also how
 in this README, including the in-training ones: it saw its opponent's hand
 and every deck's order.
 
+**Card use: 2.2 has stopped buying a third of the kingdom.**
+`strategy_profile.py` plays a checkpoint's raw policy against itself on
+random kingdoms and reports, for each kingdom card, how often it's in a
+deck at the end of games where it was available, and how often it's
+bought and played:
+
+```bash
+python -m training.strategy_profile checkpoints/domibot2/domibot2.2.pt --games 600 --workers 6
+```
+
+Over 600 games (`logs/domibot2/gauntlet/domibot2.2_profile.log`), eight
+cards end up in fewer than 1% of 2.2's decks: Throne Room, Chapel,
+Workshop, Artisan, Remodel, Mine, Moneylender and Vassal, with Village in
+6%. What it does use: Sentry (87% of decks), Witch (81%), Militia (78%),
+Gardens (70%), Bandit, Market and Poacher. With Throne Room, Village and
+Smithy put in every kingdom (400 games,
+`domibot2.2_profile_throne_village_smithy.log`) it never played a single
+Throne Room. 44% of its turns play no Action and 1.5% play eight or more.
+
+Earlier checkpoints show when the cards went (200 games each,
+`logs/domibot2/gauntlet/domibot2_iter_N_profile.log`; share of decks
+holding the card at the end):
+
+| checkpoint | Throne Room | Village | Chapel | Workshop | Sentry | Throne Room on Throne Room |
+|---|---|---|---|---|---|---|
+| iter 400 | 1% | 1% | 2% | 0% | 2% | never |
+| iter 1000 | 0% | 6% | 15% | 0% | 0% | never |
+| iter 2000 | 27% | 27% | 4% | 14% | 0% | 3 times |
+| iter 4000 | 2% | 1% | 2% | 4% | 16% | never |
+| iter 8000 (`domibot2.1`) | 0% | 7% | 0% | 1% | 61% | never |
+| iter 12000 | 1% | 1% | 4% | 0% | 83% | never |
+| `domibot2.2` (600 games) | 0% | 6% | 0% | 0% | 87% | never |
+
+So Throne Room and Village were in use around iteration 2000 (Throne Room
+most often on Witch, three times on another Throne Room) and gone by 4000,
+while Sentry took over; Chapel peaked at 15% around iteration 1000. The
+likely mechanism: bought before the policy could play them well, these
+cards lost to Silver and Gold, their buy probability fell toward zero, and
+from then on on-policy PPO never produced a deck holding them, so neither
+the value head nor the policy could learn what they're worth. With the
+policy's entropy at ~0.1 and its per-update KL at 0.0001 by the end of the
+last run, they don't come back on their own. Everything tried since
+inherits this: more self-play, a bigger network, a league of 2.2's own
+ancestors (none of which play these cards either) and search (which uses
+the same policy and value estimate).
+
+**The strategy gauntlet.** `strategy_bots.py` scripts three well-known
+strategies built on cards 2.2 doesn't use, and `gauntlet.py` plays a
+checkpoint's raw policy against each, on kingdoms containing the cards the
+strategy needs (plus random others), from both seats. BigMoney+terminal
+plays the same kingdoms and seeds for comparison:
+
+```bash
+python -m training.gauntlet checkpoints/domibot2/domibot2.2.pt --kingdoms 400 --workers 6
+```
+
+Against 2.2, 400 kingdoms x 2 seats each
+(`logs/domibot2/gauntlet/domibot2.2_gauntlet.log`; the bot's own strength
+is its score against BigMoney+terminal on the same kind of kingdom):
+
+| bot | its cards | bot vs BigMoney+terminal | 2.2 vs bot | 2.2 vs BigMoney+terminal, same kingdoms |
+|---|---|---|---|---|
+| Workshop/Gardens | Workshop, Gardens | 58.6% | 65.8% (95% CI 62-69%) | 83.2% |
+| Chapel/Witch | Chapel, Witch | 56.1% | 72.8% (70-76%) | 72.9% |
+| Throne Room engine | Chapel, Throne Room, Village, Smithy, Market, Militia | 28.6% | 90.3% (88-92%) | 73.0% |
+
+The Workshop/Gardens rush, about twenty lines of buy priorities, takes 34%
+of its games off 2.2, twice what BigMoney+terminal manages on the same
+kingdoms (17%): 2.2 neither plays that strategy nor has learned to stop
+it. Chapel/Witch does exactly as well against 2.2 as BigMoney+terminal.
+The Throne Room engine chains Throne Rooms but is the weakest bot (it
+loses to BigMoney+terminal too), so its row doesn't test much yet. The
+bots are untuned priority lists: a bot scoring badly doesn't prove 2.2
+has no gap there. The gauntlet's worst case is a yardstick for any
+change aimed at the card-use problem, alongside head-to-head results
+against 2.2.
+
+**Own-zone inputs.** The network couldn't see its own deck.
+`encode_observation` gives the opponent's discard pile and play area, but
+for the player itself only its hand and everything it owns: not how the
+rest splits between draw pile, discard pile and play area, nor the draw
+pile's size. A player with perfect memory knows all of that (every card it
+draws, gains, discards and shuffles is shown to it), and engine play
+depends on it: whether to play Village or Smithy first depends on what's
+left to draw, and when to buy depends on when the reshuffle comes.
+`encoding.encode_own_zones` adds it: the count of each card in the
+player's draw pile, discard pile and play area, plus the draw pile and
+discard sizes (101 inputs, order within the draw pile still unknown). It
+enters after the public extras through its own norm and a
+zero-initialized projection (`DomibotNet.with_zone_inputs`), so 2.2
+resumes with unchanged outputs, and it's on by default
+(`--zone-features`). The relay tool reconstructs these zones already (it
+tracks your discard and play area), so it needs no change.
+
+The first run keeps 2.2's recipe exactly, so the only difference from the
+2.2 continuation above (51.5% against 2.2 after 2000 iterations) is the new
+inputs:
+
+```bash
+python -m training.ppo.train \
+    --checkpoint checkpoints/domibot2/domibot2.2.pt --run-name domibot2_zones \
+    --iterations 2000 --games-per-iter 256 --minibatch-size 1024 --start-iteration 14001 \
+    --lr 5e-5 --lr-final-frac 0.1 --entropy-coef 0.01 --target-kl 0.02 \
+    --eval-every 25 --eval-games 200 --eval-rival-checkpoint checkpoints/domibot2/domibot2.2.pt \
+    --eval-reference-checkpoint checkpoints/domibot1/domibot_v4.4.pt \
+    --eval-reference-every 250 --eval-reference-games 40 \
+    > logs/domibot2/domibot2_zones_run1.log 2>&1 &
+```
+
+Results: in progress.
+
 **Playing against / evaluating it**:
 
 ```python
@@ -564,7 +680,11 @@ cards go back in, and games with more than two players.
 python examples/domibot_relay.py --checkpoint checkpoints/domibot2/domibot2.2.pt --simulations 400
 ```
 
-**Not yet done**: a better value estimate -- a privileged
-(full-information) critic during training, or a value network trained
-separately on many 2.2 games -- measured by how well it predicts outcomes,
-then whether search on top of it finally helps.
+**Not yet done**: getting the unused cards back into play -- games where
+one player is steered into buying a given card so the value head learns
+what decks holding it are worth, plus a minimum buy probability for every
+affordable kingdom card during training so the policy's own buys keep
+getting feedback -- judged by the card-use profile, the gauntlet and
+head-to-head results. Then a better value estimate (a privileged,
+full-information critic during training), measured by how well it
+predicts outcomes, and whether search on top of it finally helps.

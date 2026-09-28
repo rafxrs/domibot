@@ -49,13 +49,18 @@ class _ResidualBlock(nn.Module):
 
 class DomibotNet(nn.Module):
     def __init__(self, obs_dim: int = encoding.OBS_DIM, num_actions: int = encoding.NUM_ACTIONS,
-                 hidden_dim: int = HIDDEN_DIM, num_blocks: int = NUM_RESIDUAL_BLOCKS, extra_dim: int = 0):
+                 hidden_dim: int = HIDDEN_DIM, num_blocks: int = NUM_RESIDUAL_BLOCKS, extra_dim: int = 0,
+                 zones_dim: int = 0):
         super().__init__()
+        if zones_dim and not extra_dim:
+            raise ValueError("the own-zone inputs follow the public extras in the full encoding, so a network "
+                             "reading them must read the extras too")
         self.obs_dim = obs_dim
         self.num_actions = num_actions
         self.hidden_dim = hidden_dim
         self.num_blocks = num_blocks
         self.extra_dim = extra_dim
+        self.zones_dim = zones_dim
         # The observation mixes raw pile counts (Copper starts at 46) with
         # 0/1 one-hots, a ~46x scale spread that badly conditions the first
         # layer; this normalizes it before anything learns from it.
@@ -70,6 +75,12 @@ class DomibotNet(nn.Module):
             self.extra_input = nn.Linear(extra_dim, hidden_dim)
             nn.init.zeros_(self.extra_input.weight)
             nn.init.zeros_(self.extra_input.bias)
+        if zones_dim:
+            # encoding.encode_own_zones, the same way (see with_zone_inputs)
+            self.zones_norm = nn.LayerNorm(zones_dim)
+            self.zones_input = nn.Linear(zones_dim, hidden_dim)
+            nn.init.zeros_(self.zones_input.weight)
+            nn.init.zeros_(self.zones_input.bias)
         self.blocks = nn.ModuleList(_ResidualBlock(hidden_dim) for _ in range(num_blocks))
         self.head_norm = nn.LayerNorm(hidden_dim)
         self.policy_head = nn.Linear(hidden_dim, num_actions)
@@ -81,7 +92,7 @@ class DomibotNet(nn.Module):
         )
 
     def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """obs: (batch, >= obs_dim + extra_dim) -- a wider full encoding is
+        """obs: (batch, >= obs_dim + extra_dim + zones_dim) -- a wider full encoding is
         fine, only the columns this network was built for are read. Returns
         (policy_logits: (batch, num_actions), value: (batch,)), both raw —
         masking/softmax happens in the caller, since only the caller knows
@@ -89,6 +100,9 @@ class DomibotNet(nn.Module):
         x = self.input(self.input_norm(obs[:, :self.obs_dim]))
         if self.extra_dim:
             x = x + self.extra_input(self.extra_norm(obs[:, self.obs_dim:self.obs_dim + self.extra_dim]))
+        if self.zones_dim:
+            start = self.obs_dim + self.extra_dim
+            x = x + self.zones_input(self.zones_norm(obs[:, start:start + self.zones_dim]))
         h = F.relu(x)
         for block in self.blocks:
             h = block(h)
@@ -107,11 +121,25 @@ class DomibotNet(nn.Module):
         assert not unexpected and all(k.startswith("extra_") for k in missing)
         return net.to(next(self.parameters()).device)
 
+    def with_zone_inputs(self, zones_dim: int = encoding.ZONES_DIM) -> "DomibotNet":
+        """A copy of this network that also reads `encoding.encode_own_zones`
+        (the player's own draw pile, discard pile and play area), producing
+        identical outputs until the new inputs' zero-initialized weights
+        are trained. The network must already read the public extras."""
+        if self.zones_dim:
+            raise ValueError("network already has own-zone inputs")
+        net = DomibotNet(obs_dim=self.obs_dim, num_actions=self.num_actions, hidden_dim=self.hidden_dim,
+                         num_blocks=self.num_blocks, extra_dim=self.extra_dim, zones_dim=zones_dim)
+        missing, unexpected = net.load_state_dict(self.state_dict(), strict=False)
+        assert not unexpected and all(k.startswith("zones_") for k in missing)
+        return net.to(next(self.parameters()).device)
+
     def save(self, path: str | Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         torch.save({"state_dict": self.state_dict(), "obs_dim": self.obs_dim, "num_actions": self.num_actions,
-                    "hidden_dim": self.hidden_dim, "num_blocks": self.num_blocks, "extra_dim": self.extra_dim}, path)
+                    "hidden_dim": self.hidden_dim, "num_blocks": self.num_blocks, "extra_dim": self.extra_dim,
+                    "zones_dim": self.zones_dim}, path)
 
     @classmethod
     def load(cls, path: str | Path, map_location: str | torch.device | None = None) -> "DomibotNet":
@@ -120,6 +148,6 @@ class DomibotNet(nn.Module):
         net = cls(obs_dim=checkpoint["obs_dim"], num_actions=checkpoint["num_actions"],
                   hidden_dim=checkpoint.get("hidden_dim", HIDDEN_DIM),
                   num_blocks=checkpoint.get("num_blocks", NUM_RESIDUAL_BLOCKS),
-                  extra_dim=checkpoint.get("extra_dim", 0))
+                  extra_dim=checkpoint.get("extra_dim", 0), zones_dim=checkpoint.get("zones_dim", 0))
         net.load_state_dict(checkpoint["state_dict"])
         return net

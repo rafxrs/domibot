@@ -6,6 +6,7 @@ reliably beat RandomAgent, something upstream is broken.
 """
 from __future__ import annotations
 
+import math
 import random
 import sys
 
@@ -64,6 +65,17 @@ def play_match(agent_a: Agent, agent_b: Agent, n_games: int, seed: int = 0, pair
         else:
             wins_b += 1
     return {"agent_a_wins": wins_a, "agent_b_wins": wins_b, "ties": ties, "games": n_games}
+
+
+def wilson(wins: int, ties: int, games: int) -> tuple[float, float, float]:
+    """Score (wins + half the ties, as a fraction of games) and its 95%
+    Wilson confidence interval: (score, low, high)."""
+    p = (wins + 0.5 * ties) / games
+    z = 1.96
+    d = 1 + z * z / games
+    c = (p + z * z / (2 * games)) / d
+    h = z * math.sqrt(p * (1 - p) / games + z * z / (4 * games * games)) / d
+    return p, c - h, c + h
 
 
 def main() -> None:
