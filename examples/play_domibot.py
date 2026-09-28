@@ -10,7 +10,7 @@ The last example loads a *different* checkpoint per seat (length must match
 an earlier one, not just BigMoney/Random.
 
 Defaults to checkpoints/domibot2/domibot2.2.pt, the strongest checkpoint
-in the project (see training/README.md's checkpoint lineage table).
+in the project (see training/README.md, "How domibot2.2 was trained").
 
 Runs on CPU by default so it doesn't compete with a training run that may
 still be using the GPU; pass --gpu once nothing else needs it.

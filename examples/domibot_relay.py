@@ -74,7 +74,7 @@ come from MCTS search (`training/mcts.py`'s `run_mcts`) on top of the
 network, but for a PPO-trained network that adds nothing measurable: the
 search picks the same move as the network's own policy on ~97-100% of
 decisions and, measured head to head, doesn't beat it (see
-training/README.md, "What search adds"). The recommendation is in
+training/README.md, "What hasn't helped since"). The recommendation is in
 practice the network's own move; the percentages shown are mostly its
 policy.
 """

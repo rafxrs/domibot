@@ -597,7 +597,7 @@ def play_cross_play_games(
     reach a well-executed engine on the other side. Facing a genuinely
     different, historical strategy some fraction of the time breaks that
     self-reinforcement without abandoning self-play as the primary source
-    of data (see training/README.md's v4.4 diagnostic entry).
+    of data (see training/README.md's Phase 1 section).
 
     Scope limit, matching `redeal_hidden_info`'s own precedent: the
     network-choice split only applies at plain phase-action boundaries
