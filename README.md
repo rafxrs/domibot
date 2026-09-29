@@ -1,8 +1,10 @@
 # domibot
 
-A Dominion (base set) game engine, built as the foundational layer for later
-training self-play RL agents: at every point there is exactly one player who must make
-exactly one choice from an explicit list of legal actions. Play against domibot from the CLI or on a PyGame GUI.
+A Dominion (base set) rules engine, and **domibot2.2**, a bot trained on it
+with reinforcement learning (PPO). Play against it in a terminal or a
+pygame window, or get its recommendations while you play a real game
+online. Every point in the engine is one player choosing one action from an
+explicit list of legal actions.
 
 ![Domibot GUI demo](docs/gui_demo.gif)
 
@@ -12,22 +14,21 @@ Laboratory → Laboratory → Militia.*
 
 ## Results
 
-`domibot2.2`, a PPO-trained policy playing with no search, on random
-10-card kingdoms (each kingdom played twice with seats swapped):
+`domibot2.2`'s raw policy (no search), on random kingdoms, each played from
+both seats:
 
-- **vs Big Money** (the standard Dominion baseline): 367–26–7 (W–L–T) over
-  400 games, 92.6% (95% CI 90–95%)
-- **vs Big Money + the kingdom's best terminal Action**: 1509–435–56 over
-  2000 games, 76.8% (95% CI 75–79%)
-- **vs `domibot_v4.4`** (the best AlphaZero-style checkpoint, running
-  100-simulation MCTS at every move on the true game state, i.e. seeing
-  2.2's hand and every deck's order): 169–30–1 over 200 games, 84.8%
-  (95% CI 79–89%), with no search of its own
-- **vs `domibot2.1`** (the previous release): 1130–797–73 over 2000 games,
-  58.3% (95% CI 56–61%)
+| opponent | games | W–L–T | score (95% CI) |
+|---|---|---|---|
+| Big Money | 400 | 367–26–7 | 92.6% (90–95%) |
+| Big Money + the kingdom's best terminal Action | 2000 | 1509–435–56 | 76.8% (75–79%) |
+| `domibot2.1`, the previous release | 2000 | 1130–797–73 | 58.3% (56–61%) |
+| `domibot_v4.4`, the best AlphaZero-style checkpoint, searching the true game state (100 simulations per move) | 200 | 169–30–1 | 84.8% (79–89%) |
 
-Unlike the MCTS approach it replaced, it learns multi-card engine turns.
-See [training/README.md](training/README.md) for how it got here.
+It plays multi-Action turns (Laboratory, Market and Sentry chains), but it
+has stopped using nine of the 26 kingdom cards, Throne Room and Village
+among them, and on boards with Workshop and Gardens a simple scripted rush
+using them takes a third of its games. See [training/README.md](training/README.md) for how it was
+trained and what's being tried next.
 
 ![Training curve](docs/training_curve.png)
 
@@ -54,53 +55,16 @@ curl -L -o checkpoints/domibot2/domibot2.2.pt https://github.com/rafxrs/domibot/
 
 ## Play
 
-- Play a game yourself against a random-move bot (text CLI):
-  ```bash
-  python examples/play_vs_random.py [seed]
-  ```
-- Play against a trained Domibot checkpoint (text CLI, or `--gui` for a
-  pygame window):
-  ```bash
-  python examples/play_vs_domibot.py
-  python examples/play_vs_domibot.py --gui
-  ```
-- Watch Domibot play itself (N games, M agents, 2-4 players):
-  ```bash
-  python examples/play_domibot.py --games 20 --players 2
-  ```
-- Get move recommendations while playing a real game yourself (e.g. on
-  dominion.games):
-  ```bash
-  python examples/domibot_relay.py
-  ```
-- Train a new Domibot from scratch — MCTS self-play or PPO (see
-  `training/README.md` for the difference and why both exist):
-  ```bash
-  python -m training.train
-  python -m training.ppo.train
-  ```
-- A longer PPO run, resumed from the current strongest checkpoint with the
-  settings that produced it, backgrounded with its output logged to a
-  file. Large batches and a low learning rate matter here: a higher one
-  erodes a trained policy (see `training/README.md`'s Phase 2 section).
-  The reference-checkpoint eval uses real MCTS search and dominates
-  wall-clock time, so `--eval-reference-every` runs it far less often:
-  ```bash
-  python -m training.ppo.train \
-      --checkpoint checkpoints/domibot2/domibot2.2.pt --start-iteration 14001 \
-      --iterations 2000 --games-per-iter 256 --minibatch-size 1024 \
-      --lr 5e-5 --lr-final-frac 0.1 --target-kl 0.02 \
-      --eval-every 25 --eval-games 200 \
-      --eval-reference-checkpoint checkpoints/domibot1/domibot_v4.4.pt --eval-reference-every 250 \
-      > logs/domibot2/my_run.log 2>&1 &
-  ```
-- Evaluate a checkpoint against the baseline agents:
-  ```bash
-  python -m training.evaluate 200
-  ```
+```bash
+python examples/play_vs_domibot.py          # against domibot2.2 in the terminal
+python examples/play_vs_domibot.py --gui    # in a pygame window
+python examples/play_vs_random.py [seed]    # against a random-move bot
+python examples/play_domibot.py --games 20 --players 2   # watch it play itself (2-4 players)
+python examples/domibot_relay.py            # its recommendations while you play a real game, e.g. on dominion.games
+```
 
-See `training/README.md` for flags, checkpoint layout, GPU setup, and the
-full checkpoint lineage.
+Training commands, the tools for measuring a checkpoint, and the relay
+tool's details are in [training/README.md](training/README.md).
 
 ## Using the engine directly
 
@@ -121,21 +85,10 @@ while not game.is_game_over():
 print(game.get_scores(), game.winners())
 ```
 
-Run `python examples/random_playout.py [n]` to play `n` random games across
-random kingdoms and player counts as a smoke test.
-
-Every action taken is recorded in `game.action_log`. Save it to a file with:
-
-```python
-game.save_log("game_logs/my_game.log")             # human-readable text (default)
-game.save_log("game_logs/my_game.json", fmt="json")  # structured, e.g. for a training pipeline
-```
-
-`save_log` creates any missing parent directories, so a path like
-`game_logs/...` just works. `examples/play_vs_random.py` saves into
-`game_logs/` (next to the project root, one per session, named by
-timestamp + seed) when you opt in at the end of a game; that directory is
-gitignored since its contents are generated, not source.
+Every action taken is recorded in `game.action_log`;
+`game.save_log("game_logs/my_game.log")` writes it as text (or
+`fmt="json"` for JSON), creating missing directories. `python
+examples/random_playout.py [n]` plays `n` random games as a smoke test.
 
 ## Design: decisions as a generator, actions as a flat, typed choice
 
@@ -161,7 +114,7 @@ verb is legal, since e.g. `YES`/`NO` is reused across unrelated effects
 ## Layout
 
 Repo root: `src/domibot/` (the engine, below), `tests/`, `examples/` (CLI
-scripts), `training/` (the RL layer — see its own README), `gui/` (the
+scripts), `training/` (the RL layer, with its own README), `gui/` (the
 pygame front-end behind `--gui`), `game_logs/` (gitignored, generated).
 
 - `enums.py` — `CardType`, `Phase`, `DecisionKind`
@@ -178,26 +131,10 @@ pygame front-end behind `--gui`), `game_logs/` (gitignored, generated).
 
 ## What's implemented
 
-- All 26 base-set kingdom cards plus the 7 basic cards,
-  full Action/Buy/Cleanup turn structure, Moat reactions, supply setup and
-  scaling for 2-4 players, and both game-end conditions (Provinces empty,
-  or any 3 supply piles empty).
-- A regression suite (`tests/test_game.py`) covering the trickier cards
-  (Moat blocking, Throne Room composition, Bandit/Sentry/Library reveal
-  order, Merchant's turn-scoped bonus, Gardens' deck-size VP) plus a sweep
-  that random-plays every kingdom card to completion.
-
-## The training layer: Domibot
-
-[`training/`](training/README.md) is the RL-facing side, kept separate from
-the engine: a fixed-size observation/action encoding, a Gym-shaped
-`DominionEnv`, baseline agents (`RandomAgent`, `BigMoneyAgent`), and
-**Domibot** — a policy/value network (PyTorch, GPU-ready) trained via
-MCTS self-play (`training/train.py`) or PPO (`training/ppo/train.py`). See
-`training/README.md` for the full picture.
-
-## What's not here yet (next layers)
-
-- More PPO improvements — see "Not yet done" in `training/README.md`'s
-  Phase 2 section.
-- Anything beyond the base set (no other expansions, no >4 players).
+All 26 base-set kingdom cards plus the 7 basic cards, the full
+Action/Buy/Cleanup turn, Moat reactions, supply setup for 2–4 players, and
+both game-end conditions (Provinces gone, or any 3 supply piles empty).
+`tests/test_game.py` covers the trickier cards (Moat blocking, Throne Room
+composition, Bandit/Sentry/Library reveal order, Merchant's turn-scoped
+bonus, Gardens) and random-plays every kingdom card to completion. Not
+covered: other expansions, and more than 4 players.

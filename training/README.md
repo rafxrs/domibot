@@ -88,8 +88,9 @@ python -m training.ppo.train \
 
 That's about 7 seconds per iteration on one GPU. Checkpoints go to
 `checkpoints/domibot2/<run-name>_latest.pt`, plus `<run-name>_iter_N.pt` at
-every eval. See `--help` for the rest: league opponents (`--league-*`), a
-fresh network's size (`--hidden-dim`, `--num-blocks`),
+every eval. See `--help` for the rest: league opponents (`--league-*`,
+including the gauntlet's bots), exploration (`--explore-*`,
+`--buy-floor`), a fresh network's size (`--hidden-dim`, `--num-blocks`),
 `--epochs-per-update`, `--no-zone-features`, and an eval against
 `domibot_v4.4`. `python -m training.ppo.plot_eval <logs>` plots eval win
 rate against iteration (needs `pip install -e ".[plot]"`).
@@ -144,9 +145,8 @@ Two lessons carry over:
 
 ### Card use: the current bottleneck
 
-`strategy_profile.py` plays a checkpoint's raw policy against itself and
-reports, for each kingdom card, how often it's in a deck at the end of
-games where it was available, and how often it's bought and played:
+`strategy_profile.py` reports which kingdom cards a checkpoint's raw policy
+puts in its deck, buys and plays in self-play:
 
 ```bash
 python -m training.strategy_profile checkpoints/domibot2/domibot2.2.pt --games 600 --workers 6
@@ -154,9 +154,9 @@ python -m training.strategy_profile checkpoints/domibot2/domibot2.2.pt --games 6
 
 2.2 has stopped using nine of the 26 kingdom cards. Throne Room, Chapel,
 Workshop, Artisan, Remodel, Mine, Moneylender and Vassal are in 1% of its
-decks or fewer, Village in 6%. With Throne Room, Village and Smithy in every
-kingdom, it never played a Throne Room in 400 games. Earlier checkpoints
-show when the cards went (share of decks holding the card at the end):
+decks or fewer, Village in 6%. It never played a Throne Room in 400 games
+with Throne Room, Village and Smithy in every kingdom. Earlier checkpoints
+show when they went (share of decks holding the card at the end):
 
 | checkpoint | Throne Room | Village | Chapel | Sentry |
 |---|---|---|---|---|
@@ -166,27 +166,31 @@ show when the cards went (share of decks holding the card at the end):
 | iter 8000 (`domibot2.1`) | 0% | 7% | 0% | 61% |
 | `domibot2.2` | 0% | 6% | 0% | 87% |
 
-Around iteration 2000 it played Throne Rooms, sometimes on each other; by
-4000 they were gone. The likely mechanism: bought before the policy could
-play them well, these cards lost to Silver and Gold, and their buy
-probability fell toward zero. After that PPO never saw a deck holding
-them, so it couldn't learn what they're worth. Nothing tried since could
-bring them back: more self-play and a larger network start from the same
-habits, the league's opponents don't use these cards either, and search
-relies on the same policy and value head.
+Bought before the policy could play them well, these cards lost to Silver
+and Gold, and their buy probability fell toward zero. After that PPO never
+saw a deck holding them. Fresh runs of today's code didn't keep them either
+(4000 iterations each, same recipe and seed; each reached 25–29% against
+2.2):
 
-Starting from scratch with the own-zone inputs doesn't prevent it. Two
-fresh runs of today's code on the from-scratch recipe, one with the
-inputs and one without (`scratch_zones`, `scratch_nozones`), ran 4000
-iterations each. Neither learned to play Throne Room: it was in 2–9% of
-their decks, mostly bought and left unplayed (0.1 plays per game at most,
-none after iteration 2000). Village swung between 0% and 48% of decks in
-both. By iteration 4000 both scored about 25% against 2.2 and 60% against
-BigMoney + terminal.
+| fresh run | Throne Room in decks, iterations 1000–4000 | Throne Room played |
+|---|---|---|
+| with the own-zone inputs | 5–8% | rarely, never after iteration 2000 |
+| without them | 2–9% | rarely, never after iteration 2000 |
+| with exploration (below) | 0% | never |
+
+**Exploration** (`ppo/explore.py`) steers one player's early buys toward
+one or two random kingdom cards in a share of the games (`--explore-frac`;
+those buys train nothing, and the GAE trace stops at them), and keeps every
+affordable kingdom card at a minimum buy probability (`--buy-floor`). It
+taught the policy to play a Throne Room it holds (51% of the time with a
+target in hand; 2.2: 20%). But a player handed three early Throne Rooms, on
+boards with Village and Smithy, won 1 of 60 games against the same policy.
+Throne Room only pays inside a coordinated engine, so steering in single
+cards teaches, correctly, that they're bad buys in this policy's decks.
 
 **The gauntlet** plays a checkpoint against scripted strategies built on
-those cards, each on kingdoms containing them. BigMoney + terminal plays
-the same kingdoms for comparison:
+cards 2.2 doesn't use, each on kingdoms holding those cards, with BigMoney
++ terminal on the same kingdoms for comparison:
 
 ```bash
 python -m training.gauntlet checkpoints/domibot2/domibot2.2.pt --kingdoms 400 --workers 6
@@ -200,76 +204,24 @@ python -m training.gauntlet checkpoints/domibot2/domibot2.2.pt --kingdoms 400 --
 
 A Workshop/Gardens rush of about twenty lines takes 34% of its games off
 2.2, twice what BigMoney + terminal manages on the same kingdoms. The Throne
-Room engine is too weak to test much yet, since it loses to BigMoney +
-terminal too. The bots are untuned, so a bot doing badly doesn't prove
-there's no gap.
+Room engine loses to BigMoney + terminal too, so it doesn't test much yet.
 
-### Exploration (`ppo/explore.py`)
+### In progress: training against the strategy bots
 
-Two remedies, both used only while collecting training games:
-
-- **Steered players** (`--explore-frac`): in that share of the games, one
-  player gets one or two of the kingdom's cards to focus on, 1–3 copies
-  each. During its first 12 turns, each buy where it can afford one it
-  still wants is replaced by that card half the time. Everything else,
-  including how it plays those cards, is its own policy, so the value head
-  learns what those decks are worth. A replaced buy trains neither head,
-  and the GAE trace stops there, so earlier decisions aren't credited or
-  blamed for it.
-- **A buy floor** (`--buy-floor`): a penalty whenever the policy gives an
-  affordable kingdom card less than that probability, so its own buys keep
-  sampling every card and can pick one up once the value head rates it.
-
-The first run starts from scratch with the same recipe and seed as
-`scratch_zones`, so the card-use profiles compare directly:
-
-```bash
-python -m training.ppo.train --run-name explore --iterations 4000 --games-per-iter 50 \
-    --explore-frac 0.5 --buy-floor 0.01 \
-    --eval-every 100 --eval-games 100 --eval-rival-checkpoint checkpoints/domibot2/domibot2.2.pt
-```
-
-**Result: it didn't bring Throne Room back.** Its strength matched
-`scratch_zones` (about 29% against 2.2 and 62% against BigMoney + terminal
-by iteration 4000). But Throne Room was in 0% of its decks at every
-checkpoint, and turns with three or more Actions all but disappeared
-(0.1%, against 2–4% for `scratch_zones`). It did learn to play a Throne
-Room it holds: with a target in hand it plays one 51% of the time, against
-20% for 2.2. But decks steered into Throne Rooms lose. A player handed
-three early Throne Rooms, on boards with Village and Smithy, won 1 of 60
-games against the same policy (for 2.2: 0 of 60).
-
-Throne Room only pays inside a coordinated engine: enough Villages and
-draw, payload, and later greening. In the deck this policy builds, it's a
-bad buy, so steering in one or two cards at a time teaches the value head,
-correctly, that those decks lose. Exploration would have to steer whole
-strategies, not single cards.
-
-### Training against the strategy bots
-
-The league can also field the gauntlet's bots (`--league-scripted
-workshop_gardens chapel_witch throne_room_engine`), each on kingdoms that
-hold its cards, so the learner practices against exactly the strategies it
-loses to. This run resumes 2.2 with its recipe, playing a quarter of each
-iteration's games against the bots and BigMoney + terminal:
-
-```bash
-python -m training.ppo.train \
-    --checkpoint checkpoints/domibot2/domibot2.2.pt --run-name strategy_league \
-    --iterations 2000 --games-per-iter 256 --minibatch-size 1024 --start-iteration 14001 \
-    --lr 5e-5 --lr-final-frac 0.1 --target-kl 0.02 \
-    --league-frac 0.25 --league-opponents-per-iter 4 \
-    --league-scripted workshop_gardens chapel_witch throne_room_engine bigmoney_terminal \
-    --eval-every 25 --eval-games 200 --eval-rival-checkpoint checkpoints/domibot2/domibot2.2.pt
-```
-
-It's judged on a gauntlet with a different kingdom seed from the table
-above (`--seed 1`; 2.2 scores 63.6% vs Workshop/Gardens, 74.1% vs
-Chapel/Witch, 89.9% vs the Throne Room engine there) and on head-to-head
-play against 2.2. Results: in progress.
+`strategy_league` resumes 2.2 with its recipe and plays a quarter of each
+iteration's games against the gauntlet's bots and BigMoney + terminal,
+each bot on kingdoms holding its cards (the 2.2 command above plus
+`--league-frac 0.25 --league-scripted workshop_gardens chapel_witch
+throne_room_engine bigmoney_terminal`). It's judged by head-to-head play
+against 2.2 and by a gauntlet on other kingdoms (`--seed 1`, where 2.2
+scores 63.6% vs Workshop/Gardens, 74.1% vs Chapel/Witch and 89.9% vs the
+Throne Room engine).
 
 ### Not yet done
 
+- **Steering whole strategies**: a player following a complete engine plan
+  on engine-friendly boards while the network plays the cards, to find out
+  whether engines beat 2.2 there.
 - **A better value estimate**, e.g. a critic that sees hidden information
   during training. Search needs one before it can help.
 
