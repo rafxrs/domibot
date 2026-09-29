@@ -206,16 +206,27 @@ A Workshop/Gardens rush of about twenty lines takes 34% of its games off
 2.2, twice what BigMoney + terminal manages on the same kingdoms. The Throne
 Room engine loses to BigMoney + terminal too, so it doesn't test much yet.
 
-### In progress: training against the strategy bots
+### Training against the strategy bots closes the Workshop/Gardens gap
 
-`strategy_league` resumes 2.2 with its recipe and plays a quarter of each
+`strategy_league` resumed 2.2 with its recipe and played a quarter of each
 iteration's games against the gauntlet's bots and BigMoney + terminal,
 each bot on kingdoms holding its cards (the 2.2 command above plus
 `--league-frac 0.25 --league-scripted workshop_gardens chapel_witch
-throne_room_engine bigmoney_terminal`). It's judged by head-to-head play
-against 2.2 and by a gauntlet on other kingdoms (`--seed 1`, where 2.2
-scores 63.6% vs Workshop/Gardens, 74.1% vs Chapel/Witch and 89.9% vs the
-Throne Room engine).
+throne_room_engine bigmoney_terminal`). Its final checkpoint, with the
+gauntlet on kingdoms other than the ones in the table above (`--seed 1`):
+
+| | `strategy_league` | 2.2 |
+|---|---|---|
+| vs 2.2, 2000 games | 50.7% (95% CI 48.5–52.9%) | — |
+| vs BigMoney + terminal, 2000 games | 79.2% | 76.8% |
+| vs BigMoney, 400 games | 95.4% | 92.6% |
+| vs `domibot_v4.4`, 200 games | 88.0% | 84.8% |
+| vs Workshop/Gardens, 800 games | 87.3% | 63.6% |
+| vs Chapel/Witch, 800 games | 75.9% | 74.1% |
+| vs the Throne Room engine, 800 games | 93.6% | 89.9% |
+
+It learned to beat the rush and gave up nothing head-to-head. Its card use
+barely changed: it still skips the same nine cards.
 
 ### Not yet done
 
