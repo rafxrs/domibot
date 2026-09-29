@@ -63,3 +63,14 @@ def test_load_league_expands_globs_and_adds_scripted(tmp_path):
     league = load_league([str(tmp_path / "run_iter_*.pt")], ["bigmoney_terminal"], torch.device("cpu"))
     assert [o.name for o in league.opponents] == ["run_iter_1", "run_iter_2", "bigmoney_terminal"]
     assert league.opponents[0].network is not None and league.opponents[2].agent is not None
+
+
+def test_strategy_bots_play_only_on_kingdoms_holding_their_cards():
+    torch.manual_seed(0)
+    league = load_league([], ["workshop_gardens", "bigmoney"], torch.device("cpu"))
+    bot, bigmoney = league.opponents
+    assert bot.home == ("Workshop", "Gardens") and bigmoney.home == ()
+    games, _results = collect_league_rollouts(_net(), [bot, bot, bot], max_moves=400, seed=5)
+    for transitions in games:
+        in_kingdom = transitions[0].obs[encoding.OBS_DIM:encoding.OBS_DIM + encoding.NUM_CARDS]
+        assert in_kingdom[encoding.CARD_INDEX["Workshop"]] == 1 and in_kingdom[encoding.CARD_INDEX["Gardens"]] == 1

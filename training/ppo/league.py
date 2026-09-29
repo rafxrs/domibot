@@ -12,7 +12,9 @@ The earlier opponent pool (`--opponent-pool-*`) only drew this run's own
 recent snapshots, too close to the current network to change that. This
 league mixes in genuinely different play: checkpoints from across the
 training history, a different architecture, the MCTS lineage's network,
-and scripted Big Money strategies.
+and scripted strategies -- Big Money, and the gauntlet's strategy bots
+(`strategy_bots.py`), each of which only plays on kingdoms holding the
+cards its strategy needs.
 
 PFSP (as in AlphaStar): opponent i is drawn with weight (1 - p_i)^power,
 where p_i is the learner's recent score against it (wins + half of ties,
@@ -35,16 +37,20 @@ from typing import Callable, Optional
 import numpy as np
 import torch
 
+from domibot import KINGDOM_CARDS
+
 from .. import encoding
 from ..agents import BigMoneyAgent, BigMoneyTerminalAgent
 from ..env import DominionEnv
 from ..mcts import terminal_value
 from ..network import DomibotNet
 from ..self_play import DEFAULT_MAX_MOVES, _sample_kingdom
+from ..strategy_bots import ALL_BOTS
 from .gae import Transition, compute_gae
 from .rollout import _step_group
 
-SCRIPTED_OPPONENTS = {"bigmoney": BigMoneyAgent, "bigmoney_terminal": BigMoneyTerminalAgent}
+SCRIPTED_OPPONENTS = {"bigmoney": BigMoneyAgent, "bigmoney_terminal": BigMoneyTerminalAgent,
+                      **{bot.name: bot for bot in ALL_BOTS}}
 
 
 @dataclass(eq=False)  # compared and hashed by identity: two opponents can share a network
@@ -53,6 +59,7 @@ class Opponent:
     network: Optional[torch.nn.Module] = None  # a frozen network, or
     agent: object = None  # a scripted Agent: act(game) -> Action
     snapshot: bool = False  # a copy of the learner taken during this run
+    home: tuple[str, ...] = ()  # cards every kingdom it plays on must hold (a strategy bot's HOME)
     # The learner's recent results against it: wins + half of ties, and
     # games, both decayed every iteration.
     score: float = 0.0
@@ -118,7 +125,8 @@ def load_league(checkpoints: list[str], scripted: list[str], device: torch.devic
             net.eval()
             opponents.append(Opponent(Path(path).stem, network=net))
     for key in scripted:
-        opponents.append(Opponent(key, agent=SCRIPTED_OPPONENTS[key]()))
+        cls = SCRIPTED_OPPONENTS[key]
+        opponents.append(Opponent(key, agent=cls(), home=tuple(getattr(cls, "HOME", ()))))
     return League(opponents, **kwargs)
 
 
@@ -149,7 +157,8 @@ def collect_league_rollouts(
     lam: float = 0.95,
 ) -> tuple[list[list[Transition]], list[float]]:
     """One 2-player game per entry of `opponents`, the learner (`network`)
-    in a random seat. Returns each game's learner-only `Transition`s (GAE
+    in a random seat, on a random kingdom holding the opponent's `home`
+    cards if it has any. Returns each game's learner-only `Transition`s (GAE
     filled in) and the learner's result in it: 1 win, 0.5 tie (or a game
     cut off at `max_moves`), 0 loss."""
     if device is None:
@@ -163,10 +172,16 @@ def collect_league_rollouts(
     obs_list: list[np.ndarray] = []
     mask_list: list[np.ndarray] = []
     seat: list[int] = []
-    for _ in opponents:
+    for opponent in opponents:
         g_seed = master_rng.randrange(2**31)
         env = DominionEnv(num_players=2, max_steps=max_moves, reward_fn=reward_fn, full_obs=full_obs)
-        obs, _info = env.reset(kingdom=_sample_kingdom(random.Random(g_seed), min_sub_decision_cards), seed=g_seed)
+        kingdom_rng = random.Random(g_seed)
+        if opponent.home:
+            rest = [c for c in KINGDOM_CARDS if c not in opponent.home]
+            kingdom = list(opponent.home) + kingdom_rng.sample(rest, 10 - len(opponent.home))
+        else:
+            kingdom = _sample_kingdom(kingdom_rng, min_sub_decision_cards)
+        obs, _info = env.reset(kingdom=kingdom, seed=g_seed)
         envs.append(env)
         obs_list.append(obs["observation"])
         mask_list.append(obs["action_mask"])

@@ -245,6 +245,29 @@ bad buy, so steering in one or two cards at a time teaches the value head,
 correctly, that those decks lose. Exploration would have to steer whole
 strategies, not single cards.
 
+### Training against the strategy bots
+
+The league can also field the gauntlet's bots (`--league-scripted
+workshop_gardens chapel_witch throne_room_engine`), each on kingdoms that
+hold its cards, so the learner practices against exactly the strategies it
+loses to. This run resumes 2.2 with its recipe, playing a quarter of each
+iteration's games against the bots and BigMoney + terminal:
+
+```bash
+python -m training.ppo.train \
+    --checkpoint checkpoints/domibot2/domibot2.2.pt --run-name strategy_league \
+    --iterations 2000 --games-per-iter 256 --minibatch-size 1024 --start-iteration 14001 \
+    --lr 5e-5 --lr-final-frac 0.1 --target-kl 0.02 \
+    --league-frac 0.25 --league-opponents-per-iter 4 \
+    --league-scripted workshop_gardens chapel_witch throne_room_engine bigmoney_terminal \
+    --eval-every 25 --eval-games 200 --eval-rival-checkpoint checkpoints/domibot2/domibot2.2.pt
+```
+
+It's judged on a gauntlet with a different kingdom seed from the table
+above (`--seed 1`; 2.2 scores 63.6% vs Workshop/Gardens, 74.1% vs
+Chapel/Witch, 89.9% vs the Throne Room engine there) and on head-to-head
+play against 2.2. Results: in progress.
+
 ### Not yet done
 
 - **A better value estimate**, e.g. a critic that sees hidden information

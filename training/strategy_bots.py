@@ -33,6 +33,19 @@ def _first_legal(actions: list[Action], candidates) -> Action | None:
     return None
 
 
+def _coppers_chosen_for_chapel(game: Game) -> int:
+    """Coppers already picked during the Chapel resolving now. Chapel asks
+    for one card at a time and trashes them all at the end, so they still
+    count toward the deck's money until then. Read from the game's log
+    rather than kept on the bot, so one bot can play many games at once."""
+    chosen = 0
+    for entry in reversed(game.action_log):
+        if entry.action == Action("PLAY", "Chapel"):
+            break
+        chosen += entry.action == Action("TRASH", "Copper")
+    return chosen
+
+
 def _greening(game: Game, coins: int) -> Action | None:
     """Province at 8; Duchy at 5+ once 4 or fewer Provinces are left; Estate
     at 2+ once 2 or fewer are."""
@@ -100,9 +113,6 @@ class ThroneRoomEngineAgent:
     HOME = ("Chapel", "Throne Room", "Village", "Smithy", "Market", "Militia")
     name = "throne_room_engine"
 
-    def __init__(self):
-        self._coppers_chosen = 0
-
     def act(self, game: Game) -> Action:
         actions = game.legal_actions()
         me = _me(game)
@@ -124,7 +134,7 @@ class ThroneRoomEngineAgent:
                 return Action("PLAY", card)
         junk = sum(self._is_junk(game, me, c, 0) for c in me.hand)
         if Action("PLAY", "Chapel") in actions and junk >= 3:
-            return self._play_chapel()
+            return Action("PLAY", "Chapel")
         others = [c for c in me.hand if c in ("Smithy", "Village", "Market", "Militia")]
         if Action("PLAY", "Throne Room") in actions and others:
             return Action("PLAY", "Throne Room")
@@ -132,12 +142,8 @@ class ThroneRoomEngineAgent:
             if Action("PLAY", card) in actions:
                 return Action("PLAY", card)
         if Action("PLAY", "Chapel") in actions and junk:
-            return self._play_chapel()
+            return Action("PLAY", "Chapel")
         return END_ACTIONS
-
-    def _play_chapel(self) -> Action:
-        self._coppers_chosen = 0
-        return Action("PLAY", "Chapel")
 
     def _throne_target(self, actions: list[Action], me) -> Action:
         hand = Counter(me.hand)
@@ -169,12 +175,10 @@ class ThroneRoomEngineAgent:
         return False
 
     def _chapel_choice(self, game: Game, actions: list[Action], me) -> Action:
-        # Chapel asks for one card at a time and trashes them all at the end,
-        # so Coppers already chosen still count in the deck's money
+        chosen = _coppers_chosen_for_chapel(game)
         for card in ("Curse", "Estate", "Copper"):
             a = Action("TRASH", card)
-            if a in actions and self._is_junk(game, me, card, self._coppers_chosen):
-                self._coppers_chosen += card == "Copper"
+            if a in actions and self._is_junk(game, me, card, chosen):
                 return a
         return DONE if DONE in actions else actions[-1]
 
@@ -230,9 +234,6 @@ class ChapelWitchAgent:
     HOME = ("Chapel", "Witch")
     name = "chapel_witch"
 
-    def __init__(self):
-        self._coppers_chosen = 0
-
     def act(self, game: Game) -> Action:
         actions = game.legal_actions()
         me = _me(game)
@@ -245,7 +246,6 @@ class ChapelWitchAgent:
             if Action("PLAY", "Witch") in actions:
                 return Action("PLAY", "Witch")
             if Action("PLAY", "Chapel") in actions and self._junk_in_hand(game, me):
-                self._coppers_chosen = 0
                 return Action("PLAY", "Chapel")
             return END_ACTIONS
         return self._buy(game, actions, me)
@@ -268,12 +268,10 @@ class ChapelWitchAgent:
         return False
 
     def _chapel_choice(self, game: Game, actions: list[Action], me) -> Action:
-        # Chapel asks for one card at a time and trashes them all at the end,
-        # so Coppers already chosen still count in the deck's money
+        chosen = _coppers_chosen_for_chapel(game)
         for card in ("Curse", "Estate", "Copper"):
             a = Action("TRASH", card)
-            if a in actions and self._is_junk(game, me, card, self._coppers_chosen):
-                self._coppers_chosen += card == "Copper"
+            if a in actions and self._is_junk(game, me, card, chosen):
                 return a
         return DONE if DONE in actions else actions[-1]
 
