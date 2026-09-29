@@ -27,8 +27,9 @@ both seats:
 It plays multi-Action turns (Laboratory, Market and Sentry chains), but it
 has stopped using nine of the 26 kingdom cards, Throne Room and Village
 among them, and on boards with Workshop and Gardens a simple scripted rush
-using them takes a third of its games. See [training/README.md](training/README.md) for how it was
-trained and what's being tried next.
+using them takes a third of its games. See
+[training/README.md](training/README.md) for how it was trained and what's
+being tried next.
 
 ![Training curve](docs/training_curve.png)
 
