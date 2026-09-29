@@ -67,30 +67,6 @@ python examples/domibot_relay.py            # its recommendations while you play
 Training commands, the tools for measuring a checkpoint, and the relay
 tool's details are in [training/README.md](training/README.md).
 
-## Using the engine directly
-
-```python
-import random
-from domibot import Game
-
-kingdom = [
-    "Village", "Smithy", "Market", "Laboratory", "Festival",
-    "Witch", "Moat", "Council Room", "Chapel", "Throne Room",
-]
-game = Game(kingdom, num_players=2, seed=0)
-
-while not game.is_game_over():
-    actions = game.legal_actions()
-    game.step(random.choice(actions))  # replace with a policy/agent
-
-print(game.get_scores(), game.winners())
-```
-
-Every action taken is recorded in `game.action_log`;
-`game.save_log("game_logs/my_game.log")` writes it as text (or
-`fmt="json"` for JSON), creating missing directories. `python
-examples/random_playout.py [n]` plays `n` random games as a smoke test.
-
 ## Design: decisions as a generator, actions as a flat, typed choice
 
 Every card effect that needs player input is a Python generator; `Game`
