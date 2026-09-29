@@ -175,6 +175,15 @@ bring them back: more self-play and a larger network start from the same
 habits, the league's opponents don't use these cards either, and search
 relies on the same policy and value head.
 
+Starting from scratch with the own-zone inputs doesn't prevent it. Two
+fresh runs of today's code on the from-scratch recipe, one with the
+inputs and one without (`scratch_zones`, `scratch_nozones`), ran 4000
+iterations each. Neither learned to play Throne Room: it was in 2–9% of
+their decks, mostly bought and left unplayed (0.1 plays per game at most,
+none after iteration 2000). Village swung between 0% and 48% of decks in
+both. By iteration 4000 both scored about 25% against 2.2 and 60% against
+BigMoney + terminal.
+
 **The gauntlet** plays a checkpoint against scripted strategies built on
 those cards, each on kingdoms containing them. BigMoney + terminal plays
 the same kingdoms for comparison:
