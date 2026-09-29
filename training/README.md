@@ -229,7 +229,21 @@ python -m training.ppo.train --run-name explore --iterations 4000 --games-per-it
     --eval-every 100 --eval-games 100 --eval-rival-checkpoint checkpoints/domibot2/domibot2.2.pt
 ```
 
-Results: in progress.
+**Result: it didn't bring Throne Room back.** Its strength matched
+`scratch_zones` (about 29% against 2.2 and 62% against BigMoney + terminal
+by iteration 4000). But Throne Room was in 0% of its decks at every
+checkpoint, and turns with three or more Actions all but disappeared
+(0.1%, against 2–4% for `scratch_zones`). It did learn to play a Throne
+Room it holds: with a target in hand it plays one 51% of the time, against
+20% for 2.2. But decks steered into Throne Rooms lose. A player handed
+three early Throne Rooms, on boards with Village and Smithy, won 1 of 60
+games against the same policy (for 2.2: 0 of 60).
+
+Throne Room only pays inside a coordinated engine: enough Villages and
+draw, payload, and later greening. In the deck this policy builds, it's a
+bad buy, so steering in one or two cards at a time teaches the value head,
+correctly, that those decks lose. Exploration would have to steer whole
+strategies, not single cards.
 
 ### Not yet done
 
