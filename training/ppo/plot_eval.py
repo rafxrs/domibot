@@ -2,16 +2,16 @@
 vs. iteration -- BigMoney, BigMoney+terminal, and (if present) a reference
 checkpoint, e.g. `domibot_v4.4.pt`.
 
-    python -m training.ppo.plot_eval logs/domibot2/domibot2_stage1_run2.log
-    python -m training.ppo.plot_eval logs/domibot2/domibot2_stage1_run2.log --out eval.png
+    python -m training.ppo.plot_eval logs/domibot2/runs/a_to_2.1/02_iter0401-2400.log
+    python -m training.ppo.plot_eval logs/domibot2/runs/a_to_2.1/02_iter0401-2400.log --out eval.png
 
 Pass multiple logs to see one continuous history across resumed runs
 (e.g. run1 = iterations 1-400, run2 resumed from run1's checkpoint =
 401-2400) -- each series is merged by label and sorted by iteration, so
 it reads as one training run even though it was launched in stages:
 
-    python -m training.ppo.plot_eval logs/domibot2/domibot2_stage1_run1.log \\
-        logs/domibot2/domibot2_stage1_run2.log
+    python -m training.ppo.plot_eval logs/domibot2/runs/a_to_2.1/01_iter0001-0400.log \\
+        logs/domibot2/runs/a_to_2.1/02_iter0401-2400.log
 
 Reads the exact lines `training/ppo/train.py` prints (see `main`'s
 `  eval vs ...:` prints): each eval block is preceded by an `iter N/M`
@@ -145,9 +145,10 @@ def plot(series: dict[str, tuple[list[int], list[float]]], title: str, out: Path
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("log_files", nargs="+",
-                         help="one or more domibot2 training logs, e.g. logs/domibot2/domibot2_stage1_run1.log "
-                              "logs/domibot2/domibot2_stage1_run2.log -- multiple logs are merged into one "
-                              "continuous history per eval label, sorted by iteration")
+                         help="one or more domibot2 training logs, e.g. "
+                              "logs/domibot2/runs/a_to_2.1/01_iter0001-0400.log "
+                              "logs/domibot2/runs/a_to_2.1/02_iter0401-2400.log -- multiple logs are merged into "
+                              "one continuous history per eval label, sorted by iteration")
     parser.add_argument("--out", type=str, default=None,
                          help="output image path (default: <first log's stem>_eval.png, or "
                               "combined_<stem1>+<stem2>+..._eval.png for multiple logs, next to the first log)")
