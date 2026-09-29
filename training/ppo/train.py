@@ -30,6 +30,7 @@ from ..agents import BigMoneyAgent, BigMoneyTerminalAgent, DomibotAgent
 from ..evaluate import play_match
 from ..network import HIDDEN_DIM, NUM_RESIDUAL_BLOCKS, DomibotNet, get_device
 from ..self_play import DEFAULT_MAX_MOVES
+from .explore import ExploreConfig, buy_floor_loss
 from .gae import Transition, win_weighted_value
 from .league import SCRIPTED_OPPONENTS, collect_league_rollouts, load_league
 from .rollout import collect_cross_play_rollouts, collect_rollouts
@@ -73,6 +74,8 @@ def ppo_update(
     entropy_coef: float = 0.01,
     grad_clip: float = 0.5,
     target_kl: float | None = None,
+    buy_floor: float = 0.0,
+    buy_floor_coef: float = 1.0,
 ) -> dict[str, float]:
     """One PPO update: `epochs` passes of minibatch clipped-surrogate
     updates over `transitions` (already carrying `.advantage`/`.return_`
@@ -85,20 +88,25 @@ def ppo_update(
     remaining epochs once an epoch's mean approximate KL from the rollout
     policy exceeds 1.5x it (checked per epoch, not per minibatch: a
     256-sample minibatch's KL estimate is noisy enough to trip it on noise
-    alone). Returns means over the minibatches actually run."""
+    alone). Buys made by exploration (`Transition.explore`) weren't the
+    policy's choice and train neither head. `buy_floor` > 0 adds
+    `buy_floor_coef` x `explore.buy_floor_loss`. Returns means over the
+    minibatches actually run."""
     obs = torch.from_numpy(np.stack([t.obs for t in transitions])).to(device)
     mask = torch.from_numpy(np.stack([t.mask for t in transitions])).to(device)
     actions = torch.tensor([t.action for t in transitions], dtype=torch.long, device=device)
     old_log_probs = torch.tensor([t.log_prob for t in transitions], dtype=torch.float32, device=device)
     advantages = torch.tensor([t.advantage for t in transitions], dtype=torch.float32, device=device)
     returns = torch.tensor([t.return_ for t in transitions], dtype=torch.float32, device=device)
-    free = mask.sum(dim=-1) > 1
+    on_policy = ~torch.tensor([t.explore for t in transitions], dtype=torch.bool, device=device)
+    free = (mask.sum(dim=-1) > 1) & on_policy
     if free.sum() > 1:
         free_adv = advantages[free]
         advantages = (advantages - free_adv.mean()) / (free_adv.std() + 1e-8)
 
     n = len(transitions)
-    stats: dict[str, list[float]] = {k: [] for k in ("policy_loss", "value_loss", "entropy", "approx_kl", "clipfrac")}
+    stats: dict[str, list[float]] = {k: [] for k in ("policy_loss", "value_loss", "entropy", "approx_kl", "clipfrac",
+                                                      "buy_floor")}
     for _ in range(epochs):
         epoch_kls: list[float] = []
         perm = np.random.permutation(n)
@@ -121,8 +129,12 @@ def ppo_update(
             surr2 = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * advantages[mb]
             policy_loss = -(torch.min(surr1, surr2) * w).sum() / n_free
             entropy = (dist.entropy() * w).sum() / n_free
-            value_loss = F.mse_loss(values, returns[mb])
+            v_w = on_policy[mb].float()
+            value_loss = ((values - returns[mb]) ** 2 * v_w).sum() / v_w.sum().clamp(min=1.0)
             loss = policy_loss + value_loss_weight * value_loss - entropy_coef * entropy
+            floor_loss = buy_floor_loss(masked_logits, mask[mb], buy_floor) if buy_floor > 0 else None
+            if floor_loss is not None:
+                loss = loss + buy_floor_coef * floor_loss
 
             optimizer.zero_grad()
             loss.backward()
@@ -130,8 +142,10 @@ def ppo_update(
                 torch.nn.utils.clip_grad_norm_(network.parameters(), grad_clip)
             optimizer.step()
 
-            for k, v in (("policy_loss", policy_loss), ("value_loss", value_loss), ("entropy", entropy)):
-                stats[k].append(float(v.item()))
+            for k, v in (("policy_loss", policy_loss), ("value_loss", value_loss), ("entropy", entropy),
+                         ("buy_floor", floor_loss)):
+                if v is not None:
+                    stats[k].append(float(v.item()))
             stats["approx_kl"].append(approx_kl)
             stats["clipfrac"].append(clipfrac)
         if target_kl is not None and sum(epoch_kls) / len(epoch_kls) > 1.5 * target_kl:
@@ -174,6 +188,20 @@ def main() -> None:
     parser.add_argument("--target-kl", type=float, default=None,
                          help="skip an update's remaining epochs once an epoch's mean approximate KL from "
                               "the rollout policy exceeds 1.5x this (off by default)")
+    parser.add_argument("--explore-frac", type=float, default=0.0,
+                         help="share of self-play games in which one player's early buys are steered toward "
+                              "1-2 focus cards from the kingdom (ppo/explore.py); 0 (default) disables it")
+    parser.add_argument("--explore-override-prob", type=float, default=0.5,
+                         help="chance that each of a steered player's buys, when it can afford a focus card it "
+                              "wants more copies of, is replaced by that card")
+    parser.add_argument("--explore-max-cards", type=int, default=2, help="focus cards per steered player: 1 to this")
+    parser.add_argument("--explore-max-count", type=int, default=3, help="copies wanted of each: 1 to this")
+    parser.add_argument("--explore-turn-limit", type=int, default=12,
+                         help="steer only during the player's first this many turns")
+    parser.add_argument("--buy-floor", type=float, default=0.0,
+                         help="penalize the policy for giving any affordable kingdom card less than this "
+                              "probability (explore.buy_floor_loss), e.g. 0.01; 0 (default) disables it")
+    parser.add_argument("--buy-floor-coef", type=float, default=1.0, help="weight of the --buy-floor penalty")
     parser.add_argument("--reward-win-weight", type=float, default=0.8,
                          help="terminal reward = this * (+1 win / -1 loss / 0 tie) + the rest as the tanh "
                               "margin (gae.win_weighted_value); 0 reproduces the margin-only reward "
@@ -270,6 +298,14 @@ def main() -> None:
     print(f"opponent_pool_size: {args.opponent_pool_size}  |  opponent_pool_frac: {args.opponent_pool_frac}  |  "
           f"reward_win_weight: {args.reward_win_weight}  |  public_features: {args.public_features}  |  "
           f"zone_features: {args.zone_features}  |  target_kl: {args.target_kl}")
+    explore = None
+    if args.explore_frac > 0:
+        explore = ExploreConfig(frac=args.explore_frac, override_prob=args.explore_override_prob,
+                                max_cards=args.explore_max_cards, max_count=args.explore_max_count,
+                                turn_limit=args.explore_turn_limit)
+        print(f"exploration: {explore}")
+    if args.buy_floor > 0:
+        print(f"buy floor: {args.buy_floor} (coef {args.buy_floor_coef})")
     if args.zone_features and not args.public_features:
         raise SystemExit("--zone-features needs --public-features (use --no-zone-features without them)")
     if args.league_frac > 0 and args.opponent_pool_frac > 0:
@@ -346,7 +382,7 @@ def main() -> None:
             games += collect_rollouts(
                 network, remaining, max_moves=max_moves, device=device,
                 seed=rng.randrange(2**31), min_sub_decision_cards=args.min_sub_decision_cards,
-                reward_fn=reward_fn, gamma=args.gamma, lam=args.gae_lambda,
+                reward_fn=reward_fn, gamma=args.gamma, lam=args.gae_lambda, explore=explore,
             )
         if pool_games > 0:
             games += collect_cross_play_rollouts(
@@ -379,7 +415,7 @@ def main() -> None:
             network, optimizer, transitions, device,
             clip_eps=args.clip_eps, epochs=args.epochs_per_update, minibatch_size=args.minibatch_size,
             value_loss_weight=args.value_loss_weight, entropy_coef=args.entropy_coef, grad_clip=args.grad_clip,
-            target_kl=args.target_kl,
+            target_kl=args.target_kl, buy_floor=args.buy_floor, buy_floor_coef=args.buy_floor_coef,
         )
         if scheduler is not None:
             scheduler.step()
@@ -391,6 +427,10 @@ def main() -> None:
                f"policy_loss={st['policy_loss']:.4f}  value_loss={st['value_loss']:.4f}  "
                f"entropy={st['entropy']:.4f}  kl={st['approx_kl']:.4f}  clipfrac={st['clipfrac']:.3f}  "
                f"updates={st['updates']}")
+        if explore is not None:
+            msg += f"  steered_buys={sum(t.explore for t in transitions)}"
+        if args.buy_floor > 0:
+            msg += f"  buy_floor={st['buy_floor']:.4f}"
         if pool_games > 0:
             msg += f"  pool_games={pool_games}({Path(opponent_path).stem})"
         msg += league_note

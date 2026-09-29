@@ -48,6 +48,9 @@ class Transition:
     value: float  # V(obs), from the same network, at collection time
     decider: int
     turn_number: int  # game.players[decider].turns_taken at the time of the decision
+    # A buy made for the policy by exploration (ppo/explore.py), not by it:
+    # trains neither head, and cuts the GAE trace (see compute_gae).
+    explore: bool = False
     # Filled in by compute_gae -- 0.0 until then.
     reward: float = field(default=0.0)
     advantage: float = field(default=0.0)
@@ -78,7 +81,12 @@ def compute_gae(
     own `V_t` if it didn't (a truncated episode's tail bootstraps from its
     own value estimate -- the standard practical fix so a cut-off episode
     doesn't get a spuriously large "the world ended and that's bad"
-    advantage at its last step)."""
+    advantage at its last step).
+
+    An `explore` transition's action wasn't the policy's, so the trace
+    stops there: the decision before it gets a one-step advantage,
+    `delta` alone, bootstrapped from the value of the state the exploring
+    buy was made in, and none of the buy's consequences."""
     by_decider: dict[int, list[int]] = defaultdict(list)
     for i, t in enumerate(transitions):
         by_decider[t.decider].append(i)
@@ -97,6 +105,8 @@ def compute_gae(
             delta = rewards[t] + gamma * next_values[t] - values[t]
             running = delta + gamma * lam * running
             advantages[t] = running
+            if transitions[idxs[t]].explore:
+                running = 0.0
 
         for pos, i in enumerate(idxs):
             transitions[i].reward = rewards[pos]

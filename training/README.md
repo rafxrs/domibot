@@ -204,14 +204,35 @@ Room engine is too weak to test much yet, since it loses to BigMoney +
 terminal too. The bots are untuned, so a bot doing badly doesn't prove
 there's no gap.
 
+### Exploration (`ppo/explore.py`)
+
+Two remedies, both used only while collecting training games:
+
+- **Steered players** (`--explore-frac`): in that share of the games, one
+  player gets one or two of the kingdom's cards to focus on, 1–3 copies
+  each. During its first 12 turns, each buy where it can afford one it
+  still wants is replaced by that card half the time. Everything else,
+  including how it plays those cards, is its own policy, so the value head
+  learns what those decks are worth. A replaced buy trains neither head,
+  and the GAE trace stops there, so earlier decisions aren't credited or
+  blamed for it.
+- **A buy floor** (`--buy-floor`): a penalty whenever the policy gives an
+  affordable kingdom card less than that probability, so its own buys keep
+  sampling every card and can pick one up once the value head rates it.
+
+The first run starts from scratch with the same recipe and seed as
+`scratch_zones`, so the card-use profiles compare directly:
+
+```bash
+python -m training.ppo.train --run-name explore --iterations 4000 --games-per-iter 50 \
+    --explore-frac 0.5 --buy-floor 0.01 \
+    --eval-every 100 --eval-games 100 --eval-rival-checkpoint checkpoints/domibot2/domibot2.2.pt
+```
+
+Results: in progress.
+
 ### Not yet done
 
-- **Getting the unused cards back into play.** Steer one player into
-  buying a chosen card in some games, so the value head learns what decks
-  holding it are worth. Keep a minimum buy probability on each affordable
-  kingdom card during training, so the policy's own buys keep getting
-  feedback. Judge the result by the card-use profile, the gauntlet and
-  head-to-head play.
 - **A better value estimate**, e.g. a critic that sees hidden information
   during training. Search needs one before it can help.
 

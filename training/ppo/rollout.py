@@ -15,9 +15,11 @@ from typing import Callable, Optional
 import numpy as np
 import torch
 
+from .. import encoding
 from ..env import DominionEnv
 from ..mcts import terminal_value
 from ..self_play import DEFAULT_MAX_MOVES, _sample_kingdom
+from .explore import ExploreConfig, FocusPlan, make_plan, steer
 from .gae import Transition, compute_gae
 
 
@@ -34,6 +36,7 @@ def collect_rollouts(
     gamma: float = 1.0,
     lam: float = 0.95,
     full_obs: bool | None = None,
+    explore: ExploreConfig | None = None,
 ) -> list[list[Transition]]:
     """Plays `num_games` independent self-play games to completion (or
     `max_moves`), and returns one list of `Transition`s per game with
@@ -52,7 +55,11 @@ def collect_rollouts(
     `full_obs` forces the full (public-extras) encoding on or off; by
     default it follows whether `network` reads the extras. Distillation
     sets it so recorded observations suit the student even when the
-    teacher is the one playing."""
+    teacher is the one playing.
+
+    `explore` steers one player's early buys in a share of the games
+    toward focus cards (see ppo/explore.py); those buys are recorded with
+    `explore=True`."""
     if device is None:
         device = next(network.parameters()).device
     if full_obs is None:
@@ -62,6 +69,8 @@ def collect_rollouts(
     envs: list[DominionEnv] = []
     obs_list: list[np.ndarray] = []
     mask_list: list[np.ndarray] = []
+    plans: list[FocusPlan | None] = []
+    explore_rng = random.Random(master_rng.randrange(2**31))
     for _ in range(num_games):
         g_seed = master_rng.randrange(2**31)
         game_kingdom = kingdom if kingdom is not None else \
@@ -71,6 +80,7 @@ def collect_rollouts(
         envs.append(env)
         obs_list.append(obs["observation"])
         mask_list.append(obs["action_mask"])
+        plans.append(make_plan(game_kingdom, num_players, explore, explore_rng) if explore else None)
 
     transitions_per_game: list[list[Transition]] = [[] for _ in range(num_games)]
     game_over = [False] * num_games
@@ -79,7 +89,8 @@ def collect_rollouts(
     while any(active):
         idxs = [i for i in range(num_games) if active[i]]
         _step_group(idxs, network, envs, obs_list, mask_list, transitions_per_game,
-                    active, game_over, device, record=True)
+                    active, game_over, device, record=True,
+                    plans=plans if explore else None, explore=explore, explore_rng=explore_rng)
 
     for i in range(num_games):
         compute_gae(transitions_per_game[i], envs[i].game, game_over[i],
@@ -98,12 +109,17 @@ def _step_group(
     game_over: list[bool],
     device: torch.device,
     record: bool,
+    plans: list[FocusPlan | None] | None = None,
+    explore: ExploreConfig | None = None,
+    explore_rng: random.Random | None = None,
 ) -> None:
     """Runs one batched forward pass of `network` over `idxs`' current
     observations, samples a masked action for each, and steps that game's
     env -- recording a `Transition` only if `record` (False for a frozen
     cross-play opponent's decisions, which advance the game but must never
-    become a training example, per `collect_cross_play_rollouts`)."""
+    become a training example, per `collect_cross_play_rollouts`). With
+    `plans`, a steered player's buy may be replaced by a focus card
+    (`explore.steer`), recorded as an `explore` transition."""
     if not idxs:
         return
     obs_t = torch.from_numpy(np.stack([obs_list[i] for i in idxs])).to(device)
@@ -119,15 +135,21 @@ def _step_group(
         env = envs[i]
         decider = env.game.current_decider()
         action_idx = int(actions[pos].item())
+        log_prob = float(log_probs[pos].item())
+        focus = steer(env.game, plans[i], explore, explore_rng) if plans is not None else None
+        if focus is not None:
+            action_idx = encoding.action_to_index(focus)
+            log_prob = float(dist.logits[pos, action_idx].item())  # normalized log-prob, for the record only
         if record:
             transitions_per_game[i].append(Transition(
                 obs=obs_list[i],
                 mask=mask_list[i],
                 action=action_idx,
-                log_prob=float(log_probs[pos].item()),
+                log_prob=log_prob,
                 value=float(values[pos].item()),
                 decider=decider,
                 turn_number=env.game.players[decider].turns_taken,
+                explore=focus is not None,
             ))
         obs, _reward, terminated, truncated, _info = env.step(action_idx)
         if terminated or truncated:
