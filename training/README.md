@@ -27,9 +27,10 @@ engine, encoding and network.
 - **`agents.py` / `evaluate.py`** — the `Agent` protocol (`act(game) ->
   Action`), Big Money baselines and MCTS agents; `play_match` for paired
   head-to-head series, `wilson` for their confidence intervals.
-- **`strategy_profile.py` / `strategy_bots.py` / `gauntlet.py`** — what a
-  checkpoint actually plays, and scripted strategies to test it against
-  (see "Card use").
+- **`strategy_profile.py` / `strategy_bots.py` / `gauntlet.py` /
+  `plan_search.py`** — what a checkpoint actually plays, scripted
+  strategies to test it against, and a search for the buy plan that beats
+  it on a given board (see "Card use" and "Plan search").
 - **`mcts.py`** — PUCT search from Phase 1, now an optional search layer
   on top of a trained network.
 - **`self_play.py` / `train.py` / `heuristics.py`** — Phase 1's loop, and a
@@ -226,6 +227,27 @@ with kingdoms other than the ones in the table above (`--seed 1`):
 It learned to beat the rush, gave up nothing head-to-head (50.7% vs 2.2)
 and gained a few points against every baseline. Its card use barely
 changed: it still skips the same nine cards.
+
+### Plan search: is there a better strategy on this board?
+
+The network can't play an engine it's handed. With an engine bot making
+its buys on the engine boards, it lost all 300 games to 2.3, worse than
+the fully scripted bot (6%). So whether engines would beat 2.3 needs a
+different test. `plan_search.py` evolves a buy plan for one board against
+a checkpoint, the way Provincial (an evolutionary Dominion AI) evolved
+kingdom-specific strategies. A plan is a buy menu: an ordered list of
+cards and copies wanted, plus when Provinces, Duchies and Estates take
+over. A scripted player with generic rules for all 26 cards plays the
+plan. The best plans are re-scored on fresh games, since the search
+overrates its own winners.
+
+```bash
+python -m training.plan_search checkpoints/domibot2/domibot2.3.pt --boards 20 --home "Throne Room" Village \
+    --generations 30 --population 40 --parents 10 --games 16 --final-games 300 --workers 7
+```
+
+A board takes about 2 minutes. Running now: 20 boards with Throne Room and
+Village, and 20 random boards.
 
 ### Not yet done
 
