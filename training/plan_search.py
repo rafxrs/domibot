@@ -10,6 +10,10 @@ that give +Actions first, then Throne Room, then draw, then payload, with
 card-specific rules for their choices (what Chapel trashes, what Throne
 Room plays, what Workshop gains, ...).
 
+With `--network-plays`, the checkpoint's own policy makes every decision
+but the plan's buys, so the search asks where the network's buying is
+wrong given its own play.
+
 `evolve` searches plans for one board: a population of plans, each scored
 against the opponent on the same fresh games every generation (both seats),
 the best kept as parents, mutations of them filling the rest. Scores add
@@ -23,6 +27,7 @@ biased upward.
     python -m training.plan_search checkpoints/domibot2/domibot2.3.pt --boards 12 --workers 7
     python -m training.plan_search checkpoints/domibot2/domibot2.3.pt --home "Throne Room" Village Smithy
     python -m training.plan_search checkpoints/domibot2/domibot2.3.pt --kingdom Cellar Chapel ...
+    python -m training.plan_search checkpoints/domibot2/domibot2.3.pt --boards 12 --network-plays
 
 Each board's result is printed and appended to `--out` as a JSON line.
 """
@@ -45,6 +50,7 @@ from .gauntlet import load_agent
 from .heuristics import heuristic_reaction
 
 UNLIMITED = 99
+MONEY = (("Gold", UNLIMITED), ("Silver", UNLIMITED))
 MENU_BASICS = ("Copper", "Silver", "Gold", "Estate", "Duchy")
 
 # Play order: Actions that give +Actions first, then Throne Room, then
@@ -74,18 +80,24 @@ class Plan:
 
 
 class PlanAgent:
-    """Plays `plan`'s buys with fixed, generic rules for everything else.
+    """Plays `plan`'s buys, and everything else with `player` (any agent,
+    e.g. a network's policy) if given, else with fixed, generic rules.
     Stateless, so one instance can play many games at once."""
 
-    def __init__(self, plan: Plan):
+    def __init__(self, plan: Plan, player=None):
         self.plan = plan
+        self.player = player
 
     def act(self, game: Game) -> Action:
         actions = game.legal_actions()
         me = game.players[game.current_decider()]
         decision = game.pending_decision
+        if decision is None and game.phase == Phase.BUY:
+            return self.buy(game, actions, me)
+        if self.player is not None:
+            return self.player.act(game)
         if decision is None:
-            return self._play(game, actions, me) if game.phase == Phase.ACTION else self._buy(game, actions, me)
+            return self._play(game, actions, me)
         mine = game.current_decider() == game.current_player
         source = decision.source_card
         if mine and source == "Throne Room" and actions[0].verb == "PLAY":
@@ -206,7 +218,7 @@ class PlanAgent:
         return heuristic_reaction(game)
 
     # ---- buy phase ------------------------------------------------------
-    def _buy(self, game: Game, actions: list[Action], me) -> Action:
+    def buy(self, game: Game, actions: list[Action], me) -> Action:
         plan, coins = self.plan, me.coins
         provinces = game.supply.get("Province", 0)
         if coins >= 8 and me.turns_taken >= plan.province_turn and Action("BUY", "Province") in actions:
@@ -231,28 +243,37 @@ def _random_count(rng: random.Random) -> int:
     return rng.choice((1, 1, 2, 2, 3, 4, 6, UNLIMITED))
 
 
+def engine_plans(kingdom: list[str]) -> list[Plan]:
+    """Village/draw engines, plus Throne Room, +Buy and trashing where the
+    board has them; none without a village and a draw card."""
+    villages = [c for c in kingdom if c in VILLAGES]
+    draw = [c for c in kingdom if c in ("Smithy", "Council Room", "Library", "Witch", "Laboratory")]
+    if not (villages and draw):
+        return []
+    plans = []
+    for n_village, n_draw, n_throne, turn in ((3, 2, 2, 10), (4, 3, 2, 12), (2, 2, 3, 10), (3, 2, 0, 8),
+                                              (4, 2, 3, 14), (2, 3, 1, 8)):
+        engine = [("Chapel", 1)] if "Chapel" in kingdom and n_throne != 1 else []
+        engine += [(villages[0], n_village), (draw[0], n_draw)]
+        if "Throne Room" in kingdom and n_throne:
+            engine.append(("Throne Room", n_throne))
+        for extra in ("Market", "Laboratory", "Festival"):
+            if extra in kingdom and extra not in (villages[0], draw[0]):
+                engine.append((extra, 2))
+        plans.append(Plan(tuple(engine) + MONEY, province_turn=turn))
+    return plans
+
+
 def seed_plans(kingdom: list[str], rng: random.Random, n_random: int) -> list[Plan]:
-    """Big Money, Big Money with one or two of each Action, a Village/draw
-    engine if the board has the parts, and random menus."""
-    money = (("Gold", UNLIMITED), ("Silver", UNLIMITED))
+    """Big Money, Big Money with one or two of each Action, engines if the
+    board has the parts, a Gardens rush, and random menus."""
+    money = MONEY
     plans = [Plan(money)]
     actions = [c for c in kingdom if c != "Gardens"]
     for card in actions:
         plans.append(Plan(((card, 1),) + money))
         plans.append(Plan(((card, 2),) + money))
-    villages = [c for c in kingdom if c in VILLAGES]
-    draw = [c for c in kingdom if c in ("Smithy", "Council Room", "Library", "Witch", "Laboratory")]
-    if villages and draw:  # engines: Villages and draw, plus Throne Room, +Buy and trashing where available
-        for n_village, n_draw, n_throne, turn in ((3, 2, 2, 10), (4, 3, 2, 12), (2, 2, 3, 10), (3, 2, 0, 8),
-                                                  (4, 2, 3, 14), (2, 3, 1, 8)):
-            engine = [("Chapel", 1)] if "Chapel" in kingdom and n_throne != 1 else []
-            engine += [(villages[0], n_village), (draw[0], n_draw)]
-            if "Throne Room" in kingdom and n_throne:
-                engine.append(("Throne Room", n_throne))
-            for extra in ("Market", "Laboratory", "Festival"):
-                if extra in kingdom and extra not in (villages[0], draw[0]):
-                    engine.append((extra, 2))
-            plans.append(Plan(tuple(engine) + money, province_turn=turn))
+    plans += engine_plans(kingdom)
     if "Gardens" in kingdom:
         gainer = [c for c in ("Workshop", "Artisan") if c in kingdom]
         plans.append(Plan(tuple((g, 8) for g in gainer) + (("Gardens", 8), ("Estate", 8), ("Copper", UNLIMITED)),
@@ -290,13 +311,28 @@ def mutate(plan: Plan, options: list[str], rng: random.Random) -> Plan:
     return replace(plan, menu=tuple(menu))
 
 
-def _score_chunk(opponent: str, jobs: list[tuple[Plan, list[str], list[int]]]) -> list[tuple[int, int, int]]:
+def load_plans(path: str, min_score: float = 0.5) -> list[tuple[list[str], Plan]]:
+    """(board, plan) for each board in a search's `--out` file whose best
+    plan scored at least `min_score` on fresh games."""
+    out = []
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        result = json.loads(line)
+        best = result["finalists"][0]
+        if best["score"] >= min_score:
+            plan = Plan(**{**best["plan"], "menu": tuple(tuple(m) for m in best["plan"]["menu"])})
+            out.append((result["kingdom"], plan))
+    return out
+
+
+def _score_chunk(opponent: str, jobs: list[tuple[Plan, list[str], list[int]]],
+                 network_plays: bool = False) -> list[tuple[int, int, int]]:
     """(wins, losses, ties) of each plan against `opponent`, every seed
-    played from both seats."""
+    played from both seats; with `network_plays`, the opponent's policy
+    plays the plan's cards."""
     opp = load_agent(opponent)
     out = []
     for plan, kingdom, seeds in jobs:
-        agent = PlanAgent(plan)
+        agent = PlanAgent(plan, opp if network_plays else None)
         w = l = t = 0
         for seed in seeds:
             for seat in (0, 1):
@@ -313,11 +349,11 @@ def _score_chunk(opponent: str, jobs: list[tuple[Plan, list[str], list[int]]]) -
 
 
 def score_plans(pool: ProcessPoolExecutor, workers: int, opponent: str, plans: list[Plan], kingdom: list[str],
-                seeds: list[int]) -> list[tuple[int, int, int]]:
+                seeds: list[int], network_plays: bool = False) -> list[tuple[int, int, int]]:
     """Every plan on the same `seeds`, spread over the workers."""
     jobs = [(p, kingdom, [s]) for p in plans for s in seeds]
     chunks = [jobs[i::workers] for i in range(workers) if jobs[i::workers]]
-    results = list(pool.map(_score_chunk, [opponent] * len(chunks), chunks))
+    results = list(pool.map(_score_chunk, [opponent] * len(chunks), chunks, [network_plays] * len(chunks)))
     totals: dict[int, list[int]] = {}
     for c, chunk_results in enumerate(results):
         for k, r in enumerate(chunk_results):
@@ -330,7 +366,7 @@ def score_plans(pool: ProcessPoolExecutor, workers: int, opponent: str, plans: l
 
 def evolve(pool: ProcessPoolExecutor, workers: int, opponent: str, kingdom: list[str], rng: random.Random,
            generations: int = 20, population: int = 32, parents: int = 8, games: int = 12,
-           final_top: int = 3, final_games: int = 200, log=print) -> dict:
+           final_top: int = 3, final_games: int = 200, network_plays: bool = False, log=print) -> dict:
     options = menu_options(kingdom)
     record: dict[Plan, list[int]] = {}
     pop = seed_plans(kingdom, rng, n_random=max(0, population - 2 * len(kingdom) - 3))[:population * 2]
@@ -345,7 +381,7 @@ def evolve(pool: ProcessPoolExecutor, workers: int, opponent: str, kingdom: list
 
     for gen in range(generations):
         seeds = [rng.randrange(1_000_000) for _ in range(games)]
-        for plan, r in zip(pop, score_plans(pool, workers, opponent, pop, kingdom, seeds)):
+        for plan, r in zip(pop, score_plans(pool, workers, opponent, pop, kingdom, seeds, network_plays)):
             acc = record.setdefault(plan, [0, 0, 0])
             for x in range(3):
                 acc[x] += r[x]
@@ -365,7 +401,8 @@ def evolve(pool: ProcessPoolExecutor, workers: int, opponent: str, kingdom: list
     finalists = sorted(record, key=lambda p: shrunk(p, prior), reverse=True)[:final_top]
     fresh_seeds = [rng.randrange(1_000_000) for _ in range(final_games)]
     results = []
-    for plan, (w, l, t) in zip(finalists, score_plans(pool, workers, opponent, finalists, kingdom, fresh_seeds)):
+    scores = score_plans(pool, workers, opponent, finalists, kingdom, fresh_seeds, network_plays)
+    for plan, (w, l, t) in zip(finalists, scores):
         p, lo, hi = wilson(w, t, w + l + t)
         results.append({"plan": asdict(plan), "describe": plan.describe(), "wins": w, "losses": l, "ties": t,
                         "score": p, "ci": [lo, hi], "search_score": mean(plan)})
@@ -385,6 +422,8 @@ def main() -> None:
     parser.add_argument("--games", type=int, default=12, help="seeds per plan per generation, each from both seats")
     parser.add_argument("--final-games", type=int, default=200,
                         help="fresh seeds (each from both seats) to re-score the best plans on")
+    parser.add_argument("--network-plays", action="store_true",
+                        help="the opponent checkpoint's policy makes every decision but the plan's buys")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--out", type=str, default="logs/domibot2/plan_search/results.jsonl")
@@ -404,7 +443,8 @@ def main() -> None:
             print(f"board {b + 1}/{len(boards)}: {', '.join(sorted(kingdom))}", flush=True)
             result = evolve(pool, args.workers, args.opponent, kingdom, rng, generations=args.generations,
                             population=args.population, parents=args.parents, games=args.games,
-                            final_games=args.final_games, log=lambda s: print(s, flush=True))
+                            final_games=args.final_games, network_plays=args.network_plays,
+                            log=lambda s: print(s, flush=True))
             for f in result["finalists"]:
                 print(f"  fresh: {f['score']:.1%} [{f['ci'][0]:.0%}-{f['ci'][1]:.0%}] "
                       f"({f['wins']}-{f['losses']}-{f['ties']}; search said {f['search_score']:.0%})  {f['describe']}",

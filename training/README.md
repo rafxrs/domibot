@@ -180,15 +180,15 @@ saw a deck holding them. Fresh runs of today's code didn't keep them either
 | without them | 2–9% | rarely, never after iteration 2000 |
 | with exploration (below) | 0% | never |
 
-**Exploration** (`ppo/explore.py`) steers one player's early buys toward
-one or two random kingdom cards in a share of the games (`--explore-frac`;
-those buys train nothing, and the GAE trace stops at them), and keeps every
-affordable kingdom card at a minimum buy probability (`--buy-floor`). It
-taught the policy to play a Throne Room it holds (51% of the time with a
-target in hand; 2.2: 20%). But a player handed three early Throne Rooms, on
-boards with Village and Smithy, won 1 of 60 games against the same policy.
-Throne Room only pays inside a coordinated engine, so steering in single
-cards teaches, correctly, that they're bad buys in this policy's decks.
+**Exploration** first steered one player's early buys toward one or two
+random kingdom cards, and kept every affordable kingdom card at a minimum
+buy probability (`--buy-floor`). It taught the policy to play a Throne Room
+it holds (51% of the time with a target in hand; 2.2: 20%). But a player
+handed three early Throne Rooms, on boards with Village and Smithy, won 1
+of 60 games against the same policy. Throne Room only pays inside a
+coordinated engine, so steering in single cards teaches, correctly, that
+they're bad buys in this policy's decks. Steering now uses whole plans (see
+"Steering whole plans").
 
 **The gauntlet** plays a checkpoint against scripted strategies built on
 cards 2.2 doesn't use, each on kingdoms holding those cards, with BigMoney
@@ -262,11 +262,22 @@ or two cards, and loses to 2.3. No Throne Room plan won anywhere. But the
 scripted player plays engines poorly, so this doesn't show that a
 well-played engine would lose too.
 
+### Steering whole plans
+
+In a share of the self-play games (`--explore-frac`), one player's buys
+follow a whole plan for its first 1–16 turns (`--explore-turn-limit`), and
+the policy makes every other decision. Half the time it's an engine
+(`plan_search.engine_plans`) when the board has a village and a draw card;
+otherwise Big Money with one or two copies of one kingdom card, or a
+Gardens rush. `--explore-plans` steers with plan search's winners instead,
+each on its own board. The plan's buys train no policy. The log's
+`steered_won` counts how often the steered player won.
+
+Running now: 2.3 resumed with the strategy-bot league plus steering in a
+quarter of the games (`--explore-frac 0.35`).
+
 ### Not yet done
 
-- **Steering whole strategies**: a player following a complete winning
-  plan on boards where one exists, so the learner plays those decks and the
-  value head sees them win.
 - **A better value estimate**, e.g. a critic that sees hidden information
   during training. Search needs one before it can help.
 
