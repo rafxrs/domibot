@@ -246,8 +246,21 @@ python -m training.plan_search checkpoints/domibot2/domibot2.3.pt --boards 20 --
     --generations 30 --population 40 --parents 10 --games 16 --final-games 300 --workers 7
 ```
 
-A board takes about 2 minutes. Running now: 20 boards with Throne Room and
-Village, and 20 random boards.
+A board takes about 2 minutes. Against 2.3 (`--seed 1` for the Throne Room
+boards, `--seed 2` for the random ones):
+
+| 20 boards | a plan beats 2.3 | best plan's score, median board |
+|---|---|---|
+| with Throne Room and Village | 1 | 39% |
+| random | 1 | 33% |
+
+Both winners are the same deck, on the two boards with Chapel, Village,
+Witch and Laboratory: one Chapel, two Witches, two Villages, two
+Laboratories, then money, with no Province before turn 12 (70.6% and 55.5%
+over 600 fresh games). Everywhere else the best plan is Big Money plus one
+or two cards, and loses to 2.3. No Throne Room plan won anywhere. But the
+scripted player plays engines poorly, so this doesn't show that a
+well-played engine would lose too.
 
 ### Not yet done
 
