@@ -6,7 +6,7 @@ or like Big Money; this shows the worst case against strategies it doesn't
 play itself, which is what a strong human would pick when the kingdom
 suits them.
 
-    python -m training.gauntlet checkpoints/domibot2/domibot2.2.pt --kingdoms 300 --workers 6
+    python -m training.gauntlet checkpoints/domibot2/domibot2.3.pt --kingdoms 300 --workers 6
 
 Each bot plays `--kingdoms` kingdoms (its home cards plus random others),
 each from both seats. For comparison, BigMoney+terminal plays the same

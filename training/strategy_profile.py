@@ -3,8 +3,8 @@ random kingdoms, reporting for each kingdom card how often it ends up in a
 deck when it's available, how often it's bought and how often it's played,
 plus what Throne Room is used on and how many Actions a turn plays.
 
-    python -m training.strategy_profile checkpoints/domibot2/domibot2.2.pt --games 600 --workers 6
-    python -m training.strategy_profile checkpoints/domibot2/domibot2.2.pt --force "Throne Room" Village
+    python -m training.strategy_profile checkpoints/domibot2/domibot2.3.pt --games 600 --workers 6
+    python -m training.strategy_profile checkpoints/domibot2/domibot2.3.pt --force "Throne Room" Village
 
 `--force` puts those cards in every kingdom. A card a policy never buys is
 one it never learns to play, so the list of cards it has stopped using is

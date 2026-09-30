@@ -3,7 +3,7 @@
 The RL side of domibot, kept separate from the `domibot` rules engine. Two
 approaches were built, in order. **Phase 1**, AlphaZero-style MCTS
 self-play, was abandoned after it never learned to chain Action cards.
-**Phase 2**, PPO, produced the current bot, `domibot2.2`. Both use the same
+**Phase 2**, PPO, produced the current bot, `domibot2.3`. Both use the same
 engine, encoding and network.
 
 ## What's here
@@ -75,14 +75,14 @@ python -m training.ppo.train --iterations 2400 --games-per-iter 50
 **Continuing a trained network.** A trained policy resumed at a high
 learning rate or with small batches first gets worse: its entropy climbs
 and its greedy play degrades until the learning rate decays again. Resume
-with large batches and a low learning rate, as 2.2 was trained:
+with large batches and a low learning rate, as 2.2 and 2.3 were trained:
 
 ```bash
 python -m training.ppo.train \
-    --checkpoint checkpoints/domibot2/domibot2.2.pt --start-iteration 14001 --run-name my_run \
+    --checkpoint checkpoints/domibot2/domibot2.3.pt --start-iteration 16001 --run-name my_run \
     --iterations 2000 --games-per-iter 256 --minibatch-size 1024 \
     --lr 5e-5 --lr-final-frac 0.1 --target-kl 0.02 \
-    --eval-every 25 --eval-games 200 --eval-rival-checkpoint checkpoints/domibot2/domibot2.2.pt \
+    --eval-every 25 --eval-games 200 --eval-rival-checkpoint checkpoints/domibot2/domibot2.3.pt \
     > logs/domibot2/my_run.log 2>&1 &
 ```
 
@@ -95,7 +95,7 @@ including the gauntlet's bots), exploration (`--explore-*`,
 `domibot_v4.4`. `python -m training.ppo.plot_eval <logs>` plots eval win
 rate against iteration (needs `pip install -e ".[plot]"`).
 
-### How domibot2.2 was trained
+### How domibot2.3 was trained
 
 ![Training curve](../docs/training_curve.png)
 
@@ -106,23 +106,24 @@ rate against iteration (needs `pip install -e ".[plot]"`).
 | 4401–8000 | 30% of games against recent snapshots of itself | `iter_8000` is **`domibot2.1`** |
 | 8001–12000 | win-weighted reward, public extras, single-move masking, learning rate 2e-4 | level with 2.1 (52.1%) |
 | 12001–14000 | 4× the games per update (256), a quarter of the learning rate (5e-5) | **`domibot2.2`**, 58.3% vs 2.1 |
+| 14001–16000 | a quarter of the games against the gauntlet's strategy bots (below) | **`domibot2.3`**, level with 2.2, beats the rush that exploited it |
 
-`domibot2.2` against its benchmarks (raw policy, paired random kingdoms,
-each kingdom played from both seats):
+The two releases against their benchmarks (raw policy, paired random
+kingdoms, each kingdom played from both seats):
 
-| opponent | games | 2.2's score |
-|---|---|---|
-| `domibot2.1` | 2000 | 58.3% (1130–797–73) |
-| BigMoney + terminal | 2000 | 76.8% |
-| BigMoney | 400 | 92.6% (367–26–7) |
-| `domibot_v4.4`, 100-simulation MCTS | 200 | 84.8% (169–30–1) |
+| opponent | games | `domibot2.3` | `domibot2.2` |
+|---|---|---|---|
+| the previous release | 2000 | 50.7% vs 2.2 (965–938–97) | 58.3% vs 2.1 (1130–797–73) |
+| BigMoney + terminal | 2000 | 79.2% | 76.8% |
+| BigMoney | 400 | 95.4% (380–17–3) | 92.6% (367–26–7) |
+| `domibot_v4.4`, 100-simulation MCTS | 200 | 88.0% (175–23–2) | 84.8% (169–30–1) |
 
 `domibot_v4.4`'s search sees the true game state, including its opponent's
 hand and every deck's order.
 
-### What hasn't helped since
+### What didn't beat 2.2
 
-Every attempt to improve on 2.2 has landed level with it (head-to-head,
+These attempts to improve on 2.2 all landed level with it (head-to-head,
 2000 games):
 
 | attempt | vs 2.2 |
@@ -149,7 +150,7 @@ Two lessons carry over:
 puts in its deck, buys and plays in self-play:
 
 ```bash
-python -m training.strategy_profile checkpoints/domibot2/domibot2.2.pt --games 600 --workers 6
+python -m training.strategy_profile checkpoints/domibot2/domibot2.3.pt --games 600 --workers 6
 ```
 
 2.2 has stopped using nine of the 26 kingdom cards. Throne Room, Chapel,
@@ -193,7 +194,7 @@ cards 2.2 doesn't use, each on kingdoms holding those cards, with BigMoney
 + terminal on the same kingdoms for comparison:
 
 ```bash
-python -m training.gauntlet checkpoints/domibot2/domibot2.2.pt --kingdoms 400 --workers 6
+python -m training.gauntlet checkpoints/domibot2/domibot2.3.pt --kingdoms 400 --workers 6
 ```
 
 | bot | its cards | bot vs BigMoney + terminal | 2.2 vs bot | 2.2 vs BigMoney + terminal, same kingdoms |
@@ -206,33 +207,31 @@ A Workshop/Gardens rush of about twenty lines takes 34% of its games off
 2.2, twice what BigMoney + terminal manages on the same kingdoms. The Throne
 Room engine loses to BigMoney + terminal too, so it doesn't test much yet.
 
-### Training against the strategy bots closes the Workshop/Gardens gap
+### Training against the strategy bots: `domibot2.3`
 
 `strategy_league` resumed 2.2 with its recipe and played a quarter of each
 iteration's games against the gauntlet's bots and BigMoney + terminal,
-each bot on kingdoms holding its cards (the 2.2 command above plus
-`--league-frac 0.25 --league-scripted workshop_gardens chapel_witch
-throne_room_engine bigmoney_terminal`). Its final checkpoint, with the
-gauntlet on kingdoms other than the ones in the table above (`--seed 1`):
+each bot on kingdoms holding its cards (the 2.2 command, from
+`domibot2.2.pt` at iteration 14001, plus `--league-frac 0.25
+--league-scripted workshop_gardens chapel_witch throne_room_engine
+bigmoney_terminal`). Its final checkpoint is `domibot2.3`. On the gauntlet,
+with kingdoms other than the ones in the table above (`--seed 1`):
 
-| | `strategy_league` | 2.2 |
+| bot | `domibot2.3` | `domibot2.2` |
 |---|---|---|
-| vs 2.2, 2000 games | 50.7% (95% CI 48.5–52.9%) | — |
-| vs BigMoney + terminal, 2000 games | 79.2% | 76.8% |
-| vs BigMoney, 400 games | 95.4% | 92.6% |
-| vs `domibot_v4.4`, 200 games | 88.0% | 84.8% |
-| vs Workshop/Gardens, 800 games | 87.3% | 63.6% |
-| vs Chapel/Witch, 800 games | 75.9% | 74.1% |
-| vs the Throne Room engine, 800 games | 93.6% | 89.9% |
+| Workshop/Gardens | 87.3% | 63.6% |
+| Chapel/Witch | 75.9% | 74.1% |
+| Throne Room engine | 93.6% | 89.9% |
 
-It learned to beat the rush and gave up nothing head-to-head. Its card use
-barely changed: it still skips the same nine cards.
+It learned to beat the rush, gave up nothing head-to-head (50.7% vs 2.2)
+and gained a few points against every baseline. Its card use barely
+changed: it still skips the same nine cards.
 
 ### Not yet done
 
-- **Steering whole strategies**: a player following a complete engine plan
-  on engine-friendly boards while the network plays the cards, to find out
-  whether engines beat 2.2 there.
+- **Steering whole strategies**: a player following a complete winning
+  plan on boards where one exists, so the learner plays those decks and the
+  value head sees them win.
 - **A better value estimate**, e.g. a critic that sees hidden information
   during training. Search needs one before it can help.
 
@@ -246,7 +245,7 @@ opponent it has the discard pile and the hand and deck sizes, and fills in
 the rest at random.
 
 ```bash
-python examples/domibot_relay.py --checkpoint checkpoints/domibot2/domibot2.2.pt --simulations 400
+python examples/domibot_relay.py --checkpoint checkpoints/domibot2/domibot2.3.pt --simulations 400
 ```
 
 Besides phase decisions, it covers the choices a log can leave pending:

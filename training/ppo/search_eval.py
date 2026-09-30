@@ -2,7 +2,7 @@
 network with MCTS against the same network's raw policy (or a scripted
 baseline), on paired random kingdoms.
 
-    python -m training.ppo.search_eval --checkpoint checkpoints/domibot2/domibot2.2.pt \\
+    python -m training.ppo.search_eval --checkpoint checkpoints/domibot2/domibot2.3.pt \\
         --simulations 400 --games 100 --seed 1
 
 By default the search is fair (`agents.DeterminizedSearchAgent`): it only
