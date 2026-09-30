@@ -276,8 +276,21 @@ The plan's buys train no policy. The log's `steered_won` counts how often
 an engine beat a non-engine plan (45% for 2.3). `--explore-plans` steers one
 player with plan search's winners instead, each on its own board.
 
-Running now: 2.3 resumed with the strategy-bot league plus steering in a
-quarter of the games (`--explore-frac 0.35`).
+`plan_steer` resumed 2.3 with its recipe, the strategy-bot league, and
+steering in a quarter of the games (`--explore-frac 0.35`), for 2000
+iterations:
+
+| | `plan_steer_iter_18000` | `domibot2.3` |
+|---|---|---|
+| an engine beats a non-engine plan, both steered | 58% | 45% |
+| engine plans with its own play vs its own buying | 12.2% | 7.1% |
+| head to head (2000 games) | 49.2% | |
+| BigMoney + terminal (2000 games) | 78.8% | 79.2% |
+
+It plays engines better, and it's level with 2.3, but its own buying hasn't
+changed: Throne Room, Village and Chapel are still in 5% or fewer of its
+decks. Running now: plan search with `--network-plays` against it, on the
+same 40 boards, to find where plans with its own play beat its buying.
 
 ### Not yet done
 
