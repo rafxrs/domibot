@@ -7,7 +7,7 @@ from domibot.models import END_ACTIONS, END_BUY
 from training import encoding
 from training.network import DomibotNet
 from training.plan_search import MONEY, Plan, menu_options
-from training.ppo.explore import ExploreConfig, SteeredPlayer, buy_floor_loss, make_plan, steer
+from training.ppo.explore import ExploreConfig, SteeredPlayer, buy_floor_loss, focus_seat, make_steered, steer
 from training.ppo.rollout import collect_rollouts
 from training.ppo.train import ppo_update
 
@@ -24,10 +24,10 @@ def _buy_phase(coins: int) -> Game:
 
 def test_steer_buys_by_the_plan_for_the_steered_player_during_its_first_turns_only():
     card = next(c for c in KINGDOM if 3 <= Game(KINGDOM).cards[c].cost <= 5)
-    steered = SteeredPlayer(seat=0, turns=3, plan=Plan(((card, 2),) + MONEY))
+    steered = [SteeredPlayer(seat=0, turns=3, plan=Plan(((card, 2),) + MONEY))]
     assert steer(_buy_phase(5), steered) == Action("BUY", card)
     assert steer(_buy_phase(0), steered) == END_BUY  # nothing on the plan it can afford
-    assert steer(_buy_phase(5), SteeredPlayer(seat=1, turns=3, plan=steered.plan)) is None  # not its turn
+    assert steer(_buy_phase(5), [SteeredPlayer(seat=1, turns=3, plan=steered[0].plan)]) is None  # not its turn
     game = _buy_phase(5)
     game.players[0].turns_taken = 3
     assert steer(game, steered) is None  # past its steered turns
@@ -35,31 +35,44 @@ def test_steer_buys_by_the_plan_for_the_steered_player_during_its_first_turns_on
     assert game.phase == Phase.ACTION and steer(game, steered) is None  # only buys are steered
 
 
-def test_plans_come_from_the_board_or_from_the_searched_plans():
+def test_every_player_gets_a_plan_for_the_board_or_one_gets_a_searched_plan():
     rng = random.Random(1)
+    board = ["Village", "Smithy"] + [c for c in KINGDOM_CARDS if c not in ("Village", "Smithy")][:8]
     config = ExploreConfig(frac=0.5)
-    steered = [s for s in (make_plan(KINGDOM, 2, config, rng) for _ in range(200)) if s is not None]
-    assert 60 < len(steered) < 140
-    options = set(menu_options(KINGDOM))
-    for s in steered:
-        assert s.seat in (0, 1) and 1 <= s.turns <= config.turn_limit and s.board is None
-        assert s.plan.menu != MONEY and all(card in options for card, _n in s.plan.menu)
+    games = [g for g in (make_steered(board, 2, config, rng) for _ in range(200)) if g]
+    assert 60 < len(games) < 140
+    options = set(menu_options(board))
+    for steered in games:
+        assert [s.seat for s in steered] == [0, 1]
+        for s in steered:
+            assert 1 <= s.turns <= config.turn_limit and s.board is None
+            assert s.plan.menu != MONEY and all(card in options for card, _n in s.plan.menu)
+    assert 0.3 < sum(s.engine for g in games for s in g) / (2 * len(games)) < 0.7
     searched = Plan(((BOARD[0], 2),) + MONEY)
-    s = make_plan(KINGDOM, 2, ExploreConfig(frac=1.0, plans=((BOARD, searched),)), rng)
-    assert s.plan == searched and s.board == BOARD
+    [s] = make_steered(KINGDOM, 2, ExploreConfig(frac=1.0, plans=((BOARD, searched),)), rng)
+    assert s.plan == searched and s.board == BOARD and focus_seat([s]) == s.seat
+
+
+def test_results_are_logged_for_the_only_engine_player():
+    plan = Plan(MONEY)
+    assert focus_seat([SteeredPlayer(0, 3, plan, engine=True), SteeredPlayer(1, 3, plan)]) == 0
+    assert focus_seat([SteeredPlayer(0, 3, plan, engine=True), SteeredPlayer(1, 3, plan, engine=True)]) is None
+    assert focus_seat([SteeredPlayer(0, 3, plan), SteeredPlayer(1, 3, plan)]) is None
 
 
 def test_rollouts_steer_buys_on_the_searched_plans_board():
     torch.manual_seed(0)
     net = DomibotNet(hidden_dim=32, num_blocks=1, extra_dim=encoding.EXTRA_DIM, zones_dim=encoding.ZONES_DIM)
     config = ExploreConfig(frac=1.0, plans=((BOARD, Plan(((BOARD[0], 2),) + MONEY)),))
-    games = collect_rollouts(net, 4, seed=0, max_moves=400, explore=config)
+    stats = {}
+    games = collect_rollouts(net, 4, seed=0, max_moves=400, explore=config, stats=stats)
     steered = [t for g in games for t in g if t.explore]
     assert steered
     for t in steered:
         assert encoding.index_to_action(t.action).verb in ("BUY", "END_BUY") and t.mask[t.action]
     off_board = [encoding.action_to_index(Action("BUY", c)) for c in KINGDOM_CARDS if c not in BOARD]
     assert not any(t.mask[off_board].any() for g in games for t in g)
+    assert stats["games"] <= 4 and 0 <= stats["won"] <= stats["games"]
     assert not any(t.explore for g in collect_rollouts(net, 2, seed=0, max_moves=400) for t in g)
 
 

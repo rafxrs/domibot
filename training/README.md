@@ -264,14 +264,17 @@ well-played engine would lose too.
 
 ### Steering whole plans
 
-In a share of the self-play games (`--explore-frac`), one player's buys
+In a share of the self-play games (`--explore-frac`), every player's buys
 follow a whole plan for its first 1–16 turns (`--explore-turn-limit`), and
 the policy makes every other decision. Half the time it's an engine
 (`plan_search.engine_plans`) when the board has a village and a draw card;
 otherwise Big Money with one or two copies of one kingdom card, or a
-Gardens rush. `--explore-plans` steers with plan search's winners instead,
-each on its own board. The plan's buys train no policy. The log's
-`steered_won` counts how often the steered player won.
+Gardens rush. Both players are steered because a scripted engine wins only
+about 11% against 2.3's own buying, which says little about how well it was
+played. Against another steered deck, how it's played decides the game.
+The plan's buys train no policy. The log's `steered_won` counts how often
+an engine beat a non-engine plan (45% for 2.3). `--explore-plans` steers one
+player with plan search's winners instead, each on its own board.
 
 Running now: 2.3 resumed with the strategy-bot league plus steering in a
 quarter of the games (`--explore-frac 0.35`).

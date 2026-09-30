@@ -19,7 +19,7 @@ from .. import encoding
 from ..env import DominionEnv
 from ..mcts import terminal_value
 from ..self_play import DEFAULT_MAX_MOVES, _sample_kingdom
-from .explore import ExploreConfig, SteeredPlayer, make_plan, steer
+from .explore import ExploreConfig, SteeredPlayer, focus_seat, make_steered, steer
 from .gae import Transition, compute_gae
 
 
@@ -37,6 +37,7 @@ def collect_rollouts(
     lam: float = 0.95,
     full_obs: bool | None = None,
     explore: ExploreConfig | None = None,
+    stats: dict | None = None,
 ) -> list[list[Transition]]:
     """Plays `num_games` independent self-play games to completion (or
     `max_moves`), and returns one list of `Transition`s per game with
@@ -57,9 +58,11 @@ def collect_rollouts(
     sets it so recorded observations suit the student even when the
     teacher is the one playing.
 
-    `explore` steers one player's early buys in a share of the games with
-    a whole buy plan (see ppo/explore.py), on the plan's own board if it
-    has one; those buys are recorded with `explore=True`."""
+    `explore` steers players' early buys in a share of the games with whole
+    buy plans (see ppo/explore.py), on the plan's own board if it has one;
+    those buys are recorded with `explore=True`. `stats`, if given, gets
+    how often the steered player of interest won (`explore.focus_seat`):
+    "won" out of "games"."""
     if device is None:
         device = next(network.parameters()).device
     if full_obs is None:
@@ -69,21 +72,21 @@ def collect_rollouts(
     envs: list[DominionEnv] = []
     obs_list: list[np.ndarray] = []
     mask_list: list[np.ndarray] = []
-    plans: list[SteeredPlayer | None] = []
+    plans: list[list[SteeredPlayer]] = []
     explore_rng = random.Random(master_rng.randrange(2**31))
     for _ in range(num_games):
         g_seed = master_rng.randrange(2**31)
         game_kingdom = kingdom if kingdom is not None else \
             _sample_kingdom(random.Random(g_seed), min_sub_decision_cards)
-        plan = make_plan(game_kingdom, num_players, explore, explore_rng) if explore else None
-        if plan is not None and plan.board:
-            game_kingdom = plan.board
+        steered = make_steered(game_kingdom, num_players, explore, explore_rng) if explore else []
+        if steered and steered[0].board:
+            game_kingdom = steered[0].board
         env = DominionEnv(num_players=num_players, max_steps=max_moves, reward_fn=reward_fn, full_obs=full_obs)
         obs, _info = env.reset(kingdom=game_kingdom, seed=g_seed)
         envs.append(env)
         obs_list.append(obs["observation"])
         mask_list.append(obs["action_mask"])
-        plans.append(plan)
+        plans.append(steered)
 
     transitions_per_game: list[list[Transition]] = [[] for _ in range(num_games)]
     game_over = [False] * num_games
@@ -97,6 +100,10 @@ def collect_rollouts(
     for i in range(num_games):
         compute_gae(transitions_per_game[i], envs[i].game, game_over[i],
                     gamma=gamma, lam=lam, reward_fn=reward_fn)
+        seat = focus_seat(plans[i]) if stats is not None else None
+        if seat is not None and game_over[i]:
+            stats["games"] = stats.get("games", 0) + 1
+            stats["won"] = stats.get("won", 0) + (envs[i].game.winners() == [seat])
     return transitions_per_game
 
 
@@ -111,14 +118,14 @@ def _step_group(
     game_over: list[bool],
     device: torch.device,
     record: bool,
-    plans: list[SteeredPlayer | None] | None = None,
+    plans: list[list[SteeredPlayer]] | None = None,
 ) -> None:
     """Runs one batched forward pass of `network` over `idxs`' current
     observations, samples a masked action for each, and steps that game's
     env -- recording a `Transition` only if `record` (False for a frozen
     cross-play opponent's decisions, which advance the game but must never
     become a training example, per `collect_cross_play_rollouts`). With
-    `plans`, a steered player's buys are its plan's (`explore.steer`),
+    `plans`, steered players' buys are their plans' (`explore.steer`),
     recorded as `explore` transitions."""
     if not idxs:
         return

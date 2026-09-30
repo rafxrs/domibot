@@ -189,13 +189,13 @@ def main() -> None:
                          help="skip an update's remaining epochs once an epoch's mean approximate KL from "
                               "the rollout policy exceeds 1.5x this (off by default)")
     parser.add_argument("--explore-frac", type=float, default=0.0,
-                         help="share of self-play games in which one player's early buys follow a whole buy plan "
-                              "(ppo/explore.py); 0 (default) disables it")
+                         help="share of self-play games in which every player's early buys follow a whole buy "
+                              "plan for the board (ppo/explore.py); 0 (default) disables it")
     parser.add_argument("--explore-turn-limit", type=int, default=16,
                          help="a steered player's buys follow its plan for its first K turns, K drawn from 1 to this")
     parser.add_argument("--explore-plans", type=str, nargs="*", default=[],
-                         help="steer with the plans in these plan_search.py --out files instead, each on its own "
-                              "board")
+                         help="steer one player with the plans in these plan_search.py --out files instead, each "
+                              "on its own board, against the policy's own buying")
     parser.add_argument("--explore-plans-min-score", type=float, default=0.5,
                          help="only boards whose best plan scored at least this on fresh games")
     parser.add_argument("--buy-floor", type=float, default=0.0,
@@ -379,12 +379,13 @@ def main() -> None:
 
         league_games = round(args.games_per_iter * args.league_frac) if league is not None else 0
         games = []
+        steer_stats: dict[str, int] = {}
         remaining = args.games_per_iter - pool_games - league_games
         if remaining > 0:
             games += collect_rollouts(
                 network, remaining, max_moves=max_moves, device=device,
                 seed=rng.randrange(2**31), min_sub_decision_cards=args.min_sub_decision_cards,
-                reward_fn=reward_fn, gamma=args.gamma, lam=args.gae_lambda, explore=explore,
+                reward_fn=reward_fn, gamma=args.gamma, lam=args.gae_lambda, explore=explore, stats=steer_stats,
             )
         if pool_games > 0:
             games += collect_cross_play_rollouts(
@@ -430,10 +431,7 @@ def main() -> None:
                f"entropy={st['entropy']:.4f}  kl={st['approx_kl']:.4f}  clipfrac={st['clipfrac']:.3f}  "
                f"updates={st['updates']}")
         if explore is not None:
-            steered = [(game, next(t.decider for t in game if t.explore)) for game in games
-                       if any(t.explore for t in game)]
-            won = sum([t for t in game if t.decider == seat][-1].reward > 0 for game, seat in steered)
-            msg += f"  steered_won={won}/{len(steered)}"
+            msg += f"  steered_won={steer_stats.get('won', 0)}/{steer_stats.get('games', 0)}"
         if args.buy_floor > 0:
             msg += f"  buy_floor={st['buy_floor']:.4f}"
         if pool_games > 0:
