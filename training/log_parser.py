@@ -96,6 +96,7 @@ class ParsedLog:
     my_coins: int | None = None
     my_merchant_bonus: int | None = None
     my_silver_played: bool | None = None
+    my_bought: bool | None = None
     opp_discard: list[str] | None = None
     opp_play_area: list[str] | None = None
     opp_hand_size: int | None = None
@@ -177,6 +178,7 @@ class _MyState:
     phase: str = "ACTION"
     merchant_bonus: int = 0
     silver_played: bool = False
+    bought: bool = False  # treasures still in hand can't be played after a buy
 
 
 @dataclass
@@ -243,7 +245,7 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
             me.discard.extend(me.hand + me.play_area)
             me.hand, me.play_area = [], []
             me.actions, me.buys, me.coins, me.phase = 1, 1, 0, "ACTION"
-            me.merchant_bonus, me.silver_played = 0, False
+            me.merchant_bonus, me.silver_played, me.bought = 0, False, False
         else:
             opp.discard.extend(opp.play_area)
             opp.play_area = []
@@ -309,7 +311,7 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
             for p in players:
                 last_played[p], pending_reveal[p], pending_anon[p], vassal[p] = None, [], 0, None
             my_pending_picks, my_open_play_index = 0, None
-            me.merchant_bonus, me.silver_played = 0, False
+            me.merchant_bonus, me.silver_played, me.bought = 0, False, False
             if current_turn_player == opp_full_name:
                 opp_turn_start_discard = settle_opp_discard()
             continue
@@ -442,6 +444,8 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
                     opp_owned[card] += 1
                 if mine and is_buy:
                     me.buys -= 1
+                    me.coins -= ALL_CARDS[card].cost
+                    me.phase, me.bought = "BUY", True
                 if to_hand:
                     if mine:
                         me.hand.append(card)
@@ -777,7 +781,8 @@ def parse_dominion_log(text: str, my_name: str, kingdom: list[str], num_players:
     result.my_hand, result.my_discard, result.my_play_area, result.my_phase = me.hand, me.discard, me.play_area, \
         me.phase
     result.my_actions, result.my_buys, result.my_coins = me.actions, me.buys, me.coins
-    result.my_merchant_bonus, result.my_silver_played = me.merchant_bonus, me.silver_played
+    result.my_merchant_bonus, result.my_silver_played, result.my_bought = me.merchant_bonus, me.silver_played, \
+        me.bought
     result.opp_discard, result.opp_play_area, result.opp_hand_size = opp.discard, opp.play_area, opp.hand_size
     result.opp_draw_pile_size = opp_draw_pile_size
     result.my_deck_top = replay.my_deck_top

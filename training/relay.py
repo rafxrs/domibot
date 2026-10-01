@@ -73,6 +73,7 @@ class TableState:
     opp_known_hand: list[str] = field(default_factory=list)  # e.g. a Moat they reacted with
     my_merchant_bonus: int = 0  # Merchants played this turn
     my_silver_played: bool = False
+    my_bought: bool = False  # bought this turn: treasures left in hand stay unplayed
 
 
 def table_state(parsed, kingdom: list[str], supply: dict[str, int] | None = None) -> TableState:
@@ -94,7 +95,7 @@ def table_state(parsed, kingdom: list[str], supply: dict[str, int] | None = None
         opp_hand_size=get(parsed.opp_hand_size, 5), opp_draw_pile_size=get(parsed.opp_draw_pile_size, 5),
         my_deck_top=get(parsed.my_deck_top, []), opp_deck_top=get(parsed.opp_deck_top, []),
         opp_known_hand=get(parsed.opp_known_hand, []), my_merchant_bonus=get(parsed.my_merchant_bonus, 0),
-        my_silver_played=get(parsed.my_silver_played, False))
+        my_silver_played=get(parsed.my_silver_played, False), my_bought=get(parsed.my_bought, False))
 
 
 def _over_accounted(known: Counter, total: Counter) -> Counter:
@@ -124,7 +125,8 @@ def _with_known_top(deck: list[str], top: list[str | None]) -> list[str] | None:
 def reconstruct_game(state: TableState, seed: int | None = None) -> Game:
     """A `Game` at your current phase decision, consistent with `state`. Raises
     `ValueError` naming any count that doesn't add up (usually a typo). In the Buy
-    phase, Treasures still in hand are played first, as the engine does."""
+    phase, Treasures still in hand are played first, as the engine does, unless you
+    already bought."""
     game = Game(state.kingdom, num_players=2, seed=seed)
     rng = random.Random(seed)
     total = Counter(game.supply)  # every copy in the game, from a fresh setup
@@ -197,7 +199,7 @@ def reconstruct_game(state: TableState, seed: int | None = None) -> Game:
     game.turn_silver_played = state.my_silver_played
     game.pending_decision = game.pending_gen = None
     game.action_log = []
-    if game.phase == Phase.BUY:
+    if game.phase == Phase.BUY and not state.my_bought:
         for name in list(me.hand):
             if CardType.TREASURE in game.cards[name].types:
                 game.play_treasure(0, name)

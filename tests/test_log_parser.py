@@ -6,7 +6,7 @@ import pytest
 from domibot import Action
 from domibot.models import END_ACTIONS
 from training.log_parser import parse_dominion_log
-from training.relay import resolve_card_name
+from training.relay import reconstruct_game, resolve_card_name, table_state
 
 FIXTURES = Path(__file__).parent / "fixtures" / "dominion_logs"
 
@@ -144,7 +144,28 @@ def test_my_hand_not_derived_from_a_generic_draw():
     assert parsed.my_hand is None
 
 
+def _first_buy_of_two(plays: str = "d plays a Silver, 2 Coppers, and 2 Golds. (+$10)", buy: str = "Province"):
+    """The Witch mirror up to the first of two buys in one turn, with that turn's treasures and buy swapped in."""
+    lines = WITCH_MIRROR_LOG.splitlines()
+    i = lines.index("d plays a Silver, 2 Coppers, and 2 Golds. (+$10)")
+    log = "\n".join(lines[:i] + [plays, f"d buys and gains a {buy}."])
+    return parse_dominion_log(log, my_name="domibot_v1.4", kingdom=WITCH_MIRROR_KINGDOM)
 
+
+def test_a_buy_spends_its_cost():
+    parsed = _first_buy_of_two()
+    assert (parsed.my_phase, parsed.my_buys, parsed.my_coins) == ("BUY", 1, 2)
+    game = reconstruct_game(table_state(parsed, WITCH_MIRROR_KINGDOM), seed=0)
+    assert Action("BUY", "Estate") in game.legal_actions()
+    assert all(game.cards[a.card].cost <= 2 for a in game.legal_actions() if a.verb == "BUY")
+
+
+def test_treasures_left_in_hand_after_a_buy_stay_unplayed():
+    parsed = _first_buy_of_two("d plays 2 Golds. (+$6)", "Gold")
+    assert parsed.my_coins == 0 and parsed.my_bought
+    game = reconstruct_game(table_state(parsed, WITCH_MIRROR_KINGDOM), seed=0)
+    assert game.players[0].coins == 0 and game.players[0].hand.count("Copper") == 2
+    assert all(game.cards[a.card].cost == 0 for a in game.legal_actions() if a.verb == "BUY")
 
 
 def test_witch_mirror_full_game_derives_final_hand():

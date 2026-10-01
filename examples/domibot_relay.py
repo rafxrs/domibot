@@ -20,6 +20,7 @@ the network's own move (see training/README.md).
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import re
 import sys
 from pathlib import Path
@@ -147,7 +148,7 @@ def prompt_supply(kingdom: list[str], previous: dict[str, int] | None = None) ->
 
 
 def prompt_table_state(kingdom: list[str], supply: dict[str, int], d: TableState) -> TableState:
-    """Every field, each defaulting to `d`'s value."""
+    """Every on-screen field, each defaulting to `d`'s value; the rest is kept from `d`."""
     print("\n--- your side ---")
     my_hand = prompt_cards("Your hand", d.my_hand)
     my_discard = prompt_cards("Your discard pile", d.my_discard)
@@ -165,13 +166,11 @@ def prompt_table_state(kingdom: list[str], supply: dict[str, int], d: TableState
     opp_draw_pile_size = prompt_int("Opponent's draw pile size", d.opp_draw_pile_size)
     print("\n--- shared ---")
     trash = prompt_cards("Trash pile", d.trash)
-    return TableState(
-        kingdom=kingdom, supply=supply, trash=trash, my_hand=my_hand, my_discard=my_discard,
+    return dataclasses.replace(
+        d, kingdom=kingdom, supply=supply, trash=trash, my_hand=my_hand, my_discard=my_discard,
         my_play_area=my_play_area, my_total=my_total, my_actions=my_actions, my_buys=my_buys, my_coins=my_coins,
         my_phase=my_phase, my_turns_taken=my_turns_taken, opp_discard=opp_discard, opp_play_area=opp_play_area,
-        opp_hand_size=opp_hand_size, opp_draw_pile_size=opp_draw_pile_size, my_deck_top=d.my_deck_top,
-        opp_deck_top=d.opp_deck_top, opp_known_hand=d.opp_known_hand, my_merchant_bonus=d.my_merchant_bonus,
-        my_silver_played=d.my_silver_played)
+        opp_hand_size=opp_hand_size, opp_draw_pile_size=opp_draw_pile_size)
 
 
 def print_recommendation(root) -> None:
