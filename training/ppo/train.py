@@ -31,7 +31,7 @@ from ..evaluate import play_match
 from ..network import HIDDEN_DIM, NUM_RESIDUAL_BLOCKS, DomibotNet, get_device
 from ..plan_search import load_plans
 from ..self_play import DEFAULT_MAX_MOVES
-from .explore import ExploreConfig, buy_floor_loss
+from .explore import ExploreConfig
 from .gae import Transition, win_weighted_value
 from .league import SCRIPTED_OPPONENTS, collect_league_rollouts, load_league
 from .rollout import collect_cross_play_rollouts, collect_rollouts
@@ -75,8 +75,7 @@ def ppo_update(
     entropy_coef: float = 0.01,
     grad_clip: float = 0.5,
     target_kl: float | None = None,
-    buy_floor: float = 0.0,
-    buy_floor_coef: float = 1.0,
+    imitate: float = 0.0,
 ) -> dict[str, float]:
     """One PPO update: `epochs` passes of minibatch clipped-surrogate
     updates over `transitions` (already carrying `.advantage`/`.return_`
@@ -90,8 +89,12 @@ def ppo_update(
     policy exceeds 1.5x it (checked per epoch, not per minibatch: a
     256-sample minibatch's KL estimate is noisy enough to trip it on noise
     alone). Buys made by a steering plan (`Transition.explore`) weren't the
-    policy's choice and train only the value head. `buy_floor` > 0 adds
-    `buy_floor_coef` x `explore.buy_floor_loss`. Returns means over the
+    policy's choice, so PPO's loss leaves them out. With `imitate` > 0 they
+    are imitated instead wherever they did better than the value head
+    expected: self-imitation learning (Oh et al. 2018), `imitate` x mean
+    over them of -log pi(buy) x max(0, return - value). On-policy PPO can't
+    learn a buy its policy never samples; this learns it from the steering
+    plan, but only where the plan's buy paid off. Returns means over the
     minibatches actually run."""
     obs = torch.from_numpy(np.stack([t.obs for t in transitions])).to(device)
     mask = torch.from_numpy(np.stack([t.mask for t in transitions])).to(device)
@@ -107,7 +110,7 @@ def ppo_update(
 
     n = len(transitions)
     stats: dict[str, list[float]] = {k: [] for k in ("policy_loss", "value_loss", "entropy", "approx_kl", "clipfrac",
-                                                      "buy_floor")}
+                                                      "imitation")}
     for _ in range(epochs):
         epoch_kls: list[float] = []
         perm = np.random.permutation(n)
@@ -132,9 +135,12 @@ def ppo_update(
             entropy = (dist.entropy() * w).sum() / n_free
             value_loss = ((values - returns[mb]) ** 2).mean()
             loss = policy_loss + value_loss_weight * value_loss - entropy_coef * entropy
-            floor_loss = buy_floor_loss(masked_logits, mask[mb], buy_floor) if buy_floor > 0 else None
-            if floor_loss is not None:
-                loss = loss + buy_floor_coef * floor_loss
+            imitation = None
+            steered = (~on_policy[mb]).float()
+            if imitate > 0 and steered.sum() > 0:
+                gain = (returns[mb] - values.detach()).clamp(min=0) * steered
+                imitation = -(dist.log_prob(actions[mb]) * gain).sum() / steered.sum()
+                loss = loss + imitate * imitation
 
             optimizer.zero_grad()
             loss.backward()
@@ -143,7 +149,7 @@ def ppo_update(
             optimizer.step()
 
             for k, v in (("policy_loss", policy_loss), ("value_loss", value_loss), ("entropy", entropy),
-                         ("buy_floor", floor_loss)):
+                         ("imitation", imitation)):
                 if v is not None:
                     stats[k].append(float(v.item()))
             stats["approx_kl"].append(approx_kl)
@@ -198,10 +204,10 @@ def main() -> None:
                               "on its own board, against the policy's own buying")
     parser.add_argument("--explore-plans-min-score", type=float, default=0.5,
                          help="only boards whose best plan scored at least this on fresh games")
-    parser.add_argument("--buy-floor", type=float, default=0.0,
-                         help="penalize the policy for giving any affordable kingdom card less than this "
-                              "probability (explore.buy_floor_loss), e.g. 0.01; 0 (default) disables it")
-    parser.add_argument("--buy-floor-coef", type=float, default=1.0, help="weight of the --buy-floor penalty")
+    parser.add_argument("--imitate-steered", type=float, default=0.0,
+                         help="weight of imitating a steering plan's buys where they did better than the value "
+                              "head expected (self-imitation; see ppo_update), meant for --explore-plans; 0 "
+                              "(default) disables it")
     parser.add_argument("--reward-win-weight", type=float, default=0.8,
                          help="terminal reward = this * (+1 win / -1 loss / 0 tie) + the rest as the tanh "
                               "margin (gae.win_weighted_value); 0 reproduces the margin-only reward "
@@ -306,8 +312,8 @@ def main() -> None:
         explore = ExploreConfig(frac=args.explore_frac, turn_limit=args.explore_turn_limit, plans=plans)
         print(f"steering: {explore.frac:.0%} of self-play games, buys for 1-{explore.turn_limit} turns, "
               + (f"{len(plans)} searched plans" if plans else "plans for each game's board"))
-    if args.buy_floor > 0:
-        print(f"buy floor: {args.buy_floor} (coef {args.buy_floor_coef})")
+    if args.imitate_steered > 0:
+        print(f"imitating steered buys that paid off, weight {args.imitate_steered}")
     if args.zone_features and not args.public_features:
         raise SystemExit("--zone-features needs --public-features (use --no-zone-features without them)")
     if args.league_frac > 0 and args.opponent_pool_frac > 0:
@@ -418,7 +424,7 @@ def main() -> None:
             network, optimizer, transitions, device,
             clip_eps=args.clip_eps, epochs=args.epochs_per_update, minibatch_size=args.minibatch_size,
             value_loss_weight=args.value_loss_weight, entropy_coef=args.entropy_coef, grad_clip=args.grad_clip,
-            target_kl=args.target_kl, buy_floor=args.buy_floor, buy_floor_coef=args.buy_floor_coef,
+            target_kl=args.target_kl, imitate=args.imitate_steered,
         )
         if scheduler is not None:
             scheduler.step()
@@ -432,8 +438,8 @@ def main() -> None:
                f"updates={st['updates']}")
         if explore is not None:
             msg += f"  steered_won={steer_stats.get('won', 0)}/{steer_stats.get('games', 0)}"
-        if args.buy_floor > 0:
-            msg += f"  buy_floor={st['buy_floor']:.4f}"
+        if args.imitate_steered > 0:
+            msg += f"  imitation={st['imitation']:.4f}"
         if pool_games > 0:
             msg += f"  pool_games={pool_games}({Path(opponent_path).stem})"
         msg += league_note

@@ -1,5 +1,6 @@
 import random
 
+import numpy as np
 import torch
 
 from domibot import Action, Game, KINGDOM_CARDS, Phase
@@ -7,7 +8,7 @@ from domibot.models import END_ACTIONS, END_BUY
 from training import encoding
 from training.network import DomibotNet
 from training.plan_search import MONEY, Plan, menu_options
-from training.ppo.explore import ExploreConfig, SteeredPlayer, buy_floor_loss, focus_seat, make_steered, steer
+from training.ppo.explore import ExploreConfig, SteeredPlayer, focus_seat, make_steered, steer
 from training.ppo.rollout import collect_rollouts
 from training.ppo.train import ppo_update
 
@@ -89,18 +90,27 @@ def test_steered_buys_train_only_the_value_head():
     assert not all(torch.equal(a, b) for a, b in zip(value_before, net.value_head.parameters()))
 
 
-def test_buy_floor_loss_lifts_only_kingdom_buys_below_the_floor():
-    kingdom_buy = encoding.action_to_index(Action("BUY", KINGDOM[0]))
-    silver = encoding.action_to_index(Action("BUY", "Silver"))
-    legal = torch.zeros(1, encoding.NUM_ACTIONS, dtype=torch.bool)
-    legal[0, [kingdom_buy, silver]] = True
-    logits = torch.zeros(1, encoding.NUM_ACTIONS)
-    logits[0, silver] = 10.0
-    logits.requires_grad_(True)
-    masked = logits.masked_fill(~legal, -1e9)
-    loss = buy_floor_loss(masked, legal, floor=0.01)
-    assert loss.item() > 0
-    loss.backward()
-    assert logits.grad[0, kingdom_buy] < 0  # descending the loss raises the kingdom buy's logit
-    even = torch.zeros(1, encoding.NUM_ACTIONS).masked_fill(~legal, -1e9)
-    assert buy_floor_loss(even, legal, floor=0.01).item() == 0.0
+def _steered_buys_and_log_probs(net, steered):
+    obs = torch.from_numpy(np.stack([t.obs for t in steered]))
+    mask = torch.from_numpy(np.stack([t.mask for t in steered]))
+    with torch.no_grad():
+        logits, _ = net(obs)
+    log_probs = torch.log_softmax(logits.masked_fill(~mask, -1e9), dim=-1)
+    return log_probs[torch.arange(len(steered)), [t.action for t in steered]]
+
+
+def test_imitation_raises_only_steered_buys_that_paid_off():
+    def steered_log_probs_after(imitate, paid_off):
+        torch.manual_seed(0)
+        np.random.seed(0)
+        net = DomibotNet(hidden_dim=32, num_blocks=1, extra_dim=encoding.EXTRA_DIM, zones_dim=encoding.ZONES_DIM)
+        config = ExploreConfig(frac=1.0, plans=((BOARD, Plan(((BOARD[0], 2),) + MONEY)),))
+        transitions = [t for g in collect_rollouts(net, 2, seed=2, max_moves=300, explore=config) for t in g]
+        for t in transitions:
+            t.advantage, t.return_ = 0.0, (2.0 if paid_off else -2.0)
+        ppo_update(net, torch.optim.Adam(net.parameters(), lr=1e-3), transitions, torch.device("cpu"), epochs=3,
+                   entropy_coef=0.0, imitate=imitate)
+        return _steered_buys_and_log_probs(net, [t for t in transitions if t.explore and t.mask.sum() > 1])
+
+    assert (steered_log_probs_after(1.0, True) - steered_log_probs_after(0.0, True)).mean() > 0.05
+    assert torch.allclose(steered_log_probs_after(1.0, False), steered_log_probs_after(0.0, False))

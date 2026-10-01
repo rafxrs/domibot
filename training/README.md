@@ -90,8 +90,8 @@ python -m training.ppo.train \
 That's about 7 seconds per iteration on one GPU. Checkpoints go to
 `checkpoints/domibot2/<run-name>_latest.pt`, plus `<run-name>_iter_N.pt` at
 every eval. See `--help` for the rest: league opponents (`--league-*`,
-including the gauntlet's bots), exploration (`--explore-*`,
-`--buy-floor`), a fresh network's size (`--hidden-dim`, `--num-blocks`),
+including the gauntlet's bots), steering (`--explore-*`,
+`--imitate-steered`), a fresh network's size (`--hidden-dim`, `--num-blocks`),
 `--epochs-per-update`, `--no-zone-features`, and an eval against
 `domibot_v4.4`. `python -m training.ppo.plot_eval <logs>` plots eval win
 rate against iteration (needs `pip install -e ".[plot]"`).
@@ -182,7 +182,7 @@ saw a deck holding them. Fresh runs of today's code didn't keep them either
 
 **Exploration** first steered one player's early buys toward one or two
 random kingdom cards, and kept every affordable kingdom card at a minimum
-buy probability (`--buy-floor`). It taught the policy to play a Throne Room
+buy probability (since removed). It taught the policy to play a Throne Room
 it holds (51% of the time with a target in hand; 2.2: 20%). But a player
 handed three early Throne Rooms, on boards with Village and Smithy, won 1
 of 60 games against the same policy. Throne Room only pays inside a
@@ -289,8 +289,39 @@ iterations:
 
 It plays engines better, and it's level with 2.3, but its own buying hasn't
 changed: Throne Room, Village and Chapel are still in 5% or fewer of its
-decks. Running now: plan search with `--network-plays` against it, on the
-same 40 boards, to find where plans with its own play beat its buying.
+decks. Plan search with `--network-plays` against it, on the same 40
+boards, found 3 where a plan beats its own buying (54.6–79.8%). All three
+boards hold Chapel and Laboratory, and all three plans open Chapel, which it
+never did.
+
+### Self-imitation of the winning plans
+
+`plan_winners` resumed `plan_steer_iter_18000` with one player in 15% of
+the self-play games following one of those three plans on its board
+(`--explore-plans`). The policy imitates the plan's buys wherever they did
+better than its value head expected (`--imitate-steered 0.1`,
+self-imitation learning). PPO alone can't learn a buy it never samples:
+without the imitation the plans kept winning 71% for 500 iterations. A buy
+floor in its place (every affordable kingdom card at 1% or more) collapsed
+the policy within 25 iterations (20% vs 2.3), and is gone. After 2000
+iterations:
+
+| | `plan_winners_iter_20000` | `domibot2.3` |
+|---|---|---|
+| head to head (2000 games) | **55.6%** (1077–851–72) | |
+| on boards with Chapel / with Chapel and Witch (600 games each) | 61.3% / 67.5% | |
+| the three plans against it, on their boards | 28% | |
+| BigMoney + terminal (2000 games) | 80.2% | 79.2% |
+| BigMoney (400 games) | 95.4% | 95.4% |
+| `domibot_v4.4`, 100-simulation MCTS (200 games) | 90.8% | 88.0% |
+| gauntlet: Workshop/Gardens, Throne Room engine, Chapel/Witch | 92.2%, 98.2%, 89.1% | 87.3%, 93.6%, 75.9% |
+| Chapel / Village in its decks | 53% / 25% | 3% / 1% |
+
+It opens Chapel in every game on the three boards, and in half the games
+on other boards holding Chapel, where it beats 2.3 by the widest margin.
+It's the first checkpoint since 2.2 to beat its predecessor. Throne Room is
+still never bought. Running now: plan search against it on the same 40
+boards.
 
 ### Not yet done
 
