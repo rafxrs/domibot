@@ -1,18 +1,8 @@
-"""The pygame front-end. Drives the real domibot.Game / training.DomibotAgent
-directly -- this module never touches game rules, it only turns
-`game.legal_actions()` into clickable regions and `game.step()` calls.
+"""The pygame front-end: turns `game.legal_actions()` into clickable regions and `game.step()` calls.
 
-Interaction model (deliberately uniform, see widgets.Clickable):
-- Action-phase PLAY options are clickable on the matching card in your hand.
-- Buy-phase BUY options are clickable on the matching supply pile.
-- END_ACTIONS / END_BUY are a button in the status bar.
-- Everything else (a card-effect sub-decision: trashing, discarding,
-  gaining, topdecking, a Moat reveal, a yes/no) renders as a row of
-  buttons in the decision panel, one per legal option, labeled by the
-  card (or verb, for card-less options like DONE/YES/NO) -- "a button
-  that shows up," independent of which zone the card conceptually lives
-  in, which is what makes this generalize to every card without
-  per-card UI logic.
+PLAY options are your hand's cards, BUY options the supply piles, and ending a
+phase is a button. Every card-effect choice is a row of buttons in the decision
+panel, one per legal option, so no card needs its own UI.
 """
 from __future__ import annotations
 
@@ -28,16 +18,11 @@ from .widgets import BUTTON_H, CARD_W, CARD_H, Clickable, draw_button, draw_card
 WIDTH, HEIGHT = 1280, 980
 FPS = 30
 
-# The supply grid is 3 rows deep (7 basics + 2 rows of 5 kingdom cards), so
-# it alone needs 3*CARD_H + 2*16 (row gaps) =~ 368px -- every band below is
-# sized off that, rather than a guessed constant, so nothing overlaps.
-_SUPPLY_ROWS_HEIGHT = 3 * CARD_H + 2 * 16
+_SUPPLY_ROWS_HEIGHT = 3 * CARD_H + 2 * 16  # basics, then two rows of kingdom cards; the bands below follow it
 
 TOP_BAR = pygame.Rect(0, 0, WIDTH, 50)
 SUPPLY_AREA = pygame.Rect(20, 58, 860, _SUPPLY_ROWS_HEIGHT)
 TRASH_AREA = pygame.Rect(900, 58, 140, 110)
-# Domibot's recent moves, filling the rest of the space under the trash pile
-# down to the bottom of the supply grid.
 ACTIVITY_LOG_AREA = pygame.Rect(
     TRASH_AREA.left, TRASH_AREA.bottom + 10, WIDTH - 20 - TRASH_AREA.left, SUPPLY_AREA.bottom - TRASH_AREA.bottom - 10
 )
@@ -49,13 +34,8 @@ END_PHASE_BUTTON = pygame.Rect(WIDTH - 200, STATUS_BAR.top + 10, 170, BUTTON_H)
 
 
 def _turn_owners(action_log: list[LogEntry]) -> list[int]:
-    """Whose structural turn each log entry happened during. Usually equal
-    to that entry's own `.player`, but a forced sub-decision an attack
-    causes on the *other* player (Militia's discard, Bandit's trash,
-    Bureaucrat's topdeck, a Moat reveal, ...) keeps the attacker as the
-    owner, since it's still part of the attacker's turn even though the
-    victim is the one deciding. A turn boundary is always an END_BUY --
-    the entry right after one belongs to the new owner."""
+    """Whose turn each log entry happened in: an attack's choice by the victim
+    belongs to the attacker's turn. Turns end at END_BUY."""
     owners: list[int] = []
     owner = None
     prev_verb = None
@@ -86,10 +66,7 @@ class DominionGUI:
     def __init__(self, game: Game, domibot: DomibotAgent, human_seat: int = 0):
         pygame.init()
         pygame.display.set_caption("Domibot")
-        # Everything below still draws onto a fixed WIDTH x HEIGHT logical
-        # canvas (self.screen, unchanged) -- self.window is the real OS
-        # window, sized to fit the actual screen and scaled up/down to it
-        # on every flip, so layout code never needs to know the real size.
+        # Drawing happens on a fixed WIDTH x HEIGHT canvas, scaled to the real window on every flip.
         info = pygame.display.Info()
         margin = 0.9  # leave room for the OS taskbar/window chrome
         fit_scale = min(1.0, info.current_w * margin / WIDTH, info.current_h * margin / HEIGHT)
@@ -139,8 +116,7 @@ class DominionGUI:
                 self._handle_click(self._to_logical(event.pos))
 
     def _to_logical(self, pos: tuple[int, int]) -> tuple[int, int]:
-        """Real window pixels -> the fixed WIDTH x HEIGHT canvas every rect
-        in this module is defined in terms of."""
+        """Window pixels to canvas coordinates."""
         win_w, win_h = self.window.get_size()
         x, y = pos
         return round(x * WIDTH / win_w), round(y * HEIGHT / win_h)
@@ -199,25 +175,13 @@ class DominionGUI:
 
     # ----------------------------------------------------------- layout ---
     def _supply_rects(self) -> dict[str, pygame.Rect]:
-        """Basic cards get a top row, the 10 kingdom cards two rows below --
-        a compact version of the usual dominion.games supply grid."""
-        basics = ["Copper", "Silver", "Gold", "Estate", "Duchy", "Province", "Curse"]
+        """Basic cards on top, then the kingdom cards by cost in two rows of 5."""
         kingdom = sorted(self.game.kingdom, key=lambda name: (self.game.cards[name].cost, name))
+        rows = [["Copper", "Silver", "Gold", "Estate", "Duchy", "Province", "Curse"], kingdom[:5], kingdom[5:]]
         rects: dict[str, pygame.Rect] = {}
-
-        xs = row_positions(len(basics), SUPPLY_AREA.left, SUPPLY_AREA.width, CARD_W)
-        for x, name in zip(xs, basics):
-            rects[name] = pygame.Rect(x, SUPPLY_AREA.top, CARD_W, CARD_H)
-
-        row1, row2 = kingdom[:5], kingdom[5:]
-        y2 = SUPPLY_AREA.top + CARD_H + 16
-        xs1 = row_positions(len(row1), SUPPLY_AREA.left, SUPPLY_AREA.width, CARD_W)
-        for x, name in zip(xs1, row1):
-            rects[name] = pygame.Rect(x, y2, CARD_W, CARD_H)
-        xs2 = row_positions(len(row2), SUPPLY_AREA.left, SUPPLY_AREA.width, CARD_W)
-        y3 = y2 + CARD_H + 16
-        for x, name in zip(xs2, row2):
-            rects[name] = pygame.Rect(x, y3, CARD_W, CARD_H)
+        for r, row in enumerate(rows):
+            for x, name in zip(row_positions(len(row), SUPPLY_AREA.left, SUPPLY_AREA.width, CARD_W), row):
+                rects[name] = pygame.Rect(x, SUPPLY_AREA.top + r * (CARD_H + 16), CARD_W, CARD_H)
         return rects
 
     # ----------------------------------------------------------- drawing ---
@@ -278,13 +242,8 @@ class DominionGUI:
             self.screen.blit(lines_surf, (TRASH_AREA.left + 8, TRASH_AREA.top + 26))
 
     def _activity_entries(self) -> list[tuple[LogEntry, bool]]:
-        """Everything that happened on Domibot's turns: its own plays/buys
-        (`is_bot_own=True`) plus any sub-decision an attack of its forced
-        onto you -- losing a Silver to Bandit, a Bureaucrat topdeck, a
-        Militia discard, revealing (or not) a Moat -- attributed to you but
-        still part of its turn (`is_bot_own=False`). Read straight off
-        Game.action_log via `_turn_owners` rather than tracked separately,
-        so it can never drift from what really happened."""
+        """Everything on Domibot's turns, with whether it was Domibot's own move
+        (else your answer to its attack)."""
         owners = _turn_owners(self.game.action_log)
         return [
             (entry, entry.player == self.bot_seat)
@@ -344,7 +303,6 @@ class DominionGUI:
     def _draw_hand(self, mouse_pos) -> None:
         pygame.draw.rect(self.screen, colors.PANEL_BG, HAND_AREA, border_radius=8)
         player = self.game.players[self.human_seat]
-        clickable_by_rect = {id(c.rect): c for c in self.clickables}
         xs = row_positions(len(player.hand), HAND_AREA.left, HAND_AREA.width, CARD_W)
         for x, name in zip(xs, player.hand):
             rect = pygame.Rect(x, HAND_AREA.top, CARD_W, CARD_H)

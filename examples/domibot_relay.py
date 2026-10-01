@@ -29,15 +29,13 @@ import torch
 from domibot import Action, Phase
 from domibot.models import END_ACTIONS
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from examples.common import DEFAULT_CHECKPOINT, load_network  # noqa: E402
 from training.log_parser import parse_dominion_log  # noqa: E402
 from training.mcts import materialize, run_mcts, select_action, visit_distribution  # noqa: E402
-from training.network import DomibotNet, get_device  # noqa: E402
 from training.relay import (CARD_ABBREVIATIONS, TableState, reconstruct_game,  # noqa: E402
                             reconstruct_opponent_turn_boundary, replay_open_play, resolve_card_name, table_state)
 
-DEFAULT_CHECKPOINT = ROOT / "checkpoints" / "domibot2" / "domibot2.4.pt"
 _LEADING_COUNT = re.compile(r"^(\d+)x?$", re.IGNORECASE)
 _TRAILING_COUNT = re.compile(r"^(.+?)x(\d+)$", re.IGNORECASE)
 _FRESH_SUPPLY = {"Copper": 46, "Silver": 40, "Gold": 30, "Estate": 8, "Duchy": 8, "Province": 8, "Curse": 10}
@@ -292,14 +290,7 @@ def main() -> None:
     if args.list_abbreviations:
         print_abbreviations()
         return
-    if not Path(args.checkpoint).exists():
-        raise SystemExit(f"no checkpoint at {args.checkpoint} -- download domibot2.4.pt from "
-                         f"https://github.com/rafxrs/domibot/releases into checkpoints/domibot2/ "
-                         f"(see README Setup), or train your own")
-
-    device = get_device() if args.gpu else torch.device("cpu")
-    network = DomibotNet.load(args.checkpoint, map_location=device).to(device)
-    network.eval()
+    network, device = load_network(args.checkpoint, args.gpu)
     print(f"Loaded {args.checkpoint} onto {device}, {args.simulations} sims/query.\n")
     print_abbreviations()
     print()

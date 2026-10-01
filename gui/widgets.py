@@ -1,10 +1,4 @@
-"""Card/button rendering and hit-testing. Everything clickable in the GUI
--- a hand card, a supply pile, a plain "End Actions" button, a decision
-option -- is the same `Clickable`: a rect, the domibot.Action it triggers
-if clicked, and how to draw it. That uniformity is what lets sub-decisions
-(trashing, discarding, reacting, ...) "just be a button that shows up"
-without any per-card-type special-casing in the app loop.
-"""
+"""Card and button drawing, and `Clickable`: a rect and the Action a click on it takes."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -25,11 +19,9 @@ class Clickable:
     action: Action
     label: str
     color: tuple[int, int, int]
-    subtitle: str = ""
-    enabled: bool = True
 
     def contains(self, pos: tuple[int, int]) -> bool:
-        return self.enabled and self.rect.collidepoint(pos)
+        return self.rect.collidepoint(pos)
 
 
 def wrap_text(font: pygame.font.Font, text: str, max_width: int) -> list[str]:
@@ -81,17 +73,9 @@ def draw_card_like(
         surface.blit(overlay, rect.topleft)
 
 
-def draw_button(
-    surface: pygame.Surface,
-    font: pygame.font.Font,
-    rect: pygame.Rect,
-    label: str,
-    hovered: bool = False,
-    enabled: bool = True,
-) -> None:
-    color = colors.BUTTON_HOVER if (hovered and enabled) else colors.BUTTON
-    if not enabled:
-        color = (150, 150, 150)
+def draw_button(surface: pygame.Surface, font: pygame.font.Font, rect: pygame.Rect, label: str,
+                hovered: bool = False) -> None:
+    color = colors.BUTTON_HOVER if hovered else colors.BUTTON
     pygame.draw.rect(surface, color, rect, border_radius=8)
     pygame.draw.rect(surface, colors.BORDER, rect, width=2, border_radius=8)
     text_surf = font.render(label, True, colors.TEXT)
@@ -99,9 +83,7 @@ def draw_button(
 
 
 def row_positions(n: int, area_left: int, area_width: int, item_w: int, gap: int = 10) -> list[int]:
-    """x (left-edge) positions for `n` equal-width items, centered in the
-    area, overlapping (fanned) instead of overflowing if they wouldn't fit
-    with full gaps."""
+    """Left edges for `n` items centered in the area, fanned out overlapping if they don't fit."""
     if n <= 0:
         return []
     total = n * item_w + (n - 1) * gap
