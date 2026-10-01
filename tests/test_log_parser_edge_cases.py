@@ -31,20 +31,11 @@ def _prefixes(log: str, pred):
             yield line, "\n".join(lines[: i + 1])
 
 
-def _is_boundary(line: str | None) -> bool:
-    return line is not None and (line.startswith("Turn ") or line.startswith("The game has ended"))
-
-
 def _pasteable_prefixes(log: str):
-    """Every prefix a real paste could end with: from the first turn on,
-    and never cut between an end-of-turn draw (or the shuffle just before
-    it) and the next Turn header, which dominion.games prints together."""
+    """Every prefix from the first turn on."""
     lines = log.strip().splitlines()
     first_turn = next(i for i, line in enumerate(lines) if line.startswith("Turn "))
     for i in range(first_turn, len(lines)):
-        after = lines[i + 1:i + 3] + [None, None]
-        if _is_boundary(after[0]) or (" draws " in (after[0] or "") and _is_boundary(after[1])):
-            continue
         yield lines[i], "\n".join(lines[: i + 1])
 
 
@@ -71,6 +62,24 @@ def test_every_line_of_every_real_log_parses_consistently(name, log, kingdom):
         assert not tracked - Counter(parsed.my_total), f"{name}: my zones exceed my_total after {line!r}"
         assert parsed.opp_draw_pile_size >= 0
         reconstruct_game(_state(parsed, kingdom), seed=0)
+
+
+@pytest.mark.parametrize("name,log,kingdom", _REAL_LOGS, ids=[c[0] for c in _REAL_LOGS])
+def test_a_paste_ending_on_a_draw_ends_the_turn_only_at_cleanup(name, log, kingdom):
+    # A cleanup draw reads as if the next Turn line followed; a card's draw ends nothing.
+    lines = log.strip().splitlines()
+    first_turn = next(i for i, line in enumerate(lines) if line.startswith("Turn "))
+
+    def parse(n):
+        return parse_dominion_log("\n".join(lines[:n]), my_name=ME, kingdom=kingdom)
+
+    for i in range(first_turn + 1, len(lines) - 1):
+        if " draws " not in lines[i] or lines[i + 1].startswith("The game has ended"):
+            continue
+        if lines[i + 1].startswith("Turn "):
+            assert parse(i + 1) == parse(i + 2), f"{name}: cleanup draw {lines[i]!r}"
+        else:
+            assert parse(i + 1).turns_taken == parse(i).turns_taken, f"{name}: mid-turn draw {lines[i]!r}"
 
 
 def test_user_vassal_log_derives_every_line():

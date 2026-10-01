@@ -7,7 +7,9 @@ draw-pile sizes and discard, and cards known to sit on top of either deck.
 The opponent's hand is tracked only as a count. Layer 2 gives up (leaving its
 fields None) at anything it can't follow exactly: an unnamed card of yours, or
 an unrecognized line. A cleanup is detected positionally: a draw right before
-the next `Turn` line or the game-end line.
+the next `Turn` line or the game-end line. A paste ending on the turn player's
+draw that no card of theirs owes is a cleanup too, read as if the next `Turn`
+line followed.
 
 When the log ends during your turn, `ParsedLog.open_play` holds the state just
 before your last Action play and every line since, for `relay.replay_open_play`.
@@ -54,6 +56,8 @@ _SAFE_MIDTURN_ACTION_CARDS = {"Village", "Smithy", "Festival", "Laboratory", "Ma
                               "Bureaucrat", "Bandit", "Militia"}
 # Attacks that can leave a choice pending on you (and whether to reveal Moat).
 _SUPPORTED_TERMINAL_ATTACKS = {"Militia", "Bureaucrat", "Bandit", "Witch"}
+# Cards whose own draw is a "draws" line (Library's shows as looks).
+_DRAWING_CARDS = {name for name, card in ALL_CARDS.items() if card.plus_cards} | {"Cellar"}
 # An attack's own gain, which replaying the attack gains again.
 _ATTACK_SELF_GAINS = {"Bureaucrat": "Silver", "Bandit": "Gold"}
 _STARTING_COPPER = 7
@@ -237,7 +241,7 @@ def _replay_full_state(lines: list[str], my_full_name: str, opp_full_name: str, 
     reaction_pending = False  # from their supported attack until a line shows it resolved against me
 
     def is_boundary(next_line: str | None) -> bool:
-        # The end of the paste isn't one: a log copied mid-turn ends on whatever just happened.
+        # The end of the paste isn't one (`_next_turn_line` adds the header after a cleanup draw).
         return next_line is not None and bool(_TURN_LINE.match(next_line) or _GAME_END_LINE.match(next_line))
 
     def cleanup(player: str) -> None:
@@ -683,6 +687,27 @@ def _event_for_line(line: str, player_of, my_full_name: str, last_played: dict) 
     return LogEvent(mine, "other")
 
 
+def _next_turn_line(lines: list[str], player_names: list[str], player_of) -> str | None:
+    """The next `Turn` line if the paste ends on the turn player's cleanup draw: a draw
+    no card of theirs owes (a card's draw comes before their next play or buy)."""
+    starts = [i for i, line in enumerate(lines) if _TURN_LINE.match(line)]
+    if not starts or len(player_names) != 2 or not _DRAW_LINE.match(lines[-1]):
+        return None
+    turn_player = _TURN_LINE.match(lines[starts[-1]]).group(2)
+    owed = False
+    for line in lines[starts[-1] + 1:-1]:
+        if player_of(line.split(" ", 1)[0]) != turn_player:
+            continue
+        if _PLAY_TREASURE_LINE.match(line) or _BUY_GAIN_LINE.match(line) or _DRAW_LINE.match(line):
+            owed = False
+        elif m := _PLAY_ACTION_LINE.match(line):
+            owed = _card_name_from_play_line(m.group(2)) in _DRAWING_CARDS
+    if owed or player_of(lines[-1].split(" ", 1)[0]) != turn_player:
+        return None
+    nxt = next(name for name in player_names if name != turn_player)
+    return f"Turn {sum(_TURN_LINE.match(lines[i]).group(2) == nxt for i in starts) + 1} - {nxt}"
+
+
 def _resolve_player_names(lines: list[str], my_name: str) -> list[str]:
     """Full player names from the "name: rating" header, else from the Turn lines plus,
     for a player without a turn yet, their "starts with" abbreviation."""
@@ -731,6 +756,8 @@ def parse_dominion_log(text: str, my_name: str, kingdom: list[str], num_players:
     def player_of(token: str) -> str | None:
         return abbrev_to_name.get(token.lower()) if len(token) == 1 else None
 
+    if next_turn := _next_turn_line(lines, player_names, player_of):
+        lines.append(next_turn)
     victory_pile = 8 if num_players == 2 else 12
     supply: Counter = Counter({"Copper": 60 - _STARTING_COPPER * num_players, "Silver": 40, "Gold": 30,
                                "Estate": victory_pile, "Duchy": victory_pile, "Province": victory_pile,
