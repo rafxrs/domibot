@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from domibot import ALL_CARDS, Action, CardType, Game
 from domibot.enums import DecisionKind, Phase
-from domibot.models import DONE
+from domibot.models import DONE, NO_REVEAL, REVEAL_MOAT
 
 from .log_parser import remove_one
 
@@ -333,18 +333,23 @@ def replay_open_play(open_play, kingdom: list[str], final_my_hand: list[str],
     elif top and me.deck[-len(top):][::-1] != top[:len(me.deck)]:
         return OpenPlayResult("unsupported", reason="the cards it drew aren't all in your deck by elimination")
 
-    path = [Action("PLAY", open_play.card)]
+    path: list[Action] = []
     game = boundary.clone()
+    their_moat = REVEAL_MOAT if any(not e.mine and e.kind == "react" for e in events) else NO_REVEAL
 
     def step(action: Action) -> None:
         game.step(action)
         path.append(action)
+        # Their Moat logs a line only when revealed (and nothing at all when there's nothing to block).
+        while (d := game.pending_decision) is not None and d.kind == DecisionKind.REACT and d.player != 0:
+            game.step(their_moat)
+            path.append(their_moat)
 
     def unsupported(reason: str) -> OpenPlayResult:
         return OpenPlayResult("unsupported", reason=reason)
 
     try:
-        game.step(path[0])
+        step(Action("PLAY", open_play.card))
         i = 1
         while i < len(events):
             pending = game.pending_decision

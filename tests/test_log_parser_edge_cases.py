@@ -349,6 +349,28 @@ def test_workshop_whose_gain_is_logged_has_resolved():
     assert result.status == "resolved"
 
 
+def _witch_against_their_moat(*their_lines: str):
+    """My open Witch, with every Curse already given to the opponent, who holds a Moat."""
+    log = _game("a Witch", "a Silver", "a Witch, 3 Coppers, and an Estate")
+    parsed = _parse("\n".join([log, "d plays a Witch.", *their_lines, "d draws a Silver and an Estate."]))
+    b = parsed.open_play.boundary
+    b.supply = {**b.supply, "Curse": 0, "Moat": 9}
+    b.opp_discard, b.opp_known_hand, b.opp_draw_pile_size = b.opp_discard + ["Curse"] * 10, ["Moat"], \
+        b.opp_draw_pile_size + 1
+    return replay_open_play(parsed.open_play, EDGE_KINGDOM, parsed.my_hand, seed=0)
+
+
+def test_their_moat_with_no_line_was_not_revealed():
+    # With no Curse left, neither choice logs a line: the replay mustn't wait on them.
+    result = _witch_against_their_moat()
+    assert result.status == "resolved" and Action("NO_REVEAL") in result.path
+
+
+def test_their_logged_moat_was_revealed():
+    result = _witch_against_their_moat("f reacts with a Moat.")
+    assert result.status == "resolved" and Action("REVEAL_MOAT") in result.path
+
+
 # --- the opponent's attack, with my reaction not yet logged ---
 
 def _reaction(log: str, kingdom=EDGE_KINGDOM):
