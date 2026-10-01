@@ -196,11 +196,7 @@ def test_militia_forced_discard_materializes_for_me():
 
 
 def test_militia_forced_discard_forces_a_known_play_into_the_opponents_hand():
-    # regression: reconstruct_opponent_turn_boundary must not leave it to
-    # chance whether a card the log says the opponent just played actually
-    # lands in their randomly-reconstructed hand -- try every seed in a
-    # wide range; without the forcing fix, some of them would produce an
-    # "illegal action" in materialize().
+    # Every seed must put the played Militia in their reconstructed hand.
     state = _militia_state(my_hand=["Copper"] * 4 + ["Estate"])
     path = [Action("PLAY", "Militia")]
     for seed in range(20):

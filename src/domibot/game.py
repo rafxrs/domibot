@@ -7,7 +7,7 @@ from typing import Generator, Optional
 from . import gamelog
 from .cards import ALL_CARDS, KINGDOM_CARDS
 from .effects import move
-from .enums import CardType, DecisionKind, Phase
+from .enums import CardType, Phase
 from .models import END_ACTIONS, END_BUY, Action, Decision, LogEntry
 from .player import PlayerState
 

@@ -94,10 +94,7 @@ def test_play_game_runs_kingdom_to_completion():
 # --- observation must disambiguate what a sub-decision is actually about ---
 
 def test_source_card_distinguishes_same_kind_decisions():
-    # Chapel ("dump junk") and Remodel ("give up your best card to upgrade
-    # it") both raise SELECT_CARD with TRASH options over the same hand. If
-    # the observation can't tell them apart, no policy can answer both --
-    # the action mask is applied to the output, never seen as input.
+    # Chapel's and Remodel's trash choices look alike except for their source card.
     from domibot import Action, Game
 
     kingdom = ["Chapel", "Remodel", "Cellar", "Militia", "Village",
@@ -121,9 +118,7 @@ def test_source_card_distinguishes_same_kind_decisions():
 
 
 def test_set_aside_cards_are_visible_in_the_observation():
-    # Sentry's two revealed cards live in set_aside while the trash/discard/
-    # reorder decisions are pending -- they are literally what's being
-    # decided about, so they have to be in the observation.
+    # Sentry's revealed cards wait in set-aside while it asks about them.
     from domibot import Action, Game
 
     game = Game(["Sentry", "Chapel", "Remodel", "Cellar", "Militia",
@@ -150,7 +145,6 @@ def test_no_source_card_encoded_at_a_plain_phase_action():
 
 
 def test_big_money_terminal_agent_plays_legally_and_adapts_to_the_kingdom():
-    from domibot import Game
     from training.evaluate import play_game
 
     # no terminal on offer -> plain Big Money: never buys an Action card

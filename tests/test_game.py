@@ -2,8 +2,8 @@ import random
 
 import pytest
 
-from domibot import Action, CardType, Game, KINGDOM_CARDS, Phase
-from domibot.models import DONE, END_ACTIONS, END_BUY, NO_REVEAL, REVEAL_MOAT
+from domibot import Action, Game, KINGDOM_CARDS, Phase
+from domibot.models import DONE, END_ACTIONS, END_BUY, REVEAL_MOAT
 
 ALL_KINGDOM = list(KINGDOM_CARDS)
 
@@ -180,9 +180,7 @@ def test_bandit_trashes_non_copper_treasure_and_gains_gold():
     play(game, Action("PLAY", "Bandit"))
     assert "Gold" in attacker.discard
     assert game.supply["Gold"] == gold_before - 1
-    # Even with only one distinct Treasure revealed, the trash is still a
-    # real (single-option) decision -- so it's a logged Action a GUI/log
-    # can show, not a silent state mutation.
+    # A single option is still asked, so the trash is logged.
     assert game.pending_decision is not None
     assert game.pending_decision.player == 1
     play(game, Action("TRASH", "Silver"))
@@ -243,9 +241,7 @@ def test_library_can_skip_action_cards():
 
 # ----------------------------------------------------------- Moneylender
 def test_moneylender_trashes_copper_automatically_no_decision():
-    # "Trash a Copper from your hand. If you do, +$3." -- no "may", so this
-    # is mandatory whenever a Copper is in hand, not a choice (confirmed
-    # against real dominion.games play, which never prompts for it).
+    # Not optional: there's no "may".
     game = make_game(["Moneylender"], seed=16)
     p = game.players[0]
     p.hand = ["Moneylender", "Copper", "Copper", "Estate"]
@@ -280,19 +276,12 @@ def test_merchant_bonus_on_first_silver_only():
 
 # ------------------------------------------------------------------ Gardens
 def test_gardens_supply_uses_victory_pile_size_not_flat_ten():
-    # Gardens is a Kingdom card that's also a Victory card -- the rulebook
-    # says it uses the same pile size as Estate/Duchy/Province (8 for 2p,
-    # 12 for 3-4p), not the flat 10 every other Kingdom card gets. Before
-    # the fix this was silently 10, so a bot could keep recommending
-    # Gardens for 2 turns after the real pile had already emptied.
+    # Gardens gets a Victory pile: 8 with 2 players, 12 with 3-4.
     game2p = make_game(["Gardens"], num_players=2, seed=14)
     assert game2p.supply["Gardens"] == 8
     game4p = make_game(["Gardens"], num_players=4, seed=14)
     assert game4p.supply["Gardens"] == 12
-    # An ordinary (non-Victory) Kingdom card is unaffected -- Gardens is the
-    # only Victory-type Kingdom card in the base set, so any other slot
-    # (kingdom[0] is Gardens itself, per make_game's `required` placement)
-    # is guaranteed to be a flat-10 pile.
+    # Any other kingdom card has 10.
     assert game2p.supply[game2p.kingdom[1]] == 10
 
 
@@ -306,10 +295,7 @@ def test_gardens_vp_scales_with_total_cards():
     assert gardens_card.vp_value(p) == expected
 
 
-# ---------------------------------------------------------------- Game end
-# The end condition is evaluated during Cleanup, not the instant a pile
-# empties: the player whose turn it is finishes that turn first (and has it
-# counted in turns_taken, which drives winners()' fewest-turns tie-break).
+# The game ends at the end of a turn, which counts toward the fewest-turns tie-break.
 def test_game_ends_at_cleanup_when_provinces_run_out():
     game = make_game(["Village"], num_players=2, seed=15)
     game.supply["Province"] = 0
@@ -336,9 +322,7 @@ def test_game_ends_at_cleanup_when_three_piles_empty():
 
 
 def test_ending_the_game_still_counts_that_turn_and_leaves_buys_usable():
-    # Regression: the end condition used to fire mid-turn, which truncated
-    # the turn (forfeiting remaining buys) and skipped turns_taken += 1,
-    # inverting the fewest-turns tie-break in every tied game.
+    # Ending mid-turn once forfeited the remaining buys and the turn count.
     game = make_game(["Village"], num_players=2, seed=17)
     game.supply["Province"] = 1
     me = game.players[0]

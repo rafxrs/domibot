@@ -3,7 +3,6 @@ whole-game regression harness: every one of my turn starts in every real
 dominion.games log fixture must parse fully *and* reconstruct into a Game.
 """
 from collections import Counter
-from pathlib import Path
 
 import pytest
 
@@ -13,368 +12,12 @@ from domibot.enums import DecisionKind
 from training.log_parser import parse_dominion_log
 from training.mcts import materialize
 from training.relay import (TableState, reconstruct_game, reconstruct_opponent_turn_boundary, replay_open_play,
-                            resolve_card_name, table_state)
+                            table_state)
 
 ME = "domibot_v1.4"
 
-# A real rated game (opponent renamed), where frisco-now-felix's Vassal
-# discarded a Chapel and then played it from the discard pile on turn 10 --
-# the parser counted that Chapel twice (once discarded, once "played from
-# hand") and every query from then on failed reconstruct_game's check. Also
-# full of Throne Room + Vassal chains (turns 13, 14, 17, 20) and a Vassal
-# playing a Vassal.
-USER_VASSAL_KINGDOM = ["Poacher", "Vassal", "Throne Room", "Witch", "Bandit", "Chapel",
-                       "Laboratory", "Gardens", "Moat", "Market"]
-USER_VASSAL_LOG = """Game #183956265, rated.
-domibot_v1.4: 40.73
-felix: 44.02
-Timer: Patient
-Card Pool: level 2
-f starts with 3 Estates.
-f starts with 7 Coppers.
-d starts with 3 Estates.
-d starts with 7 Coppers.
-f shuffles their deck.
-d shuffles their deck.
-f draws 5 cards.
-d draws 4 Coppers and an Estate.
-Turn 1 - felix
-f plays 4 Coppers. (+$4)
-f buys and gains a Poacher.
-f draws 5 cards.
-Turn 1 - domibot_v1.4
-d plays 4 Coppers. (+$4)
-d buys and gains a Silver.
-d draws 3 Coppers and 2 Estates.
-Turn 2 - felix
-f plays 3 Coppers. (+$3)
-f buys and gains a Vassal.
-f shuffles their deck.
-f draws 5 cards.
-Turn 2 - domibot_v1.4
-d plays 3 Coppers. (+$3)
-d buys and gains a Silver.
-d shuffles their deck.
-d draws 4 Coppers and a Silver.
-Turn 3 - felix
-f plays 4 Coppers. (+$4)
-f buys and gains a Throne Room.
-f draws 5 cards.
-Turn 3 - domibot_v1.4
-d plays a Silver and 4 Coppers. (+$6)
-d buys and gains a Witch.
-d draws 3 Coppers and 2 Estates.
-Turn 4 - felix
-f plays a Poacher.
-f draws a card.
-f gets +1 Action.
-f gets +$1.
-f plays a Vassal.
-f gets +$2.
-f discards an Estate.
-f plays 3 Coppers. (+$3)
-f buys and gains a Witch.
-f shuffles their deck.
-f draws 5 cards.
-Turn 4 - domibot_v1.4
-d plays 3 Coppers. (+$3)
-d buys and gains a Silver.
-d shuffles their deck.
-d draws a Copper, 3 Silvers, and an Estate.
-Turn 5 - felix
-f plays a Throne Room.
-f plays a Poacher.
-f draws a card.
-f gets +1 Action.
-f gets +$1.
-f plays a Poacher again.
-f draws a card.
-f gets +1 Action.
-f gets +$1.
-f plays a Witch.
-f draws 2 cards.
-d gains a Curse.
-f plays a Vassal.
-f gets +$2.
-f discards a Copper.
-f plays 4 Coppers. (+$4)
-f buys and gains a Province.
-f shuffles their deck.
-f draws 5 cards.
-Turn 5 - domibot_v1.4
-d plays 3 Silvers and a Copper. (+$7)
-d buys and gains a Bandit.
-d draws 3 Coppers, an Estate, and a Witch.
-Turn 6 - felix
-f plays a Poacher.
-f draws a card.
-f gets +1 Action.
-f gets +$1.
-f plays 3 Coppers. (+$3)
-f buys and gains a Chapel.
-f draws 5 cards.
-Turn 6 - domibot_v1.4
-d plays a Witch.
-d draws 2 Coppers.
-f gains a Curse.
-d plays 5 Coppers. (+$5)
-d buys and gains a Witch.
-d shuffles their deck.
-d draws 2 Coppers, a Silver, an Estate, and a Witch.
-Turn 7 - felix
-f plays a Throne Room.
-f plays 3 Coppers. (+$3)
-f buys and gains a Vassal.
-f shuffles their deck.
-f draws 5 cards.
-Turn 7 - domibot_v1.4
-d plays a Witch.
-d draws a Copper and a Witch.
-f gains a Curse.
-d plays a Silver and 3 Coppers. (+$5)
-d buys and gains a Laboratory.
-d draws a Copper, 2 Silvers, and 2 Estates.
-Turn 8 - felix
-f plays a Witch.
-f draws 2 cards.
-d gains a Curse.
-f plays a Copper. (+$1)
-f draws 5 cards.
-Turn 8 - domibot_v1.4
-d plays 2 Silvers and a Copper. (+$5)
-d buys and gains a Laboratory.
-d draws a Curse, 3 Coppers, and a Bandit.
-Turn 9 - felix
-f plays a Chapel.
-f trashes a Copper and an Estate.
-f draws 5 cards.
-Turn 9 - domibot_v1.4
-d plays a Bandit.
-d gains a Gold.
-f shuffles their deck.
-f reveals a Copper and a Poacher.
-f discards a Copper and a Poacher.
-d plays 3 Coppers. (+$3)
-d buys and gains a Silver.
-d shuffles their deck.
-d draws a Copper, 2 Estates, a Bandit, and a Laboratory.
-Turn 10 - felix
-f plays a Vassal.
-f gets +$2.
-f discards a Chapel.
-f plays a Chapel.
-f trashes a Curse and 2 Coppers.
-f plays a Copper. (+$1)
-f buys and gains a Vassal.
-f draws 5 cards.
-Turn 10 - domibot_v1.4
-d plays a Laboratory.
-d draws a Curse and a Gold.
-d gets +1 Action.
-d plays a Bandit.
-d gains a Gold.
-f reveals a Curse and a Province.
-f discards a Curse and a Province.
-d plays a Gold and a Copper. (+$4)
-d buys and gains a Silver.
-d draws 2 Coppers, a Silver, an Estate, and a Laboratory.
-Turn 11 - felix
-f plays a Witch.
-f draws 2 cards.
-d gains a Curse.
-f shuffles their deck.
-f draws 5 cards.
-Turn 11 - domibot_v1.4
-d plays a Laboratory.
-d draws a Copper and a Silver.
-d gets +1 Action.
-d plays 2 Silvers and 3 Coppers. (+$7)
-d buys and gains a Laboratory.
-d draws a Copper, 2 Silvers, and 2 Witches.
-Turn 12 - felix
-f plays a Vassal.
-f gets +$2.
-f discards a Copper.
-f plays 2 Coppers. (+$2)
-f buys and gains a Throne Room.
-f draws 5 cards.
-Turn 12 - domibot_v1.4
-d plays a Witch.
-d draws 2 Coppers.
-f gains a Curse.
-d plays 2 Silvers and 3 Coppers. (+$7)
-d buys and gains a Gold.
-d shuffles their deck.
-d draws a Curse, 2 Coppers, a Silver, and a Laboratory.
-Turn 13 - felix
-f plays a Throne Room.
-f plays a Poacher.
-f draws a card.
-f gets +1 Action.
-f gets +$1.
-f plays a Poacher again.
-f draws a card.
-f gets +1 Action.
-f gets +$1.
-f plays a Witch.
-f draws 2 cards.
-d gains a Curse.
-f plays a Vassal.
-f gets +$2.
-f shuffles their deck.
-f discards a Throne Room.
-f plays a Throne Room.
-f plays a Vassal.
-f gets +$2.
-f discards a Copper.
-f plays a Vassal again.
-f gets +$2.
-f discards an Estate.
-f plays a Copper. (+$1)
-f buys and gains a Province.
-f draws 5 cards.
-Turn 13 - domibot_v1.4
-d plays a Laboratory.
-d draws a Gold and a Laboratory.
-d gets +1 Action.
-d plays a Laboratory.
-d draws an Estate and a Laboratory.
-d gets +1 Action.
-d plays a Laboratory.
-d draws a Copper and a Bandit.
-d gets +1 Action.
-d plays a Bandit.
-d gains a Gold.
-f shuffles their deck.
-f reveals a Copper and a Poacher.
-f discards a Copper and a Poacher.
-d plays a Gold, a Silver, and 3 Coppers. (+$8)
-d buys and gains a Province.
-d draws 2 Coppers, a Silver, an Estate, and a Witch.
-Turn 14 - felix
-f plays a Vassal.
-f gets +$2.
-f discards a Vassal.
-f plays a Vassal.
-f gets +$2.
-f discards a Throne Room.
-f plays a Throne Room.
-f plays 2 Coppers. (+$2)
-f buys and gains a Laboratory.
-f draws 5 cards.
-Turn 14 - domibot_v1.4
-d plays a Witch.
-d draws a Copper and a Silver.
-f gains a Curse.
-d plays 2 Silvers and 3 Coppers. (+$7)
-d buys and gains a Duchy.
-d draws a Curse, a Copper, 2 Golds, and a Witch.
-Turn 15 - felix
-f shuffles their deck.
-f draws 5 cards.
-Turn 15 - domibot_v1.4
-d plays a Witch.
-d draws 2 Silvers.
-f gains a Curse.
-d plays 2 Golds, 2 Silvers, and a Copper. (+$11)
-d buys and gains a Province.
-d shuffles their deck.
-d draws a Curse, a Copper, a Gold, and 2 Estates.
-Turn 16 - felix
-f plays a Witch.
-f draws 2 cards.
-d gains a Curse.
-f draws 5 cards.
-Turn 16 - domibot_v1.4
-d plays a Gold and a Copper. (+$4)
-d buys and gains a Gardens.
-d draws a Copper, a Silver, a Gold, an Estate, and a Duchy.
-Turn 17 - felix
-f plays a Laboratory.
-f draws 2 cards.
-f gets +1 Action.
-f plays a Throne Room.
-f plays a Vassal.
-f gets +$2.
-f discards a Poacher.
-f plays a Poacher.
-f draws a card.
-f gets +1 Action.
-f gets +$1.
-f discards an Estate.
-f plays a Vassal again.
-f gets +$2.
-f discards an Estate.
-f plays 3 Coppers. (+$3)
-f buys and gains a Province.
-f shuffles their deck.
-f draws 5 cards.
-Turn 17 - domibot_v1.4
-d plays a Gold, a Silver, and a Copper. (+$6)
-d buys and gains a Duchy.
-d draws a Silver, a Gold, a Province, a Laboratory, and a Witch.
-Turn 18 - felix
-f draws 5 cards.
-Turn 18 - domibot_v1.4
-d plays a Laboratory.
-d draws a Silver and a Laboratory.
-d gets +1 Action.
-d plays a Laboratory.
-d draws a Curse and a Gold.
-d gets +1 Action.
-d plays a Witch.
-d draws a Copper and a Witch.
-d plays 2 Golds, 2 Silvers, and a Copper. (+$11)
-d buys and gains a Province.
-d draws 2 Curses, a Copper, a Silver, and a Province.
-Turn 19 - felix
-f plays a Vassal.
-f gets +$2.
-f discards a Province.
-f plays a Copper. (+$1)
-f buys and gains a Vassal.
-f draws 5 cards.
-Turn 19 - domibot_v1.4
-d plays a Silver and a Copper. (+$3)
-d buys and gains a Vassal.
-d draws 2 Coppers, a Silver, a Bandit, and a Laboratory.
-Turn 20 - felix
-f plays a Laboratory.
-f draws 2 cards.
-f gets +1 Action.
-f plays a Throne Room.
-f plays a Vassal.
-f gets +$2.
-f discards a Witch.
-f plays a Witch.
-f draws 2 cards.
-f plays a Vassal again.
-f gets +$2.
-f discards a Poacher.
-f plays a Poacher.
-f shuffles their deck.
-f draws a card.
-f gets +1 Action.
-f gets +$1.
-f discards a Curse.
-f plays a Chapel.
-f trashes an Estate.
-f plays 3 Coppers. (+$3)
-f buys and gains a Province.
-f draws 5 cards.
-Turn 20 - domibot_v1.4
-d plays a Laboratory.
-d shuffles their deck.
-d draws a Copper and a Gold.
-d gets +1 Action.
-d plays a Bandit.
-d gains a Gold.
-f reveals an Estate and a Province.
-f discards an Estate and a Province.
-d plays a Gold, a Silver, and 3 Coppers. (+$8)
-d buys and gains a Province.
-d draws a Curse, a Copper, 2 Golds, and a Province.
-The game has ended."""
+# A Vassal playing a Chapel from the discard (turn 10), and Throne Room + Vassal chains.
+USER_VASSAL_LOG, USER_VASSAL_KINGDOM = T.load_log("vassal_plays_from_discard.txt")
 
 
 def _state(parsed, kingdom) -> TableState:
@@ -405,23 +48,7 @@ def _pasteable_prefixes(log: str):
         yield lines[i], "\n".join(lines[: i + 1])
 
 
-# Whole real games saved from dominion.games (human opponents renamed); the
-# first line of each is its kingdom in the relay's short codes.
-FIXTURE_DIR = Path(__file__).parent / "fixtures" / "dominion_logs"
-
-
-def _fixture(name: str) -> tuple[str, list[str]]:
-    kingdom_line, log = (FIXTURE_DIR / name).read_text(encoding="utf-8").split("\n", 1)
-    return log, [resolve_card_name(code) for code in kingdom_line.split()]
-
-
-_REAL_LOGS = [
-    ("REAL", T.REAL_LOG, T.KINGDOM),
-    ("WITCH_MIRROR", T.WITCH_MIRROR_LOG, T.WITCH_MIRROR_KINGDOM),
-    ("TWO_THRONES_THEN_VASSAL", T.TWO_THRONES_THEN_VASSAL_LOG, T.TWO_THRONES_THEN_VASSAL_KINGDOM),
-    ("HARBINGER", T.HARBINGER_LOG, T.HARBINGER_KINGDOM),
-    ("USER_VASSAL", USER_VASSAL_LOG, USER_VASSAL_KINGDOM),
-] + [(path.stem, *_fixture(path.name)) for path in sorted(FIXTURE_DIR.glob("*.txt"))]
+_REAL_LOGS = [(path.stem, *T.load_log(path.name)) for path in sorted(T.FIXTURES.glob("*.txt"))]
 
 
 @pytest.mark.parametrize("name,log,kingdom", _REAL_LOGS, ids=[c[0] for c in _REAL_LOGS])
@@ -435,9 +62,7 @@ def test_every_turn_start_of_mine_parses_and_reconstructs(name, log, kingdom):
 
 @pytest.mark.parametrize("name,log,kingdom", _REAL_LOGS, ids=[c[0] for c in _REAL_LOGS])
 def test_every_line_of_every_real_log_parses_consistently(name, log, kingdom):
-    # Stopping the paste after *any* line (mid-turn included) must still
-    # derive a state whose counts add up -- the opponent's draw pile never
-    # negative, my tracked zones never exceeding what I own.
+    # A paste ending at any line must still add up.
     for line, prefix in _pasteable_prefixes(log):
         parsed = parse_dominion_log(prefix, my_name=ME, kingdom=kingdom)
         if parsed.my_hand is None:
@@ -467,9 +92,7 @@ def test_opponent_vassal_playing_its_discard_is_counted_once():
 
 
 def test_opponent_sentry_unnamed_look_leaves_hand_size_alone():
-    # "looks at 2 cards" / "trashes a Copper" / "topdecks a card": all three
-    # are cards off the deck, none from hand. 5 at turn start, Cellar (-1,
-    # discard 2, draw 2) -> 4, Sentry (-1, draw 1) -> 4.
+    # Sentry's look, trash and topdeck are all off the deck: 5 - Cellar - Sentry + its draw.
     lines = T.REAL_LOG.strip().splitlines()
     prefix = "\n".join(lines[: lines.index("l topdecks a card.") + 1])
     parsed = parse_dominion_log(prefix, my_name=ME, kingdom=T.KINGDOM)
@@ -549,9 +172,7 @@ d gets +2 Actions."""
 
 
 def test_witch_curse_goes_to_discard_even_after_my_bureaucrat_turn():
-    # My last play of turn 3 is Bureaucrat (no treasure after it), whose
-    # gains go to the deck top -- the opponent's Witch Curse must not
-    # inherit that routing.
+    # My Bureaucrat's deck-top routing must not apply to the opponent's Curse.
     log = _game("a Bureaucrat", "a Village", "a Bureaucrat, a Village, and 3 Estates",
                 opp_buy1="a Witch") + """
 d plays a Bureaucrat.
@@ -786,7 +407,7 @@ d draws a Copper and an Estate."""
 # --- Moat reactions ("G reacts with a Moat.") and reshuffles mid-card, from
 # the real game in fixtures/dominion_logs/moat_reaction_sentry_reshuffles.txt ---
 
-MOAT_LOG, MOAT_KINGDOM = _fixture("moat_reaction_sentry_reshuffles.txt")
+MOAT_LOG, MOAT_KINGDOM = T.load_log("moat_reaction_sentry_reshuffles.txt")
 
 
 def _cut_after(log: str, line: str) -> str:
@@ -814,9 +435,7 @@ def test_my_own_moat_reaction_resolves_the_attack():
 
 
 def test_sentry_whose_draw_reshuffles_my_deck_is_replayed():
-    # "d plays a Sentry. d shuffles their deck. d draws a Sentry. ... d looks
-    # at an Estate and a Sentry." -- the draw and both looks come out of the
-    # reshuffled discard, and the replay must reveal exactly those.
+    # Sentry's draw and looks come from the reshuffled discard; the replay must reveal those.
     log = _cut_after(MOAT_LOG, "d looks at an Estate and a Sentry.")
     result, decision = _open(log, MOAT_KINGDOM)
     assert result.status == "pending"

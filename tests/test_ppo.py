@@ -17,9 +17,7 @@ def _dummy_transition(decider: int, value: float, turn_number: int = 0) -> Trans
 
 
 def test_compute_gae_returns_equal_terminal_reward_when_undiscounted():
-    # With gamma=1, lam=1, GAE's return (advantage + value) telescopes to
-    # exactly the terminal reward at every step, regardless of the value
-    # estimates used -- a strong, value-independent correctness check.
+    # With gamma = lambda = 1 every return is the terminal reward, whatever the values.
     game = Game(_tiny_kingdom(), num_players=2, seed=0)
     transitions = [_dummy_transition(0, v) for v in [0.1, 0.2, 0.3, -0.5]]
     compute_gae(transitions, game, game_over=True, gamma=1.0, lam=1.0)
@@ -41,9 +39,7 @@ def test_compute_gae_truncated_episode_has_zero_reward_and_zero_final_advantage(
 
 
 def test_compute_gae_per_decider_subsequence_is_independent_of_interleaving():
-    # decider 0's transitions and decider 1's transitions interleaved;
-    # each decider's own GAE must match what you'd get by extracting just
-    # their subsequence and running compute_gae on it alone.
+    # Interleaved players' GAE must match running each player's decisions alone.
     game = Game(_tiny_kingdom(), num_players=2, seed=0)
     interleaved = [
         _dummy_transition(0, 0.10), _dummy_transition(1, 0.50),

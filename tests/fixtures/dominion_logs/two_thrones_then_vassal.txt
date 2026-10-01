@@ -1,0 +1,193 @@
+TR CR LIB MAR VIL MLR POA REM CEL VAS
+Game #183869862, rated.
+domibot_v1.4: 39
+Alice6th: 36.73
+Timer: Friendly
+Card Pool: level 1
+d starts with 3 Estates.
+d starts with 7 Coppers.
+A starts with 3 Estates.
+A starts with 7 Coppers.
+d shuffles their deck.
+A shuffles their deck.
+d draws 4 Coppers and an Estate.
+A draws 5 cards.
+Turn 1 - domibot_v1.4
+d plays 4 Coppers. (+$4)
+d buys and gains a Moneylender.
+d draws 3 Coppers and 2 Estates.
+Turn 1 - Alice6th
+A plays 4 Coppers. (+$4)
+A buys and gains a Moneylender.
+A draws 5 cards.
+Turn 2 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d shuffles their deck.
+d draws 3 Coppers, an Estate, and a Moneylender.
+Turn 2 - Alice6th
+A plays 3 Coppers. (+$3)
+A buys and gains a Village.
+A shuffles their deck.
+A draws 5 cards.
+Turn 3 - domibot_v1.4
+d plays a Moneylender.
+d trashes a Copper.
+d gets +$3.
+d plays 2 Coppers. (+$2)
+d buys and gains a Council Room.
+d draws 2 Coppers, a Silver, and 2 Estates.
+Turn 3 - Alice6th
+A plays a Moneylender.
+A trashes a Copper.
+A gets +$3.
+A plays a Copper. (+$1)
+A buys and gains a Throne Room.
+A draws 5 cards.
+Turn 4 - domibot_v1.4
+d plays a Silver and 2 Coppers. (+$4)
+d buys and gains a Throne Room.
+d shuffles their deck.
+d draws 3 Coppers and 2 Estates.
+Turn 4 - Alice6th
+A plays a Village.
+A draws a card.
+A gets +2 Actions.
+A plays 5 Coppers. (+$5)
+A buys and gains a Market.
+A shuffles their deck.
+A draws 5 cards.
+Turn 5 - domibot_v1.4
+d plays 3 Coppers. (+$3)
+d buys and gains a Silver.
+d draws 2 Coppers, an Estate, a Council Room, and a Throne Room.
+Turn 5 - Alice6th
+A plays a Throne Room.
+A plays 3 Coppers. (+$3)
+A buys and gains a Village.
+A draws 5 cards.
+Turn 6 - domibot_v1.4
+d plays a Throne Room.
+d plays a Council Room.
+d shuffles their deck.
+d draws 2 Coppers, a Silver, and a Moneylender.
+d gets +1 Buy.
+A draws a card.
+d plays a Council Room again.
+d draws 2 Coppers, a Silver, and an Estate.
+d gets +1 Buy.
+A draws a card.
+d plays 2 Silvers and 6 Coppers. (+$10)
+d buys and gains a Gold.
+d shuffles their deck.
+d draws 2 Coppers, 2 Estates, and a Throne Room.
+Turn 6 - Alice6th
+A plays a Village.
+A draws a card.
+A gets +2 Actions.
+A plays a Market.
+A shuffles their deck.
+A draws a card.
+A gets +1 Action.
+A gets +1 Buy.
+A gets +$1.
+A plays a Moneylender.
+A trashes a Copper.
+A gets +$3.
+A plays 3 Coppers. (+$3)
+A buys and gains a Vassal.
+A buys and gains a Throne Room.
+A draws 5 cards.
+Turn 7 - domibot_v1.4
+d plays a Throne Room.
+d plays 2 Coppers. (+$2)
+d draws 2 Coppers, a Gold, an Estate, and a Moneylender.
+Turn 7 - Alice6th
+A plays a Throne Room.
+A plays a Village.
+A shuffles their deck.
+A draws a card.
+A gets +2 Actions.
+A plays a Village again.
+A draws a card.
+A gets +2 Actions.
+A plays a Market.
+A draws a card.
+A gets +1 Action.
+A gets +1 Buy.
+A gets +$1.
+A plays a Vassal.
+A gets +$2.
+A discards an Estate.
+A plays 2 Coppers. (+$2)
+A buys and gains a Library.
+A draws 5 cards.
+Turn 8 - domibot_v1.4
+d plays a Moneylender.
+d trashes a Copper.
+d gets +$3.
+d plays a Gold and a Copper. (+$4)
+d buys and gains a Gold.
+d draws 2 Coppers, 2 Silvers, and a Council Room.
+Turn 8 - Alice6th
+A plays a Moneylender.
+A trashes a Copper.
+A gets +$3.
+A plays 2 Coppers. (+$2)
+A buys and gains a Market.
+A shuffles their deck.
+A draws 5 cards.
+Turn 9 - domibot_v1.4
+d plays a Council Room.
+d shuffles their deck.
+d draws a Gold, 2 Estates, and a Throne Room.
+d gets +1 Buy.
+A draws a card.
+d plays a Gold, 2 Silvers, and 2 Coppers. (+$9)
+d buys and gains a Province.
+d draws 2 Coppers, a Gold, an Estate, and a Moneylender.
+Turn 9 - Alice6th
+A plays a Village.
+A draws a card.
+A gets +2 Actions.
+A plays a Throne Room.
+A plays a Market.
+A draws a card.
+A gets +1 Action.
+A gets +1 Buy.
+A gets +$1.
+A plays a Market again.
+A draws a card.
+A gets +1 Action.
+A gets +1 Buy.
+A gets +$1.
+A plays a Throne Room.
+A plays a Vassal.
+A gets +$2.
+A discards a Village.
+A plays a Village.
+A draws a card.
+A gets +2 Actions.
+A plays a Vassal again.
+A gets +$2.
+A discards an Estate.
+A plays a Moneylender.
+A trashes a Copper.
+A gets +$3.
+A plays a Library.
+A looks at a card.
+A looks at a card.
+A looks at a card.
+A looks at a card.
+A shuffles their deck.
+A looks at a card.
+A plays a Market.
+A gets +1 Action.
+A gets +1 Buy.
+A gets +$1.
+A plays 3 Coppers. (+$3)
+A buys and gains a Throne Room.
+A buys and gains 3 Vassals.
+A shuffles their deck.
+A draws 5 cards.
+Turn 10 - domibot_v1.4
