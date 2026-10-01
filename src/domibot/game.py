@@ -17,14 +17,10 @@ STARTING_HAND = 5
 
 
 class Game:
-    """Dominion (base set) engine driven by legal_actions() / step(Action).
+    """The base-set engine: call `legal_actions()`, pick one, `step()` it.
 
-    There is always exactly one thing that can happen next: either a card
-    effect is mid-resolution and waiting on a Decision (`pending_decision`
-    is set, and `step` resumes the suspended effect generator), or the
-    active player is choosing a top-level phase action (play/buy/end phase).
-    This makes the engine trivial to drive from a random playout, a human
-    CLI, or an MCTS search: always call legal_actions(), pick one, step().
+    Either a card effect is waiting on `pending_decision` (and `step` resumes
+    its generator), or the current player picks a phase action.
     """
 
     def __init__(self, kingdom_cards: list[str], num_players: int = 2, seed: Optional[int] = None):
@@ -52,13 +48,7 @@ class Game:
             "Province": victory_pile_size,
             "Curse": 10 * (num_players - 1),
         }
-        for name in self.kingdom:
-            # A Kingdom card that's also a Victory card (e.g. Gardens) uses
-            # the same pile size as the basic Victory cards, not the flat 10
-            # every other Kingdom card gets -- official rule, not a house
-            # variant (the rulebook calls it out explicitly for exactly this
-            # reason: it'd otherwise be a much deeper pile than Estate/Duchy/
-            # Province ever are).
+        for name in self.kingdom:  # a Victory kingdom card (Gardens) gets a Victory pile
             is_victory = CardType.VICTORY in self.cards[name].types
             self.supply[name] = victory_pile_size if is_victory else 10
 
@@ -75,16 +65,13 @@ class Game:
         self.players[0].actions = 1
         self.players[0].buys = 1
 
-        # Merchant's "first Silver played this turn" bonus is turn-scoped
-        # state, not tied to any single card instance, hence tracked here.
+        # Merchant's bonus to the turn's first Silver.
         self.turn_merchant_bonus = 0
         self.turn_silver_played = False
 
         self.pending_gen: Optional[Generator[Decision, Action, None]] = None
         self.pending_decision: Optional[Decision] = None
-        # Stack of cards currently mid-resolution, innermost last -- see
-        # `_stamp_source`. Nests via Throne Room and Vassal.
-        self._resolving: list[str] = []
+        self._resolving: list[str] = []  # cards mid-resolution, innermost last (see _stamp_source)
         self.action_log: list[LogEntry] = []
 
     # ------------------------------------------------------------ query ---
@@ -101,10 +88,7 @@ class Game:
 
     @property
     def current_turn_number(self) -> int:
-        """1-indexed turn count for the player whose turn it currently is
-        (i.e. `self.current_player`), independent of how many turns anyone
-        else has taken. Player 0's second turn is turn 2, even though the
-        opponent has taken a turn in between."""
+        """The current player's own turn count, from 1."""
         return self.players[self.current_player].turns_taken + 1
 
     def other_players_in_order(self, idx: int) -> list[int]:
@@ -127,22 +111,16 @@ class Game:
         gamelog.save(self, path, fmt=fmt)
 
     def clone(self) -> "Game":
-        """A deep-enough independent copy for search (MCTS and similar).
-        Only safe when no card effect is mid-resolution: a suspended
-        `pending_gen` is a live generator whose frame captured a reference
-        to *this* Game object, so a clone would silently share (and corrupt)
-        state with the original the moment that generator resumed. Every
-        caller must therefore only clone at a decision boundary where
-        `pending_decision is None` (a PHASE_ACTION point) or the game is
-        already over."""
+        """An independent copy, only between card effects: a suspended effect
+        generator holds a reference to this Game, so it can't be copied."""
         if self.pending_gen is not None:
             raise RuntimeError("cannot clone a Game while a card effect is mid-resolution")
         new = Game.__new__(Game)
         new.rng = random.Random()
         new.rng.setstate(self.rng.getstate())
         new.seed = self.seed
-        new.cards = self.cards  # immutable card definitions, safe to share
-        new.kingdom = self.kingdom  # never mutated after __init__, safe to share
+        new.cards = self.cards
+        new.kingdom = self.kingdom
         new.num_players = self.num_players
         new.supply = dict(self.supply)
         new.trash = list(self.trash)
@@ -154,8 +132,8 @@ class Game:
         new.turn_silver_played = self.turn_silver_played
         new.pending_gen = None
         new.pending_decision = None
-        new._resolving = list(self._resolving)  # always empty here (no live generator), copied for safety
-        new.action_log = []  # search clones don't need history
+        new._resolving = list(self._resolving)
+        new.action_log = []
         return new
 
     # ------------------------------------------------------------- step ---
@@ -174,10 +152,7 @@ class Game:
             self._handle_phase_action(action)
 
     def _stamp_source(self) -> None:
-        """Tag the decision that just surfaced with the card whose effect
-        raised it. `_resolving` is a stack, so a Throne Room replaying a
-        Militia, or a Vassal playing a Sentry, attributes the choice to the
-        inner card actually asking the question."""
+        """Tag the new decision with the innermost card resolving (Throne Room's Militia, not the Throne Room)."""
         if self.pending_decision is not None and self._resolving:
             self.pending_decision.source_card = self._resolving[-1]
 
@@ -234,8 +209,7 @@ class Game:
 
     # ----------------------------------------------------- card effects ---
     def resolve_action(self, player_idx: int, card_name: str) -> Generator[Decision, Action, None]:
-        """Apply an Action card's flat bonuses plus its effect. Shared by a
-        normal PLAY, and by Throne Room / Vassal replaying a card."""
+        """An Action's bonuses and effect, for a play or a Throne Room/Vassal replay."""
         card = self.cards[card_name]
         player = self.players[player_idx]
         self._resolving.append(card_name)
@@ -262,10 +236,7 @@ class Game:
             player.coins += self.turn_merchant_bonus
 
     def _auto_play_treasures(self, player_idx: int) -> None:
-        """All Treasures in hand are played the instant the Buy phase starts.
-        At this stage there's never a reason to hold one back, and always
-        maximizing coins keeps the action space smaller (no more manual
-        PLAY(Copper) x N) for a policy that only needs to decide what to buy."""
+        """Every Treasure is played as the Buy phase starts: there's never a reason to hold one."""
         player = self.players[player_idx]
         for name in list(player.hand):
             if CardType.TREASURE in self.cards[name].types:
@@ -293,12 +264,7 @@ class Game:
         player.coins = 0
         player.turns_taken += 1
 
-        # Real Dominion evaluates the end condition during Cleanup, once the
-        # turn is fully over -- not the instant a pile empties mid-turn.
-        # Checking here (rather than after every step) is what lets the
-        # player who empties the last pile actually finish their turn: spend
-        # remaining buys, and have this turn counted in `turns_taken`, which
-        # drives winners()' fewest-turns tie-break.
+        # The game ends at the end of a turn, not when a pile empties mid-turn.
         if self._game_over_condition_met():
             self.phase = Phase.GAME_OVER
             return
@@ -314,8 +280,7 @@ class Game:
         next_player.buys = 1
 
     def _game_over_condition_met(self) -> bool:
-        """The Province pile is gone, or any three supply piles are. Only
-        meaningful during Cleanup -- see `_cleanup_and_advance`."""
+        """The Provinces, or any three supply piles, are gone."""
         if self.supply.get("Province", 0) == 0:
             return True
         return sum(1 for count in self.supply.values() if count == 0) >= 3

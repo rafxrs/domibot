@@ -7,8 +7,7 @@ from .enums import DecisionKind
 
 
 class Action(NamedTuple):
-    """An atomic, hashable choice. `card` is a card name, or None for
-    verbs that don't target a card (END_ACTIONS, END_BUY, YES, NO, DONE)."""
+    """A hashable choice: a verb and a card name, or None for verbs like DONE or END_BUY."""
 
     verb: str
     card: Optional[str] = None
@@ -27,10 +26,7 @@ NO_REVEAL = Action("NO_REVEAL")
 
 
 class LogEntry(NamedTuple):
-    """One action taken during a game, for replay or saving to a log file.
-    `hand` is a snapshot of the deciding player's hand immediately *before*
-    `action` was taken, sorted for readability (hand order isn't meaningful
-    in Dominion) — it's what the decision was actually made from."""
+    """One action taken, with the decider's hand (sorted) just before it."""
 
     turn: int
     player: int
@@ -40,17 +36,11 @@ class LogEntry(NamedTuple):
 
 @dataclass
 class Decision:
-    """A pending choice some player must make before the game can advance.
-    `options` is the full set of legal Actions for this decision, computed
-    up front so an agent (or random playout) never has to guess legality."""
+    """A pending choice; `options` are its legal Actions."""
 
     kind: DecisionKind
     player: int
     prompt: str
     options: list[Action] = field(default_factory=list)
-    # Which card's effect raised this choice, stamped by Game as the
-    # decision surfaces (see Game._stamp_source). Without it, "Chapel:
-    # trash junk" and "Remodel: trash your best card to upgrade it" are
-    # indistinguishable to anything reading the state -- same kind, same
-    # options -- so no observer, human or network, can tell them apart.
+    # The card whose effect raised it (Chapel's trash and Remodel's otherwise look alike).
     source_card: Optional[str] = None

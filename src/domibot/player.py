@@ -11,8 +11,7 @@ class PlayerState:
     hand: list[str] = field(default_factory=list)
     discard: list[str] = field(default_factory=list)
     play_area: list[str] = field(default_factory=list)
-    # Cards temporarily out of all normal zones mid-resolution (Library).
-    set_aside: list[str] = field(default_factory=list)
+    set_aside: list[str] = field(default_factory=list)  # out of every other zone mid-effect (Library, Sentry)
 
     actions: int = 0
     buys: int = 0
@@ -37,9 +36,7 @@ class PlayerState:
         return self.deck + self.hand + self.discard + self.play_area + self.set_aside
 
     def total_cards(self) -> int:
-        """Every card this player owns, in any zone -- NOT the draw pile
-        (that is `len(self.deck)`). Named `deck_size` until it turned out
-        the RL encoder was reading it as a draw-pile count."""
+        """Every card owned, in any zone (the draw pile is `len(self.deck)`)."""
         return len(self.all_cards())
 
     def victory_points(self, card_lookup) -> int:

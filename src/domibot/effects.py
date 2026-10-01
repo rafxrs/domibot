@@ -1,9 +1,4 @@
-"""Reusable building blocks for card effect generators.
-
-Every helper here either mutates game/player state directly, or is itself a
-generator that `yield`s Decision objects and is meant to be driven with
-`yield from` inside a card's effect generator.
-"""
+"""Building blocks for card effects: state changes, and choices to `yield from`."""
 from __future__ import annotations
 
 import inspect
@@ -51,9 +46,8 @@ def choose_cards(
     min_count: int = 0,
     max_count: Optional[int] = None,
 ) -> Generator[Decision, Action, list[str]]:
-    """Repeatedly offer the remaining candidates (deduped by name, one option
-    per distinct card name) plus a DONE option once `min_count` is met.
-    Returns the list of chosen card names, in choice order."""
+    """Choose cards one at a time (one option per distinct name), with DONE once
+    `min_count` are chosen; returns them in choice order."""
     chosen: list[str] = []
     remaining = list(candidates)
     limit = len(remaining) if max_count is None else max_count
@@ -108,10 +102,8 @@ def yes_no(player_idx: int, prompt: str) -> Generator[Decision, Action, bool]:
 
 
 def attack_each_opponent(game, attacker_idx: int, per_opponent) -> Generator[Decision, Action, None]:
-    """`per_opponent(game, opponent_idx)` runs for every opponent who doesn't
-    reveal a Moat; it may be a plain function (e.g. Witch's curse-gain has no
-    decision to make) or a generator (e.g. Bureaucrat's topdeck choice).
-    Handles the Moat reaction itself."""
+    """Run `per_opponent(game, opponent_idx)` (a function or a generator) on each
+    opponent who doesn't reveal a Moat."""
     for opp in game.other_players_in_order(attacker_idx):
         opp_state = game.players[opp]
         if "Moat" in opp_state.hand:
@@ -130,8 +122,7 @@ def attack_each_opponent(game, attacker_idx: int, per_opponent) -> Generator[Dec
 
 
 def peek_top(game, player) -> Optional[str]:
-    """Look at (without removing) the top card of `player`'s deck, reshuffling
-    discard into deck first if the deck is empty."""
+    """The deck's top card, left in place; an empty deck reshuffles the discard first."""
     if not player.deck:
         if not player.discard:
             return None
