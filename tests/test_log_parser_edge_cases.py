@@ -13,7 +13,7 @@ from domibot.enums import DecisionKind
 from training.log_parser import parse_dominion_log
 from training.mcts import materialize
 from training.relay import (TableState, reconstruct_game, reconstruct_opponent_turn_boundary, replay_open_play,
-                            resolve_card_name)
+                            resolve_card_name, table_state)
 
 ME = "domibot_v1.4"
 
@@ -378,17 +378,7 @@ The game has ended."""
 
 
 def _state(parsed, kingdom) -> TableState:
-    return TableState(
-        kingdom=kingdom, supply=parsed.supply, trash=parsed.trash,
-        my_hand=parsed.my_hand, my_discard=parsed.my_discard, my_play_area=parsed.my_play_area,
-        my_total=parsed.my_total, my_actions=parsed.my_actions, my_buys=parsed.my_buys,
-        my_coins=parsed.my_coins, my_phase=parsed.my_phase, my_turns_taken=parsed.my_turns_taken,
-        opp_discard=parsed.opp_discard, opp_play_area=parsed.opp_play_area,
-        opp_hand_size=parsed.opp_hand_size, opp_draw_pile_size=parsed.opp_draw_pile_size,
-        my_deck_top=parsed.my_deck_top or [], opp_deck_top=parsed.opp_deck_top or [],
-        opp_known_hand=parsed.opp_known_hand or [],
-        my_merchant_bonus=parsed.my_merchant_bonus or 0, my_silver_played=bool(parsed.my_silver_played),
-    )
+    return table_state(parsed, kingdom)
 
 
 def _prefixes(log: str, pred):
