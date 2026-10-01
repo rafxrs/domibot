@@ -8,10 +8,11 @@ line. The log is replayed (`training/log_parser.py`) to rebuild what you can
 see (`training/relay.py`), and the advisor recommends your move: what to play
 or buy, or the choice waiting inside a card (yours, or the opponent's attack).
 A choice made in several steps with nothing revealed between them (Chapel's
-trashes) is shown as one sequence. If the log can't be followed, whatever it
-did derive is offered as editable defaults for manual entry; paste nothing to
-enter everything by hand. With nothing playable it ends your Action phase for
-you, as dominion.games does. Card lists accept short codes ('POA', 'CR'; see
+trashes) is shown as one sequence. A choice of nothing (Chapel trashing
+nothing) leaves no line in the log, so the move after it is shown too. If the
+log can't be followed, whatever it did derive is offered as editable defaults
+for manual entry; paste nothing to enter everything by hand. With nothing
+playable it ends your Action phase for you, as dominion.games does. Card lists accept short codes ('POA', 'CR'; see
 --list-abbreviations). Ctrl+C quits.
 
 The recommendation comes from MCTS on the network, which in practice picks
@@ -28,7 +29,7 @@ from pathlib import Path
 import torch
 
 from domibot import Action, Phase
-from domibot.models import END_ACTIONS
+from domibot.models import DONE, END_ACTIONS, NO
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from examples.common import DEFAULT_CHECKPOINT, load_network  # noqa: E402
@@ -40,6 +41,7 @@ from training.relay import (CARD_ABBREVIATIONS, TableState, reconstruct_game,  #
 _LEADING_COUNT = re.compile(r"^(\d+)x?$", re.IGNORECASE)
 _TRAILING_COUNT = re.compile(r"^(.+?)x(\d+)$", re.IGNORECASE)
 _FRESH_SUPPLY = {"Copper": 46, "Silver": 40, "Gold": 30, "Estate": 8, "Duchy": 8, "Province": 8, "Curse": 10}
+_DECLINES = {DONE, NO, Action("NONE")}  # choosing nothing, which dominion.games doesn't log
 
 
 def _try_resolve(token: str) -> str | None:
@@ -180,18 +182,24 @@ def print_recommendation(root) -> None:
     print(f"\n==> recommended: {select_action(root, temperature=0.0)}\n")
 
 
-def recommend(state: TableState, network: torch.nn.Module, simulations: int, device: torch.device) -> None:
-    game = reconstruct_game(state)
+def recommend(game, network: torch.nn.Module, simulations: int, device: torch.device) -> None:
+    """Your phase action in `game`."""
     if game.phase == Phase.ACTION and game.legal_actions() == [END_ACTIONS]:  # as dominion.games skips it
         game.step(END_ACTIONS)
         print("(no action cards playable -- auto-ending your action phase)")
     print_recommendation(run_mcts(game, network, simulations, device=device))
 
 
+def _revealed(before, after) -> bool:
+    """Whether anything random (a shuffle or a draw) happened between two states."""
+    return after.rng.getstate() != before.rng.getstate() or len(after.players[0].deck) < len(before.players[0].deck)
+
+
 def recommend_choice(boundary, path: list[Action], network: torch.nn.Module, simulations: int,
                      device: torch.device) -> None:
     """A choice inside a card's effect, reached by replaying `path` from `boundary`,
-    followed by its later steps while nothing new is revealed in between."""
+    followed by its later steps while nothing new is revealed in between, and by your
+    next move when the whole choice is a choice of nothing."""
     game = materialize(boundary, path)
     print(f"\n{game.pending_decision.prompt}")
     root = run_mcts(boundary, network, simulations, device=device, path=path)
@@ -200,15 +208,18 @@ def recommend_choice(boundary, path: list[Action], network: torch.nn.Module, sim
     before = game
     while len(chain) < 12:
         after = materialize(boundary, path + chain)
-        revealed = after.rng.getstate() != before.rng.getstate() or \
-            len(after.players[0].deck) < len(before.players[0].deck)
-        if after.pending_decision is None or after.pending_decision.player != 0 or revealed:
+        if after.pending_decision is None or after.pending_decision.player != 0 or _revealed(before, after):
             break
         chain.append(select_action(run_mcts(boundary, network, simulations, device=device, path=path + chain),
                                    temperature=0.0))
         before = after
     if len(chain) > 1:
         print("==> the whole choice: " + ", ".join(str(a) for a in chain) + "\n")
+    done = materialize(boundary, path + chain)
+    if set(chain) <= _DECLINES and done.pending_decision is None and done.current_player == 0 \
+            and not _revealed(game, done):
+        print("(choosing nothing leaves no line in the log, so here's your move after it)")
+        recommend(done, network, simulations, device)
 
 
 def recommend_pending_reaction(state: TableState, parsed, network: torch.nn.Module, simulations: int,
@@ -269,7 +280,7 @@ def advise_from_log(parsed, kingdom: list[str], network, simulations: int, devic
                   f"-- the recommendation below assumes it has finished)")
     print("Everything needed was fully derived from the log -- here's the recommendation:")
     try:
-        recommend(table_state(parsed, kingdom), network, simulations, device)
+        recommend(reconstruct_game(table_state(parsed, kingdom)), network, simulations, device)
         return True
     except ValueError as e:
         print(f"\nThe log-derived state doesn't add up: {e}\n"
@@ -322,7 +333,7 @@ def main() -> None:
                 supply = prompt_supply(kingdom, previous=supply)
             state = prompt_table_state(kingdom, supply, table_state(parsed, kingdom, supply))
             try:
-                recommend(state, network, args.simulations, device)
+                recommend(reconstruct_game(state), network, args.simulations, device)
             except ValueError as e:
                 print(f"\nInput doesn't add up: {e}\n")
     except (KeyboardInterrupt, EOFError):

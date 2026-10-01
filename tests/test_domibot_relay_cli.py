@@ -64,7 +64,7 @@ def test_recommend_auto_skips_action_phase_with_no_playable_cards(capsys):
     from domibot import Game
     from examples.domibot_relay import recommend
     from training.network import DomibotNet
-    from training.relay import TableState
+    from training.relay import TableState, reconstruct_game
 
     kingdom = ["Bandit", "Festival", "Library", "Artisan", "Vassal",
                "Bureaucrat", "Moneylender", "Remodel", "Cellar", "Harbinger"]
@@ -79,11 +79,35 @@ def test_recommend_auto_skips_action_phase_with_no_playable_cards(capsys):
     )
     net = DomibotNet()
     net.eval()
-    recommend(state, net, simulations=10, device=torch.device("cpu"))
+    recommend(reconstruct_game(state), net, simulations=10, device=torch.device("cpu"))
 
     out = capsys.readouterr().out
     assert "auto-ending your action phase" in out
     assert "recommended: END_ACTIONS" not in out
+
+
+def test_a_choice_of_nothing_also_recommends_the_next_move(capsys, monkeypatch):
+    # dominion.games logs no line for Chapel trashing nothing, so the move after it is shown too.
+    import torch
+
+    import examples.domibot_relay as cli
+    from domibot import Action, Game
+    from domibot.models import DONE
+    from training.network import DomibotNet
+    from training.relay import TableState, reconstruct_game
+
+    kingdom = ["Chapel", "Festival", "Library", "Artisan", "Vassal", "Bureaucrat", "Moneylender", "Remodel",
+               "Cellar", "Harbinger"]
+    supply = {**Game(kingdom, num_players=2, seed=0).supply, "Chapel": 9}
+    state = TableState(kingdom=kingdom, supply=supply, trash=[], my_discard=[],
+                       my_hand=["Chapel", "Copper", "Copper", "Copper", "Estate"],
+                       my_total=["Copper"] * 7 + ["Estate"] * 3 + ["Chapel"])
+    boundary, net = reconstruct_game(state, seed=0), DomibotNet().eval()
+    for pick, moves_shown in ((DONE, 2), (Action("TRASH", "Estate"), 1)):
+        monkeypatch.setattr(cli, "select_action", lambda root, temperature, pick=pick:
+                            pick if pick in root.legal_actions else root.legal_actions[-1])
+        cli.recommend_choice(boundary, [Action("PLAY", "Chapel")], net, simulations=4, device=torch.device("cpu"))
+        assert capsys.readouterr().out.count("==> recommended:") == moves_shown
 
 
 def test_prompt_multiline_ignores_spurious_leading_blank_line(monkeypatch):
