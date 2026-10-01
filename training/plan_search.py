@@ -24,10 +24,10 @@ doesn't outrank a plan proven over many. The best few are then re-scored
 on fresh games, since the search's own score for its winner is still
 biased upward.
 
-    python -m training.plan_search checkpoints/domibot2/domibot2.3.pt --boards 12 --workers 7
-    python -m training.plan_search checkpoints/domibot2/domibot2.3.pt --home "Throne Room" Village Smithy
-    python -m training.plan_search checkpoints/domibot2/domibot2.3.pt --kingdom Cellar Chapel ...
-    python -m training.plan_search checkpoints/domibot2/domibot2.3.pt --boards 12 --network-plays
+    python -m training.plan_search checkpoints/domibot2/domibot2.4.pt --boards 12 --workers 7
+    python -m training.plan_search checkpoints/domibot2/domibot2.4.pt --home "Throne Room" Village Smithy
+    python -m training.plan_search checkpoints/domibot2/domibot2.4.pt --kingdom Cellar Chapel ...
+    python -m training.plan_search checkpoints/domibot2/domibot2.4.pt --boards 12 --network-plays
 
 Each board's result is printed and appended to `--out` as a JSON line.
 """

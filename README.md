@@ -1,6 +1,6 @@
 # domibot
 
-A Dominion (base set) rules engine, and **domibot2.3**, a bot trained on it
+A Dominion (base set) rules engine, and **domibot2.4**, a bot trained on it
 with reinforcement learning (PPO). Play against it in a terminal or a
 pygame window, or get its recommendations while you play a real game
 online. Every point in the engine is one player choosing one action from an
@@ -14,22 +14,21 @@ Laboratory → Laboratory → Militia.*
 
 ## Results
 
-`domibot2.3`'s raw policy (no search), on random kingdoms, each played from
+`domibot2.4`'s raw policy (no search), on random kingdoms, each played from
 both seats:
 
 | opponent | games | W–L–T | score (95% CI) |
 |---|---|---|---|
-| Big Money | 400 | 380–17–3 | 95.4% (93–97%) |
-| Big Money + the kingdom's best terminal Action | 2000 | 1554–385–61 | 79.2% (77–81%) |
-| `domibot2.2`, the previous release | 2000 | 965–938–97 | 50.7% (48–53%) |
-| `domibot_v4.4`, the best AlphaZero-style checkpoint, searching the true game state (100 simulations per move) | 200 | 175–23–2 | 88.0% (83–92%) |
+| Big Money | 400 | 381–18–1 | 95.4% (93–97%) |
+| Big Money + the kingdom's best terminal Action | 2000 | 1586–376–38 | 80.2% (78–82%) |
+| `domibot2.3`, the previous release | 2000 | 1077–851–72 | 55.6% (54–58%) |
+| `domibot_v4.4`, the best AlphaZero-style checkpoint, searching the true game state (100 simulations per move) | 200 | 180–17–3 | 90.8% (86–94%) |
 
-It's level with 2.2 head to head, but no longer loses a third of its games
-to a simple Workshop/Gardens rush, as 2.2 did (it now wins 87% of them).
-It plays multi-Action turns (Laboratory, Market and Sentry chains), but it
-still doesn't use nine of the 26 kingdom cards, Throne Room and Village
-among them. See [training/README.md](training/README.md) for how it was
-trained and what's being tried next.
+It beats 2.3 head to head. It learned to open Chapel where that pays,
+from buy plans that beat 2.3 on such boards, and scores 61% against 2.3 on
+boards holding Chapel. It plays multi-Action turns (Laboratory, Market,
+Festival and Sentry chains), but still never buys Throne Room. See
+[training/README.md](training/README.md) for how it was trained.
 
 ![Training curve](docs/training_curve.png)
 
@@ -46,18 +45,18 @@ Python 3.10+. `train` pulls in `torch` (CPU build by default — see
 `gui` pulls in `pygame`. Drop either extra you don't need.
 
 The trained model isn't in git (`checkpoints/` is gitignored). Download
-`domibot2.3.pt` from the [Releases page](https://github.com/rafxrs/domibot/releases)
+`domibot2.4.pt` from the [Releases page](https://github.com/rafxrs/domibot/releases)
 into `checkpoints/domibot2/`, where every script looks for it by default:
 
 ```bash
 mkdir -p checkpoints/domibot2
-curl -L -o checkpoints/domibot2/domibot2.3.pt https://github.com/rafxrs/domibot/releases/download/domibot2.3/domibot2.3.pt
+curl -L -o checkpoints/domibot2/domibot2.4.pt https://github.com/rafxrs/domibot/releases/download/domibot2.4/domibot2.4.pt
 ```
 
 ## Play
 
 ```bash
-python examples/play_vs_domibot.py          # against domibot2.3 in the terminal
+python examples/play_vs_domibot.py          # against domibot2.4 in the terminal
 python examples/play_vs_domibot.py --gui    # in a pygame window
 python examples/play_vs_random.py [seed]    # against a random-move bot
 python examples/play_domibot.py --games 20 --players 2   # watch it play itself (2-4 players)
