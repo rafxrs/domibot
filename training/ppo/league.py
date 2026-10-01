@@ -1,29 +1,9 @@
-"""A league of fixed opponents for PPO: part of every iteration's games are
-played against past checkpoints, other networks, and scripted strategies
-instead of the current network, with opponents picked by prioritized
-fictitious self-play (PFSP).
+"""An opponent league for PPO, sampled by prioritized fictitious self-play (PFSP).
 
-Why: continuing domibot2.2 for 2000 more iterations of pure self-play, and
-training a 5x larger network, both landed at exactly 2.2's strength
-(training/README.md, Phase 2). Self-play only ever asks "how do I beat my
-current self?", so once the network is its own best response it stops
-moving -- while it still loses ~23% of games to Big Money + a terminal.
-The earlier opponent pool (`--opponent-pool-*`) only drew this run's own
-recent snapshots, too close to the current network to change that. This
-league mixes in genuinely different play: checkpoints from across the
-training history, a different architecture, the MCTS lineage's network,
-and scripted strategies -- Big Money, and the gauntlet's strategy bots
-(`strategy_bots.py`), each of which only plays on kingdoms holding the
-cards its strategy needs.
-
-PFSP (as in AlphaStar): opponent i is drawn with weight (1 - p_i)^power,
-where p_i is the learner's recent score against it (wins + half of ties,
-Laplace-smoothed, decayed every iteration so it tracks the current
-learner), mixed with a uniform floor so easy opponents still show up.
-Only the learner's own seat produces training data; opponents' moves just
-advance the game (same rule as `rollout.collect_cross_play_rollouts`).
-Network opponents play their own sampled policy; scripted ones their
-`act(game)`.
+Part of each iteration's games are played against fixed opponents (past
+checkpoints, other networks, scripted bots) instead of the learner itself.
+Opponent i is drawn with weight (1 - learner's recent score vs it) ** power,
+mixed with a uniform floor. Only the learner's seat produces training data.
 """
 from __future__ import annotations
 
@@ -34,39 +14,27 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
-import numpy as np
 import torch
 
-from domibot import KINGDOM_CARDS
-
-from .. import encoding
-from ..agents import BigMoneyAgent, BigMoneyTerminalAgent
-from ..env import DominionEnv
-from ..mcts import terminal_value
+from ..env import MAX_MOVES, random_kingdom, terminal_value
 from ..network import DomibotNet
-from ..self_play import DEFAULT_MAX_MOVES, _sample_kingdom
-from ..strategy_bots import ALL_BOTS
-from .gae import Transition, compute_gae
-from .rollout import _step_group
-
-SCRIPTED_OPPONENTS = {"bigmoney": BigMoneyAgent, "bigmoney_terminal": BigMoneyTerminalAgent,
-                      **{bot.name: bot for bot in ALL_BOTS}}
+from ..strategy_bots import SCRIPTED
+from .gae import Transition
+from .rollout import GameBatch
 
 
-@dataclass(eq=False)  # compared and hashed by identity: two opponents can share a network
+@dataclass(eq=False)  # hashed by identity: two opponents can share a network
 class Opponent:
     name: str
     network: Optional[torch.nn.Module] = None  # a frozen network, or
-    agent: object = None  # a scripted Agent: act(game) -> Action
+    agent: object = None  # a scripted agent
     snapshot: bool = False  # a copy of the learner taken during this run
-    home: tuple[str, ...] = ()  # cards every kingdom it plays on must hold (a strategy bot's HOME)
-    # The learner's recent results against it: wins + half of ties, and
-    # games, both decayed every iteration.
-    score: float = 0.0
+    home: tuple[str, ...] = ()  # cards every kingdom it plays on must hold
+    score: float = 0.0  # the learner's recent wins + half its ties against it, decayed
     games: float = 0.0
 
     def learner_score(self) -> float:
-        return (self.score + 1.0) / (self.games + 2.0)  # 0.5 before any games
+        return (self.score + 1.0) / (self.games + 2.0)
 
 
 class League:
@@ -83,8 +51,7 @@ class League:
     def weights(self) -> list[float]:
         hard = [(1.0 - o.learner_score()) ** self.hard_power for o in self.opponents]
         total = sum(hard) or 1.0
-        n = len(self.opponents)
-        return [(1 - self.uniform_mix) * h / total + self.uniform_mix / n for h in hard]
+        return [(1 - self.uniform_mix) * h / total + self.uniform_mix / len(hard) for h in hard]
 
     def sample(self, k: int, rng: random.Random) -> list[Opponent]:
         return rng.choices(self.opponents, weights=self.weights(), k=k)
@@ -103,7 +70,7 @@ class League:
         frozen.eval()
         self.opponents.append(Opponent(name, network=frozen, snapshot=True))
         snapshots = [o for o in self.opponents if o.snapshot]
-        for old in snapshots[: max(len(snapshots) - self.max_snapshots, 0)]:
+        for old in snapshots[:max(len(snapshots) - self.max_snapshots, 0)]:
             self.opponents.remove(old)
 
     def summary(self) -> str:
@@ -112,105 +79,53 @@ class League:
 
 
 def load_league(checkpoints: list[str], scripted: list[str], device: torch.device, **kwargs) -> League:
-    """`checkpoints` are paths or glob patterns of DomibotNet checkpoints
-    (any size, with or without the public-feature inputs); `scripted` are
-    keys of SCRIPTED_OPPONENTS."""
-    opponents: list[Opponent] = []
+    """`checkpoints`: paths or glob patterns; `scripted`: keys of `strategy_bots.SCRIPTED`."""
+    opponents = []
     for pattern in checkpoints:
-        paths = sorted(glob.glob(pattern)) or [pattern]
-        for path in paths:
+        for path in sorted(glob.glob(pattern)) or [pattern]:
             if not Path(path).exists():
                 raise FileNotFoundError(f"league checkpoint not found: {path}")
             net = DomibotNet.load(path, map_location=device).to(device)
             net.eval()
             opponents.append(Opponent(Path(path).stem, network=net))
     for key in scripted:
-        cls = SCRIPTED_OPPONENTS[key]
+        cls = SCRIPTED[key]
         opponents.append(Opponent(key, agent=cls(), home=tuple(getattr(cls, "HOME", ()))))
     return League(opponents, **kwargs)
 
 
-def _step_scripted(idxs: list[int], agent, envs: list[DominionEnv], obs_list: list[np.ndarray],
-                   mask_list: list[np.ndarray], active: list[bool], game_over: list[bool]) -> None:
-    """`_step_group` for a scripted agent: one `act(game)` per game."""
-    for i in idxs:
-        env = envs[i]
-        action_idx = encoding.action_to_index(agent.act(env.game))
-        obs, _reward, terminated, truncated, _info = env.step(action_idx)
-        if terminated or truncated:
-            active[i] = False
-            game_over[i] = terminated
-        else:
-            obs_list[i] = obs["observation"]
-            mask_list[i] = obs["action_mask"]
-
-
-def collect_league_rollouts(
-    network: torch.nn.Module,
-    opponents: list[Opponent],
-    max_moves: int = DEFAULT_MAX_MOVES,
-    device: Optional[torch.device] = None,
-    seed: int | None = None,
-    min_sub_decision_cards: int = 0,
-    reward_fn: Callable = terminal_value,
-    gamma: float = 1.0,
-    lam: float = 0.95,
-) -> tuple[list[list[Transition]], list[float]]:
-    """One 2-player game per entry of `opponents`, the learner (`network`)
-    in a random seat, on a random kingdom holding the opponent's `home`
-    cards if it has any. Returns each game's learner-only `Transition`s (GAE
-    filled in) and the learner's result in it: 1 win, 0.5 tie (or a game
-    cut off at `max_moves`), 0 loss."""
-    if device is None:
-        device = next(network.parameters()).device
+def collect_league_rollouts(network: torch.nn.Module, opponents: list[Opponent], max_moves: int = MAX_MOVES,
+                            device: Optional[torch.device] = None, seed: int | None = None,
+                            reward_fn: Callable = terminal_value, gamma: float = 1.0,
+                            lam: float = 0.95) -> tuple[list[list[Transition]], list[float]]:
+    """One game per entry of `opponents`, the learner in a random seat, on a kingdom
+    holding the opponent's `home` cards. Returns the learner's transitions per game
+    and its results (1 win, 0.5 tie or cut off, 0 loss)."""
+    device = device or next(network.parameters()).device
     master_rng = random.Random(seed)
-    # Every network reads a prefix of the full encoding (DomibotNet.forward),
-    # so one encoding serves learner and opponents alike.
     full_obs = any(getattr(net, "extra_dim", 0) for net in [network] + [o.network for o in opponents if o.network])
-
-    envs: list[DominionEnv] = []
-    obs_list: list[np.ndarray] = []
-    mask_list: list[np.ndarray] = []
-    seat: list[int] = []
+    boards, seat = [], []
     for opponent in opponents:
         g_seed = master_rng.randrange(2**31)
-        env = DominionEnv(num_players=2, max_steps=max_moves, reward_fn=reward_fn, full_obs=full_obs)
-        kingdom_rng = random.Random(g_seed)
-        if opponent.home:
-            rest = [c for c in KINGDOM_CARDS if c not in opponent.home]
-            kingdom = list(opponent.home) + kingdom_rng.sample(rest, 10 - len(opponent.home))
-        else:
-            kingdom = _sample_kingdom(kingdom_rng, min_sub_decision_cards)
-        obs, _info = env.reset(kingdom=kingdom, seed=g_seed)
-        envs.append(env)
-        obs_list.append(obs["observation"])
-        mask_list.append(obs["action_mask"])
+        boards.append((random_kingdom(random.Random(g_seed), opponent.home), g_seed))
         seat.append(master_rng.randrange(2))
-
-    n = len(opponents)
-    transitions_per_game: list[list[Transition]] = [[] for _ in range(n)]
-    game_over = [False] * n
-    active = [True] * n
-    while any(active):
-        idxs = [i for i in range(n) if active[i]]
-        own = [i for i in idxs if envs[i].game.current_decider() == seat[i]]
-        theirs = [i for i in idxs if envs[i].game.current_decider() != seat[i]]
-        _step_group(own, network, envs, obs_list, mask_list, transitions_per_game, active, game_over, device,
-                    record=True)
+    batch = GameBatch(boards, max_moves, reward_fn, full_obs)
+    while idxs := batch.running():
+        mine = [i for i in idxs if batch.envs[i].game.current_decider() == seat[i]]
+        theirs = [i for i in idxs if batch.envs[i].game.current_decider() != seat[i]]
+        batch.step_network(mine, network, device)
         by_opponent: dict[int, list[int]] = {}
         for i in theirs:
             by_opponent.setdefault(id(opponents[i]), []).append(i)
         for group in by_opponent.values():
             opponent = opponents[group[0]]
             if opponent.network is not None:
-                _step_group(group, opponent.network, envs, obs_list, mask_list, transitions_per_game, active,
-                            game_over, device, record=False)
+                batch.step_network(group, opponent.network, device, record=False)
             else:
-                _step_scripted(group, opponent.agent, envs, obs_list, mask_list, active, game_over)
-
-    results: list[float] = []
-    for i in range(n):
-        compute_gae(transitions_per_game[i], envs[i].game, game_over[i], gamma=gamma, lam=lam, reward_fn=reward_fn)
-        winners = envs[i].game.winners() if game_over[i] else []
-        results.append(0.5 if not game_over[i] or len(winners) != 1 else float(winners[0] == seat[i]))
-    return transitions_per_game, results
+                batch.step_agent(group, opponent.agent)
+    transitions = batch.finish(gamma, lam)
+    results = []
+    for i, env in enumerate(batch.envs):
+        winners = env.game.winners() if batch.game_over[i] else []
+        results.append(0.5 if len(winners) != 1 else float(winners[0] == seat[i]))
+    return transitions, results

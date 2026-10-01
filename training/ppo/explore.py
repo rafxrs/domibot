@@ -1,31 +1,12 @@
-"""Exploration that doesn't die out once the policy stops buying a card.
+"""Steering: in a share of the self-play games, players' buys follow whole buy plans.
 
-On-policy PPO only learns about a card from games where the policy itself
-bought it. A card bought before the policy can play it well loses to
-Silver and Gold, its buy probability falls toward zero, and after that no
-game ever holds it again, so nothing can find out what it's worth.
-`domibot2.2` lost Throne Room, Village and Chapel this way (see
-training/README.md, "Card use"). Steering one or two random cards into its
-early buys didn't bring them back: those decks were incoherent and lost,
-and an engine only pays as a whole. Neither did a minimum buy probability
-for every affordable kingdom card: on a trained policy it collapsed play
-within 25 iterations. So, only while collecting training games (evals and
-real play are unaffected):
-
-**Steered players** (`ExploreConfig`, `steer`): in a share of the games,
-every player's buys during its first K turns (1 to `turn_limit`, drawn
-per player) follow a whole buy plan (`plan_search.Plan`) for the board.
-Half the time it's an engine when the board has a village and a draw card;
-otherwise Big Money with one or two copies of one kingdom card, or a
-Gardens rush. Every player is steered because a steered engine loses most
-games to the policy's own buying, which says little about how well it was
-played; against another steered deck, how it's played decides. With
-`plans`, one player follows a plan found by plan search instead, on its
-own board, against the policy's own buying. Every decision besides the
-plan's buys, every card played and every choice, is the policy's own, so
-it learns to play those decks, and the value head learns what they're
-worth. The plan's buys aren't the policy's choice, so PPO doesn't train
-on them; `ppo_update`'s `imitate` can imitate the ones that paid off.
+On-policy PPO never learns a buy it never makes. Steering makes it for the
+policy, which still plays the cards, so it learns to play decks it wouldn't
+build. Template plans (an engine half the time on boards with a village and a
+draw card, else Big Money plus one kingdom card, or a Gardens rush) steer every
+player for its first 1..`turn_limit` turns, so a weak scripted engine meets
+another steered deck rather than the policy's own buying. Searched plans
+(`plans`) steer one player, on their own board, against the policy's buying.
 """
 from __future__ import annotations
 
@@ -39,9 +20,9 @@ from ..plan_search import Plan, PlanAgent, engine_plans, seed_plans
 
 @dataclass
 class ExploreConfig:
-    frac: float = 0.25  # share of self-play games with one steered player
-    turn_limit: int = 16  # its buys follow the plan during its first K turns, K drawn from 1 to this
-    plans: tuple = ()  # (board, Plan) pairs to steer with, each on its board; empty: plans for the game's own board
+    frac: float = 0.25  # share of self-play games that are steered
+    turn_limit: int = 16  # buys follow the plan for the first K turns, K drawn from 1..turn_limit
+    plans: tuple = ()  # searched (board, Plan) pairs; empty: template plans for each game's board
 
 
 @dataclass
@@ -49,15 +30,13 @@ class SteeredPlayer:
     seat: int
     turns: int
     plan: Plan
-    engine: bool = False  # the plan is one of plan_search.engine_plans
-    board: list[str] | None = None  # the board the game must be played on, for a searched plan
+    engine: bool = False  # one of plan_search.engine_plans
+    board: list[str] | None = None  # a searched plan's board, which the game must use
 
 
 def make_steered(kingdom: list[str], num_players: int, config: ExploreConfig,
                  rng: random.Random) -> list[SteeredPlayer]:
-    """The steered players for one game: none (a normal game) with
-    probability 1 - `config.frac`; else one player with a searched plan if
-    `config.plans`, or every player with its own plan for `kingdom`."""
+    """No one (a normal game), one player with a searched plan, or every player with a template."""
     if rng.random() >= config.frac:
         return []
     if config.plans:
@@ -85,8 +64,7 @@ def steer(game: Game, steered: list[SteeredPlayer]) -> Action | None:
 
 
 def focus_seat(steered: list[SteeredPlayer]) -> int | None:
-    """The steered player whose results are logged (`steered_won`): a
-    searched plan's player, or the only engine among plans for the board."""
+    """Whose result `steered_won` logs: a searched plan's player, or the only engine player."""
     focus = steered if len(steered) == 1 else [s for s in steered if s.engine]
     return focus[0].seat if len(focus) == 1 else None
 

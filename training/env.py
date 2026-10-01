@@ -1,26 +1,12 @@
-"""A Gym-style wrapper around domibot.Game.
+"""A Gym-style wrapper around `domibot.Game`, plus the shared reward functions.
 
-Not a subclass of gymnasium.Env (no dependency on the gymnasium package),
-but it follows the same shape (reset -> obs/info, step -> obs/reward/
-terminated/truncated/info) so wrapping it for a specific RL library later
-is mechanical.
-
-Dominion is inherently a variable-legal-actions game (what you can do
-depends on the phase, your hand, and any card effect currently resolving),
-so this uses the standard masked-discrete-action pattern: the action space
-is `encoding.NUM_ACTIONS` fixed slots, and every observation carries an
-`action_mask` alongside it. A policy should never sample a masked-out
-action — `DominionEnv.step` raises if you do.
-
-It's also inherently multi-agent / turn-based: `step` always acts on
-behalf of whichever player currently must decide (`Game.current_decider()`,
-which is the active player during their own turn, or an opponent reacting
-to an attack). The observation returned is always from the perspective of
-whoever must decide *next*, so a self-play loop just needs to route each
-successive observation to whichever policy controls that seat.
+`step` always acts for whoever must decide now (the active player, or an
+opponent answering an attack), and each observation is from the next
+decider's point of view, with a mask over `encoding.ACTION_VOCAB`.
 """
 from __future__ import annotations
 
+import math
 import random
 from typing import Callable, Optional
 
@@ -30,19 +16,37 @@ from domibot import Game, KINGDOM_CARDS
 
 from . import encoding
 
-Observation = dict  # {"observation": np.ndarray[OBS_DIM], "action_mask": np.ndarray[NUM_ACTIONS] bool}
+MAX_MOVES = 1000  # decision cap for a training game
+MARGIN_SCALE = 10.0  # a 10-VP margin is worth tanh(1) ~ 0.76
+
+Observation = dict  # {"observation": np.ndarray, "action_mask": np.ndarray[bool]}
+
+
+def random_kingdom(rng: random.Random, home: tuple[str, ...] | list[str] = ()) -> list[str]:
+    """`home` plus random kingdom cards up to 10."""
+    rest = [c for c in KINGDOM_CARDS if c not in home]
+    return list(home) + rng.sample(rest, 10 - len(home))
+
+
+def terminal_value(game: Game, perspective: int) -> float:
+    """tanh of `perspective`'s score minus the other players' mean, over MARGIN_SCALE."""
+    scores = game.get_scores()
+    others = [s for p, s in scores.items() if p != perspective]
+    return math.tanh((scores[perspective] - sum(others) / len(others)) / MARGIN_SCALE)
+
+
+def win_weighted_value(game: Game, perspective: int, win_weight: float = 0.8) -> float:
+    """`win_weight` x win/loss (+1/-1, 0 for a tie) plus the rest as `terminal_value`."""
+    winners = game.winners()
+    result = 0.0 if len(winners) != 1 else (1.0 if winners[0] == perspective else -1.0)
+    return win_weight * result + (1.0 - win_weight) * terminal_value(game, perspective)
 
 
 class DominionEnv:
     def __init__(self, num_players: int = 2, max_steps: int = 100_000,
                  reward_fn: Optional[Callable[[Game, int], float]] = None, full_obs: bool = False):
-        """`reward_fn(game, player_idx)`, called only at a terminal step,
-        overrides the default +1/-1/0 win/loss/tie reward -- e.g. pass
-        `mcts.terminal_value` for a margin-based reward that still
-        distinguishes a nail-biter from a blowout, the way the MCTS
-        lineage's value targets already do. Leave unset for the original
-        behavior. `full_obs` emits `encoding.encode_full_observation`
-        (base encoding + public extras) instead of the base encoding."""
+        """`reward_fn(game, player)` replaces the +1/-1/0 terminal reward; `full_obs`
+        emits `encoding.encode_full_observation` instead of the base encoding."""
         self.num_players = num_players
         self.max_steps = max_steps
         self.reward_fn = reward_fn
@@ -51,9 +55,7 @@ class DominionEnv:
         self._steps = 0
 
     def reset(self, kingdom: Optional[list[str]] = None, seed: Optional[int] = None) -> tuple[Observation, dict]:
-        rng = random.Random(seed)
-        if kingdom is None:
-            kingdom = rng.sample(list(KINGDOM_CARDS), 10)
+        kingdom = kingdom or random_kingdom(random.Random(seed))
         self.game = Game(kingdom, num_players=self.num_players, seed=seed)
         self._steps = 0
         return self._observe(), {"kingdom": kingdom}
@@ -65,38 +67,23 @@ class DominionEnv:
         legal = self.game.legal_actions()
         if action not in legal:
             raise ValueError(f"action {action!r} is not legal right now (legal: {legal})")
-
         actor = self.game.current_decider()
         self.game.step(action)
         self._steps += 1
-
         terminated = self.game.is_game_over()
-        truncated = (not terminated) and self._steps >= self.max_steps
-        reward = self._reward_for(actor) if terminated else 0.0
+        truncated = not terminated and self._steps >= self.max_steps
+        info = {"scores": self.game.get_scores(), "winners": self.game.winners()} if terminated else {}
+        return self._observe(), self._reward_for(actor) if terminated else 0.0, terminated, truncated, info
 
-        info: dict = {}
-        if terminated:
-            info["scores"] = self.game.get_scores()
-            info["winners"] = self.game.winners()
-
-        return self._observe(), reward, terminated, truncated, info
-
-    def _reward_for(self, player_idx: int) -> float:
-        """Sparse terminal reward from `player_idx`'s perspective. Reward
-        is 0 on every non-terminal step regardless. Default: +1 win, -1
-        loss, 0 tie; overridden by `self.reward_fn` if set."""
+    def _reward_for(self, player: int) -> float:
         if self.reward_fn is not None:
-            return self.reward_fn(self.game, player_idx)
+            return self.reward_fn(self.game, player)
         winners = self.game.winners()
-        if len(winners) != 1:
-            return 0.0
-        return 1.0 if winners[0] == player_idx else -1.0
+        return 0.0 if len(winners) != 1 else (1.0 if winners[0] == player else -1.0)
 
     def _observe(self) -> Observation:
-        player = self.game.current_decider() if not self.game.is_game_over() else self.game.current_player
+        over = self.game.is_game_over()
+        player = self.game.current_player if over else self.game.current_decider()
         encode = encoding.encode_full_observation if self.full_obs else encoding.encode_observation
-        return {
-            "observation": encode(self.game, player),
-            "action_mask": encoding.legal_action_mask(self.game) if not self.game.is_game_over()
-            else np.zeros(encoding.NUM_ACTIONS, dtype=bool),
-        }
+        mask = np.zeros(encoding.NUM_ACTIONS, dtype=bool) if over else encoding.legal_action_mask(self.game)
+        return {"observation": encode(self.game, player), "action_mask": mask}

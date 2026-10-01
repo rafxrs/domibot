@@ -1,15 +1,6 @@
-"""PPO self-play training loop for domibot 2 -- see training/ppo/__init__.py
-and training/README.md's "Phase 2" section for why this exists alongside
-the MCTS lineage in training/train.py, not instead of it.
+"""PPO training loop: rollouts, GAE, clipped-surrogate updates, periodic evals.
 
-    python -m training.ppo.train
-    python -m training.ppo.train --iterations 200 --games-per-iter 64
-
-Reuses training.network.DomibotNet unchanged as the actor-critic network
-(nothing about it is MCTS-specific -- it's a plain (obs) -> (policy_logits,
-value) residual MLP) and training.evaluate.play_match/training.agents'
-baselines unchanged for eval, so results are directly comparable to every
-number already measured for the MCTS lineage.
+    python -m training.ppo.train --iterations 2400 --games-per-iter 50
 """
 from __future__ import annotations
 
@@ -21,81 +12,34 @@ from pathlib import Path
 
 import numpy as np
 import torch
-import torch.nn.functional as F
-
-from domibot import Action, Game
 
 from .. import encoding
-from ..agents import BigMoneyAgent, BigMoneyTerminalAgent, DomibotAgent
+from ..agents import BigMoneyAgent, BigMoneyTerminalAgent, DomibotAgent, PPOAgent
+from ..env import MAX_MOVES, win_weighted_value
 from ..evaluate import play_match
 from ..network import HIDDEN_DIM, NUM_RESIDUAL_BLOCKS, DomibotNet, get_device
 from ..plan_search import load_plans
-from ..self_play import DEFAULT_MAX_MOVES
+from ..strategy_bots import SCRIPTED
 from .explore import ExploreConfig
-from .gae import Transition, win_weighted_value
-from .league import SCRIPTED_OPPONENTS, collect_league_rollouts, load_league
-from .rollout import collect_cross_play_rollouts, collect_rollouts
+from .gae import Transition
+from .league import collect_league_rollouts, load_league
+from .rollout import collect_rollouts
 
 CHECKPOINT_DIR = Path(__file__).resolve().parent.parent.parent / "checkpoints" / "domibot2"
 
 
-class PPOAgent:
-    """Wraps a PPO-trained DomibotNet behind the same `act(game) -> Action`
-    interface every other agent in `training/agents.py` uses, so it drops
-    straight into `evaluate.play_match` -- no search, just the policy
-    head's own (masked, greedy) choice, since Stage 1 has no inference-
-    time search layer yet (see the plan's Stage 4)."""
+def ppo_update(network: DomibotNet, optimizer: torch.optim.Optimizer, transitions: list[Transition],
+               device: torch.device, clip_eps: float = 0.2, epochs: int = 4, minibatch_size: int = 256,
+               value_loss_weight: float = 0.5, entropy_coef: float = 0.01, grad_clip: float = 0.5,
+               target_kl: float | None = None, imitate: float = 0.0) -> dict[str, float]:
+    """`epochs` passes of minibatch clipped-surrogate updates, with normalized advantages.
 
-    def __init__(self, network: torch.nn.Module, device: torch.device | None = None):
-        self.network = network
-        self.device = device or next(network.parameters()).device
-
-    def act(self, game: Game) -> Action:
-        decider = game.current_decider()
-        obs = encoding.encode_for(self.network, game, decider)
-        mask = encoding.legal_action_mask(game)
-        obs_t = torch.from_numpy(obs).unsqueeze(0).to(self.device)
-        mask_t = torch.from_numpy(mask).unsqueeze(0).to(self.device)
-        with torch.no_grad():
-            logits, _value = self.network(obs_t)
-        masked = logits.masked_fill(~mask_t, -1e9)
-        action_idx = int(masked.argmax(dim=-1).item())
-        return encoding.index_to_action(action_idx)
-
-
-def ppo_update(
-    network: DomibotNet,
-    optimizer: torch.optim.Optimizer,
-    transitions: list[Transition],
-    device: torch.device,
-    clip_eps: float = 0.2,
-    epochs: int = 4,
-    minibatch_size: int = 256,
-    value_loss_weight: float = 0.5,
-    entropy_coef: float = 0.01,
-    grad_clip: float = 0.5,
-    target_kl: float | None = None,
-    imitate: float = 0.0,
-) -> dict[str, float]:
-    """One PPO update: `epochs` passes of minibatch clipped-surrogate
-    updates over `transitions` (already carrying `.advantage`/`.return_`
-    from `gae.compute_gae`), with advantage normalization.
-
-    Forced moves (exactly one legal action, ~40% of all transitions) have a
-    constant log-prob of 0, so they carry no policy gradient; they're left
-    out of the policy/entropy terms and the advantage statistics rather than
-    diluting them, but still train the value head. `target_kl` skips the
-    remaining epochs once an epoch's mean approximate KL from the rollout
-    policy exceeds 1.5x it (checked per epoch, not per minibatch: a
-    256-sample minibatch's KL estimate is noisy enough to trip it on noise
-    alone). Buys made by a steering plan (`Transition.explore`) weren't the
-    policy's choice, so PPO's loss leaves them out. With `imitate` > 0 they
-    are imitated instead wherever they did better than the value head
-    expected: self-imitation learning (Oh et al. 2018), `imitate` x mean
-    over them of -log pi(buy) x max(0, return - value). On-policy PPO can't
-    learn a buy its policy never samples; this learns it from the steering
-    plan, but only where the plan's buy paid off. Returns means over the
-    minibatches actually run."""
+    Forced moves (one legal action) and steering plans' buys train only the
+    value head. `target_kl` stops after an epoch whose mean approximate KL
+    exceeds 1.5x it. `imitate` > 0 adds self-imitation (Oh et al. 2018) of
+    steered buys: `imitate` x mean of -log pi(buy) x max(0, return - value).
+    Returns each statistic's mean over the minibatches run.
+    """
     obs = torch.from_numpy(np.stack([t.obs for t in transitions])).to(device)
     mask = torch.from_numpy(np.stack([t.mask for t in transitions])).to(device)
     actions = torch.tensor([t.action for t in transitions], dtype=torch.long, device=device)
@@ -105,33 +49,28 @@ def ppo_update(
     on_policy = ~torch.tensor([t.explore for t in transitions], dtype=torch.bool, device=device)
     free = (mask.sum(dim=-1) > 1) & on_policy
     if free.sum() > 1:
-        free_adv = advantages[free]
-        advantages = (advantages - free_adv.mean()) / (free_adv.std() + 1e-8)
+        advantages = (advantages - advantages[free].mean()) / (advantages[free].std() + 1e-8)
 
-    n = len(transitions)
     stats: dict[str, list[float]] = {k: [] for k in ("policy_loss", "value_loss", "entropy", "approx_kl", "clipfrac",
                                                       "imitation")}
     for _ in range(epochs):
-        epoch_kls: list[float] = []
-        perm = np.random.permutation(n)
-        for start in range(0, n, minibatch_size):
+        epoch_kls = []
+        perm = np.random.permutation(len(transitions))
+        for start in range(0, len(transitions), minibatch_size):
             mb = torch.from_numpy(perm[start:start + minibatch_size]).to(device)
             logits, values = network(obs[mb])
-            masked_logits = logits.masked_fill(~mask[mb], -1e9)
-            dist = torch.distributions.Categorical(logits=masked_logits)
+            dist = torch.distributions.Categorical(logits=logits.masked_fill(~mask[mb], -1e9))
             log_ratio = dist.log_prob(actions[mb]) - old_log_probs[mb]
             ratio = torch.exp(log_ratio)
             w = free[mb].float()
             n_free = w.sum().clamp(min=1.0)
-
             with torch.no_grad():
                 approx_kl = float((((ratio - 1) - log_ratio) * w).sum() / n_free)
                 clipfrac = float((((ratio - 1).abs() > clip_eps).float() * w).sum() / n_free)
             epoch_kls.append(approx_kl)
 
-            surr1 = ratio * advantages[mb]
-            surr2 = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * advantages[mb]
-            policy_loss = -(torch.min(surr1, surr2) * w).sum() / n_free
+            surrogate = torch.min(ratio * advantages[mb], torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * advantages[mb])
+            policy_loss = -(surrogate * w).sum() / n_free
             entropy = (dist.entropy() * w).sum() / n_free
             value_loss = ((values - returns[mb]) ** 2).mean()
             loss = policy_loss + value_loss_weight * value_loss - entropy_coef * entropy
@@ -147,7 +86,6 @@ def ppo_update(
             if grad_clip > 0:
                 torch.nn.utils.clip_grad_norm_(network.parameters(), grad_clip)
             optimizer.step()
-
             for k, v in (("policy_loss", policy_loss), ("value_loss", value_loss), ("entropy", entropy),
                          ("imitation", imitation)):
                 if v is not None:
@@ -156,258 +94,151 @@ def ppo_update(
             stats["clipfrac"].append(clipfrac)
         if target_kl is not None and sum(epoch_kls) / len(epoch_kls) > 1.5 * target_kl:
             break
-
     out = {k: (sum(v) / len(v) if v else float("nan")) for k, v in stats.items()}
     out["updates"] = len(stats["policy_loss"])
     return out
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--iterations", type=int, default=50)
-    parser.add_argument("--games-per-iter", type=int, default=64,
-                         help="self-play games collected per iteration, stepped side by side sharing one batched "
-                              "network forward pass per round (see ppo.rollout.collect_rollouts) -- no tree search, "
-                              "so no --simulations knob, iteration speed should be far faster than the MCTS lineage")
-    parser.add_argument("--max-moves", type=int, default=None,
-                         help="safety cap on decisions per self-play game (default: self_play.DEFAULT_MAX_MOVES)")
-    parser.add_argument("--min-sub-decision-cards", type=int, default=0,
-                         help="see self_play._sample_kingdom -- same curriculum knob, 0 disables it")
-    parser.add_argument("--gamma", type=float, default=1.0, help="GAE discount (episodic/undiscounted by default)")
-    parser.add_argument("--gae-lambda", type=float, default=0.95, help="GAE lambda")
-    parser.add_argument("--clip-eps", type=float, default=0.2, help="PPO clipped-surrogate epsilon")
-    parser.add_argument("--epochs-per-update", type=int, default=4, help="minibatch passes over each rollout batch")
-    parser.add_argument("--minibatch-size", type=int, default=256)
-    parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--lr-final-frac", type=float, default=1.0,
-                         help="cosine-decay the learning rate from --lr down to this fraction of it over the "
-                              "run's --iterations (1.0, the default, keeps the old flat-LR behavior -- see "
-                              "train.train.py's identical flag). On a resume the schedule restarts, so set "
-                              "--lr to wherever the previous run left off (or higher, for a deliberate warm "
-                              "restart) rather than expecting it to continue the curve.")
-    parser.add_argument("--value-loss-weight", type=float, default=0.5)
-    parser.add_argument("--entropy-coef", type=float, default=0.01,
-                         help="entropy bonus weight -- PPO's exploration driver, replacing the MCTS lineage's "
-                              "Dirichlet-noise-at-root/action_bias; probably matters a lot for whether it ever "
-                              "tries chaining action cards, so worth tuning deliberately, not left at the default")
-    parser.add_argument("--grad-clip", type=float, default=0.5)
-    parser.add_argument("--target-kl", type=float, default=None,
-                         help="skip an update's remaining epochs once an epoch's mean approximate KL from "
-                              "the rollout policy exceeds 1.5x this (off by default)")
-    parser.add_argument("--explore-frac", type=float, default=0.0,
-                         help="share of self-play games in which every player's early buys follow a whole buy "
-                              "plan for the board (ppo/explore.py); 0 (default) disables it")
-    parser.add_argument("--explore-turn-limit", type=int, default=16,
-                         help="a steered player's buys follow its plan for its first K turns, K drawn from 1 to this")
-    parser.add_argument("--explore-plans", type=str, nargs="*", default=[],
-                         help="steer one player with the plans in these plan_search.py --out files instead, each "
-                              "on its own board, against the policy's own buying")
-    parser.add_argument("--explore-plans-min-score", type=float, default=0.5,
-                         help="only boards whose best plan scored at least this on fresh games")
-    parser.add_argument("--imitate-steered", type=float, default=0.0,
-                         help="weight of imitating a steering plan's buys where they did better than the value "
-                              "head expected (self-imitation; see ppo_update), meant for --explore-plans; 0 "
-                              "(default) disables it")
-    parser.add_argument("--reward-win-weight", type=float, default=0.8,
-                         help="terminal reward = this * (+1 win / -1 loss / 0 tie) + the rest as the tanh "
-                              "margin (gae.win_weighted_value); 0 reproduces the margin-only reward "
-                              "domibot2.1 was trained on")
-    parser.add_argument("--public-features", action=argparse.BooleanOptionalAction, default=True,
-                         help="network reads encoding.encode_public_extras (opponent card ownership, both "
-                              "scores, kingdom membership, empty piles). Resuming from a checkpoint without "
-                              "them adds them via DomibotNet.with_extra_inputs, which leaves its outputs "
-                              "unchanged until trained")
-    parser.add_argument("--zone-features", action=argparse.BooleanOptionalAction, default=True,
-                         help="network reads encoding.encode_own_zones (its own draw pile, discard pile and play "
-                              "area as counts, plus draw pile and discard sizes); needs --public-features. "
-                              "Resuming from a checkpoint without them adds them via DomibotNet.with_zone_inputs, "
-                              "which leaves its outputs unchanged until trained")
-    parser.add_argument("--hidden-dim", type=int, default=HIDDEN_DIM,
-                         help="width of a fresh network (ignored on --checkpoint, whose size is saved in it). "
-                              "For a larger network, distill it from a trained one first (ppo/distill.py) and "
-                              "resume from that rather than starting from scratch")
-    parser.add_argument("--num-blocks", type=int, default=NUM_RESIDUAL_BLOCKS,
-                         help="residual blocks in a fresh network (ignored on --checkpoint)")
-    parser.add_argument("--opponent-pool-size", type=int, default=0,
-                         help="keep this many of the most recently saved domibot2_iter_N.pt checkpoints from *this "
-                              "run* (plus the --checkpoint resumed from, if any) as eligible opponents for "
-                              "--opponent-pool-frac of each iteration's games (see "
-                              "ppo.rollout.collect_cross_play_rollouts). 0 (default) disables this -- rollouts are "
-                              "always the current network vs itself, as before. Exists because pure self-play "
-                              "optimizes toward 'beat the version of myself I'm currently playing against', which "
-                              "can make a partially-executed complex strategy look like a regression against the "
-                              "current population even when a well-executed version of it would win -- facing a "
-                              "genuinely different, historical strategy some of the time breaks that "
-                              "self-reinforcement (see train.py's identical flag, ported here for PPO).")
-    parser.add_argument("--opponent-pool-frac", type=float, default=0.0,
-                         help="fraction of --games-per-iter played as cross-play against a sampled opponent-pool "
-                              "checkpoint instead of pure self-play (only meaningful when --opponent-pool-size > "
-                              "0). Only the current network's own seat produces training examples in these games.")
-    parser.add_argument("--league-frac", type=float, default=0.0,
-                         help="fraction of --games-per-iter played against the opponent league (ppo/league.py) "
-                              "instead of pure self-play; 0 (default) disables it")
-    parser.add_argument("--league-checkpoints", type=str, nargs="*", default=[],
-                         help="league opponents: checkpoint paths or glob patterns (any network size, with or "
-                              "without public features), each played by its own raw policy")
-    parser.add_argument("--league-scripted", type=str, nargs="*", default=[], choices=sorted(SCRIPTED_OPPONENTS),
-                         help="scripted league opponents")
-    parser.add_argument("--league-opponents-per-iter", type=int, default=4,
-                         help="opponents drawn per iteration (by PFSP weight), splitting the league games evenly")
-    parser.add_argument("--league-snapshot-every", type=int, default=0,
-                         help="add a frozen copy of the learner to the league every this many iterations (0: never)")
-    parser.add_argument("--league-max-snapshots", type=int, default=4,
-                         help="keep only this many of those copies (oldest dropped)")
-    parser.add_argument("--league-hard-power", type=float, default=2.0,
-                         help="PFSP: opponent weight (1 - learner's score vs it) ** this -- higher focuses harder "
-                              "on the opponents the learner beats least")
-    parser.add_argument("--league-uniform-mix", type=float, default=0.2,
-                         help="share of the sampling weight spread evenly, so every opponent keeps appearing")
-    parser.add_argument("--league-decay", type=float, default=0.95,
-                         help="per-iteration decay of the learner's recorded results vs each opponent")
-    parser.add_argument("--eval-every", type=int, default=5)
-    parser.add_argument("--eval-games", type=int, default=20)
-    parser.add_argument("--eval-reference-checkpoint", type=str, default=None,
-                         help="also eval against this checkpoint (e.g. checkpoints/domibot1/domibot_v4.4.pt) via "
-                              "agents.DomibotAgent, for a same-footing comparison against the MCTS lineage")
-    parser.add_argument("--eval-reference-simulations", type=int, default=100)
-    parser.add_argument("--eval-reference-games", type=int, default=None,
-                         help="games per reference eval (default: --eval-games); it runs real MCTS search, "
-                              "so it's ~200x slower per game than the BigMoney evals")
-    parser.add_argument("--eval-reference-every", type=int, default=None,
-                         help="if set, only run --eval-reference-checkpoint's eval every this many iterations "
-                              "instead of every --eval-every (must be a multiple of --eval-every). The reference "
-                              "eval uses real MCTS search and is far slower than the search-free BigMoney/"
-                              "BigMoney+terminal evals (which still run every --eval-every) -- decoupling lets "
-                              "you monitor cheaply and validate against the real bar less often. Default: same "
-                              "cadence as --eval-every, i.e. no behavior change from leaving this unset.")
-    parser.add_argument("--eval-rival-checkpoint", type=str, default=None,
-                         help="also eval against this checkpoint's raw policy (no search) at every eval -- e.g. "
-                              "the current release, to track progress against the promotion bar during the run")
-    parser.add_argument("--eval-rival-games", type=int, default=None, help="games per rival eval (default: --eval-games)")
-    parser.add_argument("--checkpoint", type=str, default=None, help="resume from this checkpoint file")
-    parser.add_argument("--start-iteration", type=int, default=1)
-    parser.add_argument("--run-name", type=str, default="domibot2",
-                         help="checkpoint filename prefix: <run-name>_latest.pt and <run-name>_iter_N.pt in "
-                              "checkpoints/domibot2/. Give concurrent runs different names so they don't "
-                              "overwrite each other's files")
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--device", type=str, default=None)
-    args = parser.parse_args()
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--iterations", type=int, default=50)
+    p.add_argument("--games-per-iter", type=int, default=64)
+    p.add_argument("--max-moves", type=int, default=MAX_MOVES, help="decision cap per game")
+    p.add_argument("--gamma", type=float, default=1.0)
+    p.add_argument("--gae-lambda", type=float, default=0.95)
+    p.add_argument("--clip-eps", type=float, default=0.2)
+    p.add_argument("--epochs-per-update", type=int, default=4, help="passes over each batch")
+    p.add_argument("--minibatch-size", type=int, default=256)
+    p.add_argument("--lr", type=float, default=3e-4)
+    p.add_argument("--lr-final-frac", type=float, default=1.0,
+                   help="cosine-decay the learning rate to this fraction of --lr over the run (1.0: constant)")
+    p.add_argument("--value-loss-weight", type=float, default=0.5)
+    p.add_argument("--entropy-coef", type=float, default=0.01)
+    p.add_argument("--grad-clip", type=float, default=0.5)
+    p.add_argument("--target-kl", type=float, default=None, help="stop an update early past 1.5x this KL")
+    p.add_argument("--reward-win-weight", type=float, default=0.8,
+                   help="reward = this x win/loss + the rest x tanh VP margin (env.win_weighted_value)")
+    p.add_argument("--explore-frac", type=float, default=0.0,
+                   help="share of self-play games whose buys follow whole plans (ppo/explore.py)")
+    p.add_argument("--explore-turn-limit", type=int, default=16, help="steer buys for 1 to this many turns")
+    p.add_argument("--explore-plans", type=str, nargs="*", default=[],
+                   help="steer one player with the plans in these plan_search.py --out files, on their boards")
+    p.add_argument("--explore-plans-min-score", type=float, default=0.5,
+                   help="only boards whose best plan scored at least this")
+    p.add_argument("--imitate-steered", type=float, default=0.0,
+                   help="weight of self-imitation of steered buys that paid off (see ppo_update)")
+    p.add_argument("--public-features", action=argparse.BooleanOptionalAction, default=True,
+                   help="read encoding.encode_public_extras (added zero-initialized on resume)")
+    p.add_argument("--zone-features", action=argparse.BooleanOptionalAction, default=True,
+                   help="read encoding.encode_own_zones; needs --public-features")
+    p.add_argument("--hidden-dim", type=int, default=HIDDEN_DIM, help="a fresh network's width")
+    p.add_argument("--num-blocks", type=int, default=NUM_RESIDUAL_BLOCKS, help="a fresh network's depth")
+    p.add_argument("--league-frac", type=float, default=0.0, help="share of games against the league (ppo/league.py)")
+    p.add_argument("--league-checkpoints", type=str, nargs="*", default=[], help="checkpoint paths or globs")
+    p.add_argument("--league-scripted", type=str, nargs="*", default=[], choices=sorted(SCRIPTED))
+    p.add_argument("--league-opponents-per-iter", type=int, default=4)
+    p.add_argument("--league-snapshot-every", type=int, default=0,
+                   help="add a frozen copy of the learner every this many iterations (0: never)")
+    p.add_argument("--league-max-snapshots", type=int, default=4)
+    p.add_argument("--league-hard-power", type=float, default=2.0, help="PFSP: weight (1 - learner score) ** this")
+    p.add_argument("--league-uniform-mix", type=float, default=0.2, help="share of sampling weight spread evenly")
+    p.add_argument("--league-decay", type=float, default=0.95, help="per-iteration decay of recorded results")
+    p.add_argument("--eval-every", type=int, default=5)
+    p.add_argument("--eval-games", type=int, default=20)
+    p.add_argument("--eval-reference-checkpoint", type=str, default=None,
+                   help="also eval against this checkpoint with MCTS (agents.DomibotAgent), e.g. domibot_v4.4.pt")
+    p.add_argument("--eval-reference-simulations", type=int, default=100)
+    p.add_argument("--eval-reference-games", type=int, default=None, help="default: --eval-games")
+    p.add_argument("--eval-reference-every", type=int, default=None, help="default: --eval-every")
+    p.add_argument("--eval-rival-checkpoint", type=str, default=None,
+                   help="also eval against this checkpoint's raw policy, e.g. the current release")
+    p.add_argument("--eval-rival-games", type=int, default=None, help="default: --eval-games")
+    p.add_argument("--checkpoint", type=str, default=None, help="resume from this checkpoint")
+    p.add_argument("--start-iteration", type=int, default=1)
+    p.add_argument("--run-name", type=str, default="domibot2",
+                   help="checkpoints are <run-name>_latest.pt and <run-name>_iter_N.pt in checkpoints/domibot2/")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--device", type=str, default=None)
+    args = p.parse_args()
+    if args.zone_features and not args.public_features:
+        p.error("--zone-features needs --public-features (use --no-zone-features without them)")
+    return args
 
+
+def load_network(args: argparse.Namespace, device: torch.device) -> DomibotNet:
+    if not args.checkpoint:
+        return DomibotNet(hidden_dim=args.hidden_dim, num_blocks=args.num_blocks,
+                          extra_dim=encoding.EXTRA_DIM if args.public_features else 0,
+                          zones_dim=encoding.ZONES_DIM if args.zone_features else 0).to(device)
+    network = DomibotNet.load(args.checkpoint, map_location=device).to(device)
+    print(f"resumed from {args.checkpoint} ({network.hidden_dim}x{network.num_blocks})")
+    if args.public_features and not network.extra_dim:
+        network = network.with_extra_inputs()
+        print(f"added {network.extra_dim} public-feature inputs (zero-initialized)")
+    if args.zone_features and not network.zones_dim:
+        network = network.with_zone_inputs()
+        print(f"added {network.zones_dim} own-zone inputs (zero-initialized)")
+    return network
+
+
+def frozen(path: str, device: torch.device) -> DomibotNet:
+    net = DomibotNet.load(path, map_location=device).to(device)
+    net.eval()
+    return net
+
+
+def main() -> None:
+    args = parse_args()
     device = torch.device(args.device) if args.device else get_device()
-    max_moves = args.max_moves if args.max_moves is not None else DEFAULT_MAX_MOVES
-    print(f"device: {device}  |  max_moves: {max_moves}  |  min_sub_decision_cards: {args.min_sub_decision_cards}")
-    print(f"games_per_iter: {args.games_per_iter}  |  epochs_per_update: {args.epochs_per_update}  |  "
-          f"minibatch_size: {args.minibatch_size}  |  lr: {args.lr} -> {args.lr * args.lr_final_frac:g}  |  "
-          f"gamma: {args.gamma}  |  gae_lambda: {args.gae_lambda}  |  clip_eps: {args.clip_eps}  |  "
-          f"entropy_coef: {args.entropy_coef}")
-    print(f"opponent_pool_size: {args.opponent_pool_size}  |  opponent_pool_frac: {args.opponent_pool_frac}  |  "
-          f"reward_win_weight: {args.reward_win_weight}  |  public_features: {args.public_features}  |  "
-          f"zone_features: {args.zone_features}  |  target_kl: {args.target_kl}")
+    print(" | ".join(f"{k}: {v}" for k, v in vars(args).items()))
+    reward_fn = functools.partial(win_weighted_value, win_weight=args.reward_win_weight)
+    network = load_network(args, device)
+    optimizer = torch.optim.Adam(network.parameters(), lr=args.lr)
+    scheduler = (torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(args.iterations, 1),
+                                                            eta_min=args.lr * args.lr_final_frac)
+                 if args.lr_final_frac < 1.0 else None)
+
     explore = None
     if args.explore_frac > 0:
         plans = tuple(p for path in args.explore_plans for p in load_plans(path, args.explore_plans_min_score))
         if args.explore_plans and not plans:
             raise SystemExit(f"no board in {args.explore_plans} has a plan scoring {args.explore_plans_min_score}+")
         explore = ExploreConfig(frac=args.explore_frac, turn_limit=args.explore_turn_limit, plans=plans)
-        print(f"steering: {explore.frac:.0%} of self-play games, buys for 1-{explore.turn_limit} turns, "
-              + (f"{len(plans)} searched plans" if plans else "plans for each game's board"))
-    if args.imitate_steered > 0:
-        print(f"imitating steered buys that paid off, weight {args.imitate_steered}")
-    if args.zone_features and not args.public_features:
-        raise SystemExit("--zone-features needs --public-features (use --no-zone-features without them)")
-    if args.league_frac > 0 and args.opponent_pool_frac > 0:
-        raise SystemExit("use either --league-frac or --opponent-pool-frac, not both")
-    reward_fn = functools.partial(win_weighted_value, win_weight=args.reward_win_weight)
-
-    if args.checkpoint:
-        network = DomibotNet.load(args.checkpoint, map_location=device).to(device)
-        print(f"resumed from {args.checkpoint} ({network.hidden_dim}x{network.num_blocks})")
-        if args.public_features and not network.extra_dim:
-            network = network.with_extra_inputs()
-            print(f"added {network.extra_dim} public-feature inputs (zero-initialized)")
-        if args.zone_features and not network.zones_dim:
-            network = network.with_zone_inputs()
-            print(f"added {network.zones_dim} own-zone inputs (zero-initialized)")
-    else:
-        network = DomibotNet(hidden_dim=args.hidden_dim, num_blocks=args.num_blocks,
-                             extra_dim=encoding.EXTRA_DIM if args.public_features else 0,
-                             zones_dim=encoding.ZONES_DIM if args.zone_features else 0).to(device)
-    optimizer = torch.optim.Adam(network.parameters(), lr=args.lr)
-    scheduler = (torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=max(args.iterations, 1), eta_min=args.lr * args.lr_final_frac)
-        if args.lr_final_frac < 1.0 else None)
-
-    reference_agent = None
-    if args.eval_reference_checkpoint:
-        ref_net = DomibotNet.load(args.eval_reference_checkpoint, map_location=device).to(device)
-        ref_net.eval()
-        reference_agent = DomibotAgent(ref_net, num_simulations=args.eval_reference_simulations, device=device)
-        print(f"reference opponent: {args.eval_reference_checkpoint}")
-
-    rival_agent = None
-    if args.eval_rival_checkpoint:
-        rival_net = DomibotNet.load(args.eval_rival_checkpoint, map_location=device).to(device)
-        rival_net.eval()
-        rival_agent = PPOAgent(rival_net, device=device)
-        print(f"rival opponent (raw policy): {args.eval_rival_checkpoint}")
-
     league = None
     if args.league_frac > 0:
         league = load_league(args.league_checkpoints, args.league_scripted, device,
                              hard_power=args.league_hard_power, uniform_mix=args.league_uniform_mix,
                              decay=args.league_decay, max_snapshots=args.league_max_snapshots)
-        print(f"league ({args.league_frac:.0%} of games, {args.league_opponents_per_iter} opponents/iter): "
-              + ", ".join(o.name for o in league.opponents))
+        print("league: " + ", ".join(o.name for o in league.opponents))
+    evals = [("BigMoney", BigMoneyAgent(), args.eval_games, args.eval_every),
+             ("BigMoney+terminal", BigMoneyTerminalAgent(), args.eval_games, args.eval_every)]
+    if args.eval_reference_checkpoint:
+        evals.append((Path(args.eval_reference_checkpoint).stem,
+                      DomibotAgent(frozen(args.eval_reference_checkpoint, device),
+                                   num_simulations=args.eval_reference_simulations, device=device),
+                      args.eval_reference_games or args.eval_games, args.eval_reference_every or args.eval_every))
+    if args.eval_rival_checkpoint:
+        evals.append((Path(args.eval_rival_checkpoint).stem, PPOAgent(frozen(args.eval_rival_checkpoint, device)),
+                      args.eval_rival_games or args.eval_games, args.eval_every))
 
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
     rng = random.Random(args.seed)
-
-    # Opponent pool: checkpoints from *this run* only (plus the resume
-    # checkpoint, if any) -- never scans disk for older/unrelated lineages'
-    # saved files. Populated as domibot2_iter_N.pt snapshots are saved below.
-    recent_checkpoint_paths: list[Path] = [Path(args.checkpoint)] if args.checkpoint else []
-
-    end_iteration = args.start_iteration + args.iterations - 1
-    for iteration in range(args.start_iteration, end_iteration + 1):
+    end = args.start_iteration + args.iterations - 1
+    for iteration in range(args.start_iteration, end + 1):
         network.eval()
         t0 = time.time()
-
-        pool_games = 0
-        opponent_network = None
-        opponent_path = None
-        if args.opponent_pool_size > 0 and args.opponent_pool_frac > 0 and recent_checkpoint_paths:
-            pool_games = round(args.games_per_iter * args.opponent_pool_frac)
-        if pool_games > 0:
-            opponent_path = rng.choice(recent_checkpoint_paths)
-            opponent_network = DomibotNet.load(opponent_path, map_location=device).to(device)
-            opponent_network.eval()
-
-        league_games = round(args.games_per_iter * args.league_frac) if league is not None else 0
-        games = []
-        steer_stats: dict[str, int] = {}
-        remaining = args.games_per_iter - pool_games - league_games
-        if remaining > 0:
-            games += collect_rollouts(
-                network, remaining, max_moves=max_moves, device=device,
-                seed=rng.randrange(2**31), min_sub_decision_cards=args.min_sub_decision_cards,
-                reward_fn=reward_fn, gamma=args.gamma, lam=args.gae_lambda, explore=explore, stats=steer_stats,
-            )
-        if pool_games > 0:
-            games += collect_cross_play_rollouts(
-                network, opponent_network, pool_games, max_moves=max_moves, device=device,
-                seed=rng.randrange(2**31), min_sub_decision_cards=args.min_sub_decision_cards,
-                reward_fn=reward_fn, gamma=args.gamma, lam=args.gae_lambda,
-            )
-        league_note = ""
-        if league_games > 0:
+        league_games = round(args.games_per_iter * args.league_frac) if league else 0
+        games, steer_stats, note = [], {}, ""
+        if args.games_per_iter > league_games:
+            games = collect_rollouts(network, args.games_per_iter - league_games, max_moves=args.max_moves,
+                                     device=device, seed=rng.randrange(2**31), reward_fn=reward_fn, gamma=args.gamma,
+                                     lam=args.gae_lambda, explore=explore, stats=steer_stats)
+        if league_games:
             drawn = league.sample(args.league_opponents_per_iter, rng)
             per_game = [drawn[j % len(drawn)] for j in range(league_games)]
             league_transitions, results = collect_league_rollouts(
-                network, per_game, max_moves=max_moves, device=device, seed=rng.randrange(2**31),
-                min_sub_decision_cards=args.min_sub_decision_cards, reward_fn=reward_fn,
-                gamma=args.gamma, lam=args.gae_lambda,
-            )
+                network, per_game, max_moves=args.max_moves, device=device, seed=rng.randrange(2**31),
+                reward_fn=reward_fn, gamma=args.gamma, lam=args.gae_lambda)
             games += league_transitions
             league.end_iteration()
             by_name: dict[str, list[float]] = {}
@@ -415,34 +246,27 @@ def main() -> None:
                 by_name.setdefault(opponent.name, []).append(result)
             for opponent in set(per_game):
                 league.record(opponent, by_name[opponent.name])
-            league_note = "  league=" + ",".join(f"{name}:{sum(r):g}/{len(r)}" for name, r in by_name.items())
+            note = "  league=" + ",".join(f"{name}:{sum(r):g}/{len(r)}" for name, r in by_name.items())
         rollout_time = time.time() - t0
         transitions = [t for game in games for t in game]
 
         network.train()
-        st = ppo_update(
-            network, optimizer, transitions, device,
-            clip_eps=args.clip_eps, epochs=args.epochs_per_update, minibatch_size=args.minibatch_size,
-            value_loss_weight=args.value_loss_weight, entropy_coef=args.entropy_coef, grad_clip=args.grad_clip,
-            target_kl=args.target_kl, imitate=args.imitate_steered,
-        )
+        st = ppo_update(network, optimizer, transitions, device, clip_eps=args.clip_eps,
+                        epochs=args.epochs_per_update, minibatch_size=args.minibatch_size,
+                        value_loss_weight=args.value_loss_weight, entropy_coef=args.entropy_coef,
+                        grad_clip=args.grad_clip, target_kl=args.target_kl, imitate=args.imitate_steered)
         if scheduler is not None:
             scheduler.step()
-        update_time = time.time() - t0 - rollout_time
-
         network.save(CHECKPOINT_DIR / f"{args.run_name}_latest.pt")
-        msg = (f"iter {iteration}/{end_iteration}  transitions={len(transitions)}  "
-               f"rollout={rollout_time:.1f}s  update={update_time:.1f}s  "
-               f"policy_loss={st['policy_loss']:.4f}  value_loss={st['value_loss']:.4f}  "
-               f"entropy={st['entropy']:.4f}  kl={st['approx_kl']:.4f}  clipfrac={st['clipfrac']:.3f}  "
-               f"updates={st['updates']}")
+        msg = (f"iter {iteration}/{end}  transitions={len(transitions)}  rollout={rollout_time:.1f}s  "
+               f"update={time.time() - t0 - rollout_time:.1f}s  policy_loss={st['policy_loss']:.4f}  "
+               f"value_loss={st['value_loss']:.4f}  entropy={st['entropy']:.4f}  kl={st['approx_kl']:.4f}  "
+               f"clipfrac={st['clipfrac']:.3f}  updates={st['updates']}")
         if explore is not None:
             msg += f"  steered_won={steer_stats.get('won', 0)}/{steer_stats.get('games', 0)}"
         if args.imitate_steered > 0:
             msg += f"  imitation={st['imitation']:.4f}"
-        if pool_games > 0:
-            msg += f"  pool_games={pool_games}({Path(opponent_path).stem})"
-        msg += league_note
+        msg += note
         if scheduler is not None:
             msg += f"  lr={optimizer.param_groups[0]['lr']:.2e}"
         print(msg, flush=True)
@@ -450,30 +274,13 @@ def main() -> None:
         if iteration % args.eval_every == 0:
             network.eval()
             agent = PPOAgent(network, device=device)
-            result = play_match(agent, BigMoneyAgent(), n_games=args.eval_games, seed=iteration)
-            print(f"  eval vs BigMoney: {result['agent_a_wins']}/{result['games']} wins, {result['ties']} ties", flush=True)
-            bmt_result = play_match(agent, BigMoneyTerminalAgent(), n_games=args.eval_games, seed=iteration)
-            print(f"  eval vs BigMoney+terminal: {bmt_result['agent_a_wins']}/{bmt_result['games']} wins, "
-                  f"{bmt_result['ties']} ties", flush=True)
-            ref_every = args.eval_reference_every or args.eval_every
-            if reference_agent is not None and iteration % ref_every == 0:
-                ref_result = play_match(agent, reference_agent, n_games=args.eval_reference_games or args.eval_games,
-                                        seed=iteration)
-                print(f"  eval vs {Path(args.eval_reference_checkpoint).stem}: "
-                      f"{ref_result['agent_a_wins']}/{ref_result['games']} wins, {ref_result['ties']} ties", flush=True)
-            if rival_agent is not None:
-                rival_result = play_match(agent, rival_agent, n_games=args.eval_rival_games or args.eval_games,
-                                          seed=iteration)
-                print(f"  eval vs {Path(args.eval_rival_checkpoint).stem}: "
-                      f"{rival_result['agent_a_wins']}/{rival_result['games']} wins, {rival_result['ties']} ties",
-                      flush=True)
+            for label, opponent, n_games, every in evals:
+                if iteration % every == 0:
+                    r = play_match(agent, opponent, n_games=n_games, seed=iteration)
+                    print(f"  eval vs {label}: {r['agent_a_wins']}/{r['games']} wins, {r['ties']} ties", flush=True)
             if league is not None:
                 print(f"  league (learner score/weight): {league.summary()}", flush=True)
-            iter_path = CHECKPOINT_DIR / f"{args.run_name}_iter_{iteration}.pt"
-            network.save(iter_path)
-            if args.opponent_pool_size > 0:
-                recent_checkpoint_paths.append(iter_path)
-                del recent_checkpoint_paths[:-args.opponent_pool_size]
+            network.save(CHECKPOINT_DIR / f"{args.run_name}_iter_{iteration}.pt")
         if league is not None and args.league_snapshot_every and iteration % args.league_snapshot_every == 0:
             league.add_snapshot(network, f"self@{iteration}")
 

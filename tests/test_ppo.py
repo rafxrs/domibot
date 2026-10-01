@@ -1,10 +1,10 @@
 import numpy as np
 
 from domibot import Game, KINGDOM_CARDS
-from training.mcts import terminal_value
+from training.env import terminal_value, win_weighted_value
 from training.network import DomibotNet
 from training.ppo.gae import Transition, compute_gae
-from training.ppo.rollout import collect_cross_play_rollouts, collect_rollouts
+from training.ppo.rollout import collect_rollouts
 
 
 def _tiny_kingdom():
@@ -98,35 +98,11 @@ def test_collect_rollouts_completes_across_several_seeds():
         assert all(len(g) > 0 for g in games)
 
 
-def test_collect_cross_play_rollouts_only_records_current_networks_seat():
-    net = DomibotNet()
-    net.eval()
-    opponent = DomibotNet()
-    opponent.eval()
-    games = collect_cross_play_rollouts(net, opponent, num_games=4, kingdom=_tiny_kingdom(), max_moves=40, seed=2)
-    assert len(games) == 4
-    for transitions in games:
-        assert len(transitions) > 0
-        # every recorded transition belongs to a single seat per game (the
-        # randomly assigned current_seat) -- cross-play never records the
-        # frozen opponent's own decisions
-        deciders = {t.decider for t in transitions}
-        assert len(deciders) == 1
-        for t in transitions:
-            assert t.obs.shape == (net.obs_dim,)
-            assert t.mask.shape == (net.num_actions,)
-            assert t.mask[t.action]
-            assert np.isfinite(t.advantage)
-            assert np.isfinite(t.return_)
-
-
 # ------------------------------------------------ domibot2.2 additions ---
 import torch  # noqa: E402
 
 from training import encoding  # noqa: E402
-from training.ppo.gae import win_weighted_value  # noqa: E402
 from training.ppo.train import ppo_update  # noqa: E402
-from training.ppo.distill import distill_loss, distill_update, teacher_targets  # noqa: E402
 
 
 def test_public_extras_at_game_start():
@@ -218,15 +194,6 @@ def test_ppo_update_ignores_forced_moves_and_reports_kl():
     assert stats["policy_loss"] == 0.0 and stats["entropy"] == 0.0
 
 
-def test_cross_play_mixes_extras_and_base_networks():
-    net = DomibotNet(extra_dim=encoding.EXTRA_DIM)
-    opponent = DomibotNet()
-    net.eval()
-    opponent.eval()
-    games = collect_cross_play_rollouts(net, opponent, num_games=2, kingdom=_tiny_kingdom(), max_moves=40, seed=6)
-    assert all(t.obs.shape == (encoding.FULL_OBS_DIM,) for g in games for t in g)
-
-
 def test_network_size_is_saved_and_old_checkpoints_load_as_default(tmp_path):
     net = DomibotNet(hidden_dim=64, num_blocks=2, extra_dim=encoding.EXTRA_DIM)
     net.save(tmp_path / "small.pt")
@@ -239,27 +206,6 @@ def test_network_size_is_saved_and_old_checkpoints_load_as_default(tmp_path):
                tmp_path / "old.pt")
     loaded_old = DomibotNet.load(tmp_path / "old.pt")
     assert (loaded_old.hidden_dim, loaded_old.num_blocks) == (256, 4)
-
-
-def test_distillation_pulls_a_different_size_student_toward_the_teacher():
-    torch.manual_seed(0)
-    teacher = DomibotNet(extra_dim=encoding.EXTRA_DIM)
-    teacher.eval()
-    student = DomibotNet(hidden_dim=64, num_blocks=2, extra_dim=encoding.EXTRA_DIM)
-    games = collect_rollouts(teacher, num_games=2, kingdom=_tiny_kingdom(), max_moves=60, seed=7, full_obs=True)
-    obs = torch.from_numpy(np.stack([t.obs for g in games for t in g]))
-    mask = torch.from_numpy(np.stack([t.mask for g in games for t in g]))
-    teacher_log_probs, teacher_values = teacher_targets(teacher, obs, mask)
-
-    with torch.no_grad():
-        _, before = distill_loss(student, obs, mask, teacher_log_probs, teacher_values)
-    opt = torch.optim.Adam(student.parameters(), lr=1e-3)
-    distill_update(student, opt, obs, mask, teacher_log_probs, teacher_values, epochs=30, minibatch_size=64)
-    with torch.no_grad():
-        _, after = distill_loss(student, obs, mask, teacher_log_probs, teacher_values)
-    assert after["kl"] < 0.5 * before["kl"]
-    assert after["value_mse"] < before["value_mse"]
-    assert after["top1_agree"] >= before["top1_agree"]
 
 
 def test_own_zones_count_draw_pile_discard_and_play_area():
