@@ -89,12 +89,13 @@ verb is legal, since e.g. `YES`/`NO` is reused across unrelated effects
 
 ## Layout
 
-Repo root: `src/domibot/` (the engine, below), `tests/`, `examples/` (CLI
-scripts), `training/` (the RL layer, with its own README), `gui/` (the
-pygame front-end behind `--gui`), `game_logs/` (gitignored, generated).
+Repo root: `src/domibot/` (the engine, below), `tests/` (with real
+dominion.games logs in `tests/fixtures/`), `examples/` (CLI scripts),
+`training/` (the RL layer, with its own README), `gui/` (the pygame
+front-end behind `--gui`), `game_logs/` (gitignored, generated).
 
 - `enums.py` — `CardType`, `Phase`, `DecisionKind`
-- `models.py` — `Action`, `Decision`
+- `models.py` — `Action`, `Decision`, `LogEntry`
 - `card.py` — `Card` definition (cost, types, flat bonuses, optional effect)
 - `player.py` — `PlayerState`: deck/hand/discard/play_area/set_aside zones
 - `effects.py` — shared decision primitives (`choose_cards`, `choose_one`,

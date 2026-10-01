@@ -15,16 +15,17 @@ learned to chain Action cards. **Phase 2**, PPO, produced the current bot,
 - **`network.py`**: `DomibotNet`, a residual MLP (256 × 4 by default) with
   policy and value heads. New inputs join a trained network through
   zero-initialized weights.
-- **`env.py`**: `DominionEnv`, a Gym-style wrapper around `Game`.
+- **`env.py`**: `DominionEnv`, a Gym-style wrapper around `Game`, and the
+  reward functions.
 - **`ppo/`**: Phase 2: rollouts, GAE, the training loop, the opponent
-  league, steering (`explore.py`), distillation, search evaluation, plots.
+  league, steering (`explore.py`), search evaluation, plots.
 - **`agents.py` / `evaluate.py`**: Big Money baselines and MCTS agents,
   `play_match` for paired series, `wilson` for confidence intervals.
 - **`strategy_profile.py` / `strategy_bots.py` / `gauntlet.py` /
   `plan_search.py`**: what a checkpoint plays, scripted strategies to test
   it against, and a search for the buy plan that beats it on a board.
-- **`mcts.py` / `self_play.py` / `train.py` / `heuristics.py`**: Phase 1,
-  and a fixed fallback for card-effect decisions.
+- **`mcts.py`**: PUCT search over a trained network, for the examples, the
+  relay and evals; **`heuristics.py`**: a fixed rule for card-effect choices.
 - **`relay.py` / `log_parser.py`**: the move advisor for real games.
 
 ## GPU
@@ -70,7 +71,7 @@ plots eval win rates.
 |---|---|---|
 | 1–2400 | from scratch, 50 games per iteration | multi-Action turns by iteration 400 |
 | 2401–4400 | entropy bonus 0.03, cosine learning-rate decay | |
-| 4401–8000 | 30% of games against recent snapshots of itself | **`domibot2.1`** |
+| 4401–8000 | 30% of games against recent snapshots of itself (now `--league-snapshot-every`) | **`domibot2.1`** |
 | 8001–12000 | win-weighted reward, public extras, single-move masking | level with 2.1 |
 | 12001–14000 | 256 games per update, learning rate 5e-5 | **`domibot2.2`**, 58.3% vs 2.1 |
 | 14001–16000 | a quarter of the games against the gauntlet's bots | **`domibot2.3`**, level with 2.2, beats the Gardens rush |
@@ -218,10 +219,17 @@ reshuffle, two Sentries' topdeck order, and more than two players.
 
 ## Phase 1: MCTS self-play (AlphaZero-style), abandoned
 
-`mcts.py`'s PUCT search drove `self_play.py` and `train.py`; card effects
-are suspended generators, so a search node is a `(boundary, path)` pair
-replayed on demand. Its best checkpoint, `domibot_v4.4`, plays Big Money +
-Witch and never chains Actions (40/60 vs BigMoney). Its value targets were
-whole-game outcomes, which bury a buy's credit under a game's worth of
-noise, and self-play only had to beat itself. It still runs: `python -m
-training.train` (see `--help`).
+`mcts.py`'s PUCT search drove a self-play loop. Its best checkpoint,
+`domibot_v4.4`, plays Big Money + Witch and never chains Actions (40/60 vs
+BigMoney). Its value targets were whole-game outcomes, which bury a buy's
+credit under a game's worth of noise, and self-play only had to beat itself.
+
+## Archived code
+
+Removed from the tree; `git show 8957e7c:<path>` restores any of it.
+
+| code | what it was |
+|---|---|
+| `training/self_play.py`, `training/train.py`, `tests/test_mcts_and_training_loop.py` | Phase 1's self-play loop, with root noise, action bias, determinization ensembles and a kingdom curriculum (`--min-sub-decision-cards`) |
+| `training/ppo/distill.py` | distillation into a larger network (the 512 × 6 attempt) |
+| `--opponent-pool-size` / `--opponent-pool-frac` in `training/ppo/train.py` | games against this run's recent checkpoints; the league's snapshots do the same |
