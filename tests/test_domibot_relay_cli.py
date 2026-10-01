@@ -132,3 +132,17 @@ def test_prompt_multiline_still_ends_on_first_real_blank_line(monkeypatch):
     monkeypatch.setattr("builtins.input", lambda: next(fed))
     result = prompt_multiline("Paste something")
     assert result == "line one\nline two"
+
+
+def test_recommend_decides_a_penultimate_province_by_playouts(capsys, monkeypatch):
+    import torch
+
+    import examples.domibot_relay as cli
+    import training.agents as agents
+    from test_search_agent import _buy_phase
+    from training.network import DomibotNet
+
+    monkeypatch.setattr(agents, "PLAYOUT_MOVES", 20)
+    monkeypatch.setattr(cli, "PROVINCE_PLAYOUTS", 2)
+    cli.recommend(_buy_phase(2, opp_extra=["Estate"]), DomibotNet().eval(), simulations=4, device=torch.device("cpu"))
+    assert "playouts" in capsys.readouterr().out

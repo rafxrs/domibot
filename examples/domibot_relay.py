@@ -16,7 +16,8 @@ playable it ends your Action phase for you, as dominion.games does. Card lists a
 --list-abbreviations). Ctrl+C quits.
 
 The recommendation comes from MCTS on the network, which in practice picks
-the network's own move (see training/README.md).
+the network's own move (see training/README.md). The penultimate Province while
+not ahead is decided by playouts instead: the network misjudges some of those.
 """
 from __future__ import annotations
 
@@ -33,6 +34,7 @@ from domibot.models import DONE, END_ACTIONS, NO
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from examples.common import DEFAULT_CHECKPOINT, load_network  # noqa: E402
+from training.agents import PPOAgent, penultimate_province  # noqa: E402
 from training.log_parser import KingdomError, parse_dominion_log  # noqa: E402
 from training.mcts import materialize, run_mcts, select_action, visit_distribution  # noqa: E402
 from training.relay import (CARD_ABBREVIATIONS, TableState, reconstruct_game,  # noqa: E402
@@ -43,6 +45,7 @@ _LEADING_COUNT = re.compile(r"^(\d+)x?$", re.IGNORECASE)
 _TRAILING_COUNT = re.compile(r"^(.+?)x(\d+)$", re.IGNORECASE)
 _FRESH_SUPPLY = {"Copper": 46, "Silver": 40, "Gold": 30, "Estate": 8, "Duchy": 8, "Province": 8, "Curse": 10}
 _DECLINES = {DONE, NO, Action("NONE")}  # choosing nothing, which dominion.games doesn't log
+PROVINCE_PLAYOUTS = 200  # per move, for a penultimate Province
 
 
 def _try_resolve(token: str) -> str | None:
@@ -184,10 +187,17 @@ def print_recommendation(root) -> None:
 
 
 def recommend(game, network: torch.nn.Module, simulations: int, device: torch.device) -> None:
-    """Your phase action in `game`."""
+    """Your phase action in `game`; a penultimate Province is decided by playouts instead."""
     if game.phase == Phase.ACTION and game.legal_actions() == [END_ACTIONS]:  # as dominion.games skips it
         game.step(END_ACTIONS)
         print("(no action cards playable -- auto-ending your action phase)")
+    if penultimate_province(game):
+        rates = PPOAgent(network, device, PROVINCE_PLAYOUTS).province_check(game)
+        print(f"\nThe penultimate Province while not ahead -- wins over {PROVINCE_PLAYOUTS} playouts of each:")
+        for action, rate in rates.items():
+            print(f"  {rate * 100:5.1f}%  {action}")
+        print(f"\n==> recommended: {max(rates, key=rates.get)}\n")
+        return
     print_recommendation(run_mcts(game, network, simulations, device=device))
 
 

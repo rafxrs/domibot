@@ -4,6 +4,7 @@ from __future__ import annotations
 import random
 from typing import Optional, Protocol
 
+import numpy as np
 import torch
 
 from domibot import Action, Game, Phase
@@ -15,6 +16,8 @@ from .mcts import run_mcts, run_mcts_batch, select_action
 
 # The terminal Actions a Big Money deck gains most from, best first.
 TERMINAL_PRIORITY = ("Witch", "Smithy", "Council Room", "Library", "Militia", "Bandit")
+PROVINCE = Action("BUY", "Province")
+PLAYOUT_MOVES = 3000  # cap on a playout's decisions
 
 
 class Agent(Protocol):
@@ -80,19 +83,85 @@ class BigMoneyTerminalAgent:
         return _buy_money(coins, actions)
 
 
-class PPOAgent:
-    """A network's greedy policy, no search."""
+def determinize(game: Game, me: int, rng: random.Random) -> Game:
+    """A copy of `game` as `me` could know it: own deck reshuffled, each opponent's hand
+    and deck reshuffled together, and a fresh random seed."""
+    world = game.clone()
+    for i, player in enumerate(world.players):
+        if i == me:
+            rng.shuffle(player.deck)
+        else:
+            pool = player.hand + player.deck
+            rng.shuffle(pool)
+            player.hand, player.deck = pool[:len(player.hand)], pool[len(player.hand):]
+    world.rng.seed(rng.getrandbits(64))
+    return world
 
-    def __init__(self, network: torch.nn.Module, device: torch.device | None = None):
+
+def penultimate_province(game: Game) -> bool:
+    """A buy where the second-to-last Province is affordable while not ahead, so taking it
+    lets the opponent win by taking the last: the penultimate Province rule's spot."""
+    if game.pending_decision is not None or game.phase != Phase.BUY or game.supply.get("Province") != 2:
+        return False
+    scores, me = game.get_scores(), game.current_player
+    return PROVINCE in game.legal_actions() and max(s for p, s in scores.items() if p != me) >= scores[me]
+
+
+def _policy_logits(network: torch.nn.Module, games: list[Game], device: torch.device) -> torch.Tensor:
+    """Each game's masked policy logits for its current decider, in one forward pass."""
+    obs = torch.from_numpy(np.stack([encoding.encode_for(network, g, g.current_decider()) for g in games]))
+    mask = torch.from_numpy(np.stack([encoding.legal_action_mask(g) for g in games])).to(device)
+    with torch.no_grad():
+        logits, _value = network(obs.to(device))
+    return logits.masked_fill(~mask, -1e9)
+
+
+class PPOAgent:
+    """A network's greedy policy, no search. With `province_playouts`, a `penultimate_province`
+    buy goes to whichever of Province and the policy's best other move wins more playouts."""
+
+    def __init__(self, network: torch.nn.Module, device: torch.device | None = None, province_playouts: int = 0,
+                 seed: int | None = None):
         self.network = network
         self.device = device or next(network.parameters()).device
+        self.province_playouts = province_playouts
+        self.rng = random.Random(seed)
 
     def act(self, game: Game) -> Action:
-        obs = torch.from_numpy(encoding.encode_for(self.network, game, game.current_decider())).unsqueeze(0)
-        mask = torch.from_numpy(encoding.legal_action_mask(game)).unsqueeze(0).to(self.device)
-        with torch.no_grad():
-            logits, _value = self.network(obs.to(self.device))
-        return encoding.index_to_action(int(logits.masked_fill(~mask, -1e9).argmax(dim=-1).item()))
+        logits = _policy_logits(self.network, [game], self.device)[0]
+        greedy = encoding.index_to_action(int(logits.argmax()))
+        if self.province_playouts and penultimate_province(game):
+            rates = self.province_check(game, logits)
+            return max(rates, key=lambda a: (rates[a], a == greedy))
+        return greedy
+
+    def province_check(self, game: Game, logits: torch.Tensor | None = None) -> dict[Action, float]:
+        """Playout win rates of BUY(Province) and the policy's best other move."""
+        logits = (_policy_logits(self.network, [game], self.device)[0] if logits is None else logits).clone()
+        logits[encoding.action_to_index(PROVINCE)] = -1e9
+        moves = [PROVINCE, encoding.index_to_action(int(logits.argmax()))]
+        return dict(zip(moves, self.playout_win_rates(game, moves, self.province_playouts)))
+
+    def playout_win_rates(self, game: Game, moves: list[Action], n: int) -> list[float]:
+        """The current player's mean result (1 win, 0.5 tie) over `n` playouts after each
+        move: the same `n` reshuffles of the hidden cards, the greedy policy on both sides."""
+        me = game.current_player
+        seeds = [self.rng.getrandbits(64) for _ in range(n)]
+        worlds = []
+        for move in moves:
+            for seed in seeds:
+                world = determinize(game, me, random.Random(seed))
+                world.step(move)
+                worlds.append(world)
+        for _ in range(PLAYOUT_MOVES):
+            live = [w for w in worlds if not w.is_game_over()]
+            if not live:
+                break
+            for world, a in zip(live, _policy_logits(self.network, live, self.device).argmax(-1).tolist()):
+                world.step(encoding.index_to_action(a))
+        results = [float(w.winners() == [me]) if w.is_game_over() and len(w.winners()) == 1 else 0.5
+                   for w in worlds]
+        return [sum(results[i * n:(i + 1) * n]) / n for i in range(len(moves))]
 
 
 class DomibotAgent:
@@ -153,19 +222,7 @@ class DeterminizedSearchAgent:
             return actions[0]
         if game.pending_decision is not None:
             return self.policy.act(game)
-        worlds = [self._determinize(game, game.current_decider()) for _ in range(self.determinizations)]
+        worlds = [determinize(game, game.current_decider(), self.rng) for _ in range(self.determinizations)]
         roots = run_mcts_batch(worlds, self.network, max(1, self.num_simulations // len(worlds)),
                                c_puct=self.c_puct, device=self.device)
         return max(actions, key=lambda a: sum(root.N[a] for root in roots))
-
-    def _determinize(self, game: Game, me: int) -> Game:
-        world = game.clone()
-        for i, player in enumerate(world.players):
-            if i == me:
-                self.rng.shuffle(player.deck)
-            else:
-                pool = player.hand + player.deck
-                self.rng.shuffle(pool)
-                player.hand, player.deck = pool[:len(player.hand)], pool[len(player.hand):]
-        world.rng.seed(self.rng.getrandbits(64))
-        return world

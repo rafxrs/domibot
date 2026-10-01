@@ -3,8 +3,8 @@ from collections import Counter
 import torch
 
 import training.agents as agents
-from domibot import Game, KINGDOM_CARDS
-from training.agents import DeterminizedSearchAgent
+from domibot import Game, KINGDOM_CARDS, Phase
+from training.agents import PROVINCE, DeterminizedSearchAgent, PPOAgent
 from training.network import DomibotNet
 
 
@@ -57,3 +57,35 @@ def test_search_agent_plays_a_legal_move():
         agent = DeterminizedSearchAgent(DomibotNet(), num_simulations=8, device=torch.device("cpu"), seed=2,
                                         determinizations=determinizations)
         assert agent.act(game) in game.legal_actions()
+
+
+def _buy_phase(provinces: int, my_extra=(), opp_extra=()) -> Game:
+    """My Buy phase with $8, `provinces` Provinces left, and extra Victory cards to set the score."""
+    game = Game(list(KINGDOM_CARDS)[:10], num_players=2, seed=0)
+    game.phase, game.supply["Province"] = Phase.BUY, provinces
+    game.players[0].coins = 8
+    game.players[0].discard += list(my_extra)
+    game.players[1].discard += list(opp_extra)
+    return game
+
+
+def test_penultimate_province_is_the_second_to_last_while_not_ahead():
+    assert agents.penultimate_province(_buy_phase(2, opp_extra=["Estate"]))
+    assert agents.penultimate_province(_buy_phase(2))
+    assert not agents.penultimate_province(_buy_phase(2, my_extra=["Estate"]))
+    assert not agents.penultimate_province(_buy_phase(3, opp_extra=["Estate"]))
+
+
+def test_playouts_score_a_move_that_ends_the_game():
+    agent = PPOAgent(DomibotNet(), torch.device("cpu"), seed=0)
+    assert agent.playout_win_rates(_buy_phase(1, opp_extra=["Duchy"]), [PROVINCE], 4) == [1.0]
+    assert agent.playout_win_rates(_buy_phase(1, opp_extra=["Duchy"] * 3), [PROVINCE], 4) == [0.0]
+
+
+def test_province_check_decides_the_spot(monkeypatch):
+    monkeypatch.setattr(agents, "PLAYOUT_MOVES", 20)
+    game = _buy_phase(2, opp_extra=["Estate"])
+    agent = PPOAgent(DomibotNet(), torch.device("cpu"), province_playouts=2, seed=0)
+    rates = agent.province_check(game)
+    assert PROVINCE in rates and len(rates) == 2
+    assert agent.act(game) in rates

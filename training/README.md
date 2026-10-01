@@ -217,6 +217,13 @@ entry. `tests/test_log_parser_edge_cases.py` replays 13 real games. Not
 covered: your own Library, reactions to a Throne-Roomed attack, a double
 reshuffle, two Sentries' topdeck order, and more than two players.
 
+The network misjudges some penultimate Provinces (taking the second-to-last
+while not ahead lets the opponent win with the last), so the relay decides
+those by 200 playouts each of Province and its best alternative
+(`PPOAgent(province_playouts=...)`). Added to the greedy policy, that check
+wins 1.5 points more against 2.4 itself and 1.0 more against BigMoney +
+terminal (6000 games each).
+
 ## Phase 1: MCTS self-play (AlphaZero-style), abandoned
 
 `mcts.py`'s PUCT search drove a self-play loop. Its best checkpoint,
