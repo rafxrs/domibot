@@ -1,13 +1,9 @@
-"""The policy/value network: given an encoded observation, predicts a
-distribution over the 206-action vocabulary (policy) and the expected game
-outcome from the deciding player's perspective (value, in [-1, 1]).
+"""`DomibotNet`: a residual MLP from an encoded observation to (policy logits, value).
 
-Residual MLP, 256 wide x 4 blocks by default; the size is saved in each
-checkpoint, so larger ones load transparently (see ppo/distill.py). The
-observation is already an engineered fixed-size feature vector (see
-encoding.py), not raw pixels/a board grid, so there's no reason for
-anything convolutional. At these sizes the network itself is not the
-compute bottleneck of self-play; the Python game engine is.
+Input blocks beyond the base encoding (public extras, own zones) feed the first
+hidden layer through zero-initialized projections, so adding one to a trained
+network leaves its outputs unchanged until trained. The size and inputs are
+saved in each checkpoint.
 """
 from __future__ import annotations
 
@@ -28,11 +24,7 @@ def get_device() -> torch.device:
 
 
 class _ResidualBlock(nn.Module):
-    """Pre-norm residual block. The norm is what makes a stack of these
-    trainable at a fixed learning rate; the residual stream is deliberately
-    left *unclamped* (no ReLU after the add), since clamping it non-negative
-    at every block throws away half the representable directions and
-    compounds over depth."""
+    """Pre-norm residual block; the residual stream itself is left unclamped."""
 
     def __init__(self, dim: int):
         super().__init__()
@@ -41,10 +33,7 @@ class _ResidualBlock(nn.Module):
         self.fc2 = nn.Linear(dim, dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        h = self.norm(x)
-        h = F.relu(self.fc1(h))
-        h = self.fc2(h)
-        return x + h
+        return x + self.fc2(F.relu(self.fc1(self.norm(x))))
 
 
 class DomibotNet(nn.Module):
@@ -53,50 +42,31 @@ class DomibotNet(nn.Module):
                  zones_dim: int = 0):
         super().__init__()
         if zones_dim and not extra_dim:
-            raise ValueError("the own-zone inputs follow the public extras in the full encoding, so a network "
-                             "reading them must read the extras too")
-        self.obs_dim = obs_dim
-        self.num_actions = num_actions
-        self.hidden_dim = hidden_dim
-        self.num_blocks = num_blocks
-        self.extra_dim = extra_dim
-        self.zones_dim = zones_dim
-        # The observation mixes raw pile counts (Copper starts at 46) with
-        # 0/1 one-hots, a ~46x scale spread that badly conditions the first
-        # layer; this normalizes it before anything learns from it.
-        self.input_norm = nn.LayerNorm(obs_dim)
+            raise ValueError("the own-zone inputs follow the public extras, so they need the extras too")
+        self.obs_dim, self.num_actions, self.hidden_dim, self.num_blocks = obs_dim, num_actions, hidden_dim, num_blocks
+        self.extra_dim, self.zones_dim = extra_dim, zones_dim
+        self.input_norm = nn.LayerNorm(obs_dim)  # raw pile counts and 0/1 one-hots differ ~46x in scale
         self.input = nn.Linear(obs_dim, hidden_dim)
         if extra_dim:
-            # encoding.encode_public_extras, through its own norm and a
-            # zero-initialized projection added into the first hidden layer --
-            # so adding it to a trained network (with_extra_inputs) leaves
-            # that network's outputs exactly unchanged until it learns to use it.
-            self.extra_norm = nn.LayerNorm(extra_dim)
-            self.extra_input = nn.Linear(extra_dim, hidden_dim)
-            nn.init.zeros_(self.extra_input.weight)
-            nn.init.zeros_(self.extra_input.bias)
+            self.extra_norm, self.extra_input = nn.LayerNorm(extra_dim), self._zero_linear(extra_dim, hidden_dim)
         if zones_dim:
-            # encoding.encode_own_zones, the same way (see with_zone_inputs)
-            self.zones_norm = nn.LayerNorm(zones_dim)
-            self.zones_input = nn.Linear(zones_dim, hidden_dim)
-            nn.init.zeros_(self.zones_input.weight)
-            nn.init.zeros_(self.zones_input.bias)
+            self.zones_norm, self.zones_input = nn.LayerNorm(zones_dim), self._zero_linear(zones_dim, hidden_dim)
         self.blocks = nn.ModuleList(_ResidualBlock(hidden_dim) for _ in range(num_blocks))
         self.head_norm = nn.LayerNorm(hidden_dim)
         self.policy_head = nn.Linear(hidden_dim, num_actions)
-        self.value_head = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Linear(hidden_dim // 2, 1),
-            nn.Tanh(),
-        )
+        self.value_head = nn.Sequential(nn.Linear(hidden_dim, hidden_dim // 2), nn.ReLU(),
+                                        nn.Linear(hidden_dim // 2, 1), nn.Tanh())
+
+    @staticmethod
+    def _zero_linear(n_in: int, n_out: int) -> nn.Linear:
+        layer = nn.Linear(n_in, n_out)
+        nn.init.zeros_(layer.weight)
+        nn.init.zeros_(layer.bias)
+        return layer
 
     def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """obs: (batch, >= obs_dim + extra_dim + zones_dim) -- a wider full encoding is
-        fine, only the columns this network was built for are read. Returns
-        (policy_logits: (batch, num_actions), value: (batch,)), both raw —
-        masking/softmax happens in the caller, since only the caller knows
-        which actions are legal right now."""
+        """obs: (batch, >= the dims this network reads). Returns raw (policy logits, value);
+        masking is the caller's job."""
         x = self.input(self.input_norm(obs[:, :self.obs_dim]))
         if self.extra_dim:
             x = x + self.extra_input(self.extra_norm(obs[:, self.obs_dim:self.obs_dim + self.extra_dim]))
@@ -106,48 +76,40 @@ class DomibotNet(nn.Module):
         h = F.relu(x)
         for block in self.blocks:
             h = block(h)
-        h = self.head_norm(h)  # pre-norm blocks leave the stream unnormalized
+        h = self.head_norm(h)
         return self.policy_head(h), self.value_head(h).squeeze(-1)
 
+    def _with(self, prefix: str, **dims) -> "DomibotNet":
+        net = DomibotNet(obs_dim=self.obs_dim, num_actions=self.num_actions, hidden_dim=self.hidden_dim,
+                         num_blocks=self.num_blocks, **{"extra_dim": self.extra_dim, "zones_dim": self.zones_dim, **dims})
+        missing, unexpected = net.load_state_dict(self.state_dict(), strict=False)
+        assert not unexpected and all(k.startswith(prefix) for k in missing)
+        return net.to(next(self.parameters()).device)
+
     def with_extra_inputs(self, extra_dim: int = encoding.EXTRA_DIM) -> "DomibotNet":
-        """A copy of this (extras-free) network that also reads
-        `encoding.encode_public_extras`, producing identical outputs until
-        the new inputs' zero-initialized weights are trained."""
+        """A copy that also reads the public extras, with unchanged outputs until trained."""
         if self.extra_dim:
             raise ValueError("network already has extra inputs")
-        net = DomibotNet(obs_dim=self.obs_dim, num_actions=self.num_actions, hidden_dim=self.hidden_dim,
-                         num_blocks=self.num_blocks, extra_dim=extra_dim)
-        missing, unexpected = net.load_state_dict(self.state_dict(), strict=False)
-        assert not unexpected and all(k.startswith("extra_") for k in missing)
-        return net.to(next(self.parameters()).device)
+        return self._with("extra_", extra_dim=extra_dim)
 
     def with_zone_inputs(self, zones_dim: int = encoding.ZONES_DIM) -> "DomibotNet":
-        """A copy of this network that also reads `encoding.encode_own_zones`
-        (the player's own draw pile, discard pile and play area), producing
-        identical outputs until the new inputs' zero-initialized weights
-        are trained. The network must already read the public extras."""
+        """A copy that also reads the own-zone inputs, with unchanged outputs until trained."""
         if self.zones_dim:
             raise ValueError("network already has own-zone inputs")
-        net = DomibotNet(obs_dim=self.obs_dim, num_actions=self.num_actions, hidden_dim=self.hidden_dim,
-                         num_blocks=self.num_blocks, extra_dim=self.extra_dim, zones_dim=zones_dim)
-        missing, unexpected = net.load_state_dict(self.state_dict(), strict=False)
-        assert not unexpected and all(k.startswith("zones_") for k in missing)
-        return net.to(next(self.parameters()).device)
+        return self._with("zones_", zones_dim=zones_dim)
 
     def save(self, path: str | Path) -> None:
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
         torch.save({"state_dict": self.state_dict(), "obs_dim": self.obs_dim, "num_actions": self.num_actions,
                     "hidden_dim": self.hidden_dim, "num_blocks": self.num_blocks, "extra_dim": self.extra_dim,
                     "zones_dim": self.zones_dim}, path)
 
     @classmethod
     def load(cls, path: str | Path, map_location: str | torch.device | None = None) -> "DomibotNet":
-        checkpoint = torch.load(path, map_location=map_location, weights_only=True)
-        # Checkpoints from before the size was saved are all the default 256 x 4.
-        net = cls(obs_dim=checkpoint["obs_dim"], num_actions=checkpoint["num_actions"],
-                  hidden_dim=checkpoint.get("hidden_dim", HIDDEN_DIM),
-                  num_blocks=checkpoint.get("num_blocks", NUM_RESIDUAL_BLOCKS),
-                  extra_dim=checkpoint.get("extra_dim", 0), zones_dim=checkpoint.get("zones_dim", 0))
-        net.load_state_dict(checkpoint["state_dict"])
+        ckpt = torch.load(path, map_location=map_location, weights_only=True)
+        net = cls(obs_dim=ckpt["obs_dim"], num_actions=ckpt["num_actions"],
+                  hidden_dim=ckpt.get("hidden_dim", HIDDEN_DIM),  # older checkpoints are all 256 x 4
+                  num_blocks=ckpt.get("num_blocks", NUM_RESIDUAL_BLOCKS),
+                  extra_dim=ckpt.get("extra_dim", 0), zones_dim=ckpt.get("zones_dim", 0))
+        net.load_state_dict(ckpt["state_dict"])
         return net

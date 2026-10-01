@@ -16,7 +16,7 @@ from concurrent.futures import ProcessPoolExecutor
 import torch
 
 from .env import random_kingdom
-from .evaluate import play_game, wilson
+from .evaluate import play_both_seats, wilson
 from .strategy_bots import ALL_BOTS, SCRIPTED
 
 _AGENT_CACHE: dict[str, object] = {}
@@ -44,19 +44,7 @@ def home_kingdoms(home: tuple[str, ...], n: int, seed: int) -> list[tuple[list[s
 
 
 def _play_chunk(subject: str, opponent: str, games: list[tuple[list[str], int]]) -> tuple[int, int, int]:
-    """(subject wins, opponent wins, ties) over `games`, each from both seats."""
-    a, b = load_agent(subject), load_agent(opponent)
-    w = l = t = 0
-    for kingdom, seed in games:
-        for seat in (0, 1):
-            winners = play_game(*((a, b) if seat == 0 else (b, a)), kingdom, seed).winners()
-            if len(winners) != 1:
-                t += 1
-            elif winners[0] == seat:
-                w += 1
-            else:
-                l += 1
-    return w, l, t
+    return play_both_seats(load_agent(subject), load_agent(opponent), games)
 
 
 def run_matchup(pool: ProcessPoolExecutor, subject: str, opponent: str, games: list[tuple[list[str], int]],
