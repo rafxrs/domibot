@@ -110,6 +110,15 @@ def test_a_choice_of_nothing_also_recommends_the_next_move(capsys, monkeypatch):
         assert capsys.readouterr().out.count("==> recommended:") == moves_shown
 
 
+def test_a_log_gaining_a_card_outside_the_kingdom_asks_for_the_kingdom_again(monkeypatch):
+    import test_log_parser as T
+    from examples.domibot_relay import try_parse_log
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: " ".join(T.KINGDOM))
+    parsed, kingdom = try_parse_log(T.REAL_LOG, ["Market"] + T.KINGDOM[1:], "domibot_v1.4")
+    assert kingdom == T.KINGDOM and parsed.my_hand is not None
+
+
 def test_prompt_multiline_ignores_spurious_leading_blank_line(monkeypatch):
     # A Windows console paste can start with a spurious blank line.
     fed = iter(["", "Turn 1 - domibot_v1.4", "d plays 3 Coppers. (+$3)", ""])

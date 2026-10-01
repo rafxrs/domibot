@@ -4,7 +4,7 @@
     python examples/domibot_relay.py --checkpoint checkpoints/domibot1/domibot_v4.4.pt --simulations 400
 
 At each query, paste the game's whole text log and press Enter on a blank
-line. The log is replayed (`training/log_parser.py`) to rebuild what you can
+line; a log from a new game asks for its kingdom again. The log is replayed (`training/log_parser.py`) to rebuild what you can
 see (`training/relay.py`), and the advisor recommends your move: what to play
 or buy, or the choice waiting inside a card (yours, or the opponent's attack).
 A choice made in several steps with nothing revealed between them (Chapel's
@@ -33,11 +33,12 @@ from domibot.models import DONE, END_ACTIONS, NO
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from examples.common import DEFAULT_CHECKPOINT, load_network  # noqa: E402
-from training.log_parser import parse_dominion_log  # noqa: E402
+from training.log_parser import KingdomError, parse_dominion_log  # noqa: E402
 from training.mcts import materialize, run_mcts, select_action, visit_distribution  # noqa: E402
 from training.relay import (CARD_ABBREVIATIONS, TableState, reconstruct_game,  # noqa: E402
                             reconstruct_opponent_turn_boundary, replay_open_play, resolve_card_name, table_state)
 
+_GAME_ID = re.compile(r"^Game #(\d+)", re.MULTILINE)
 _LEADING_COUNT = re.compile(r"^(\d+)x?$", re.IGNORECASE)
 _TRAILING_COUNT = re.compile(r"^(.+?)x(\d+)$", re.IGNORECASE)
 _FRESH_SUPPLY = {"Copper": 46, "Silver": 40, "Gold": 30, "Estate": 8, "Duchy": 8, "Province": 8, "Curse": 10}
@@ -238,16 +239,19 @@ def recommend_pending_reaction(state: TableState, parsed, network: torch.nn.Modu
         recommend_choice(boundary, path, network, simulations, device)
 
 
-def try_parse_log(kingdom: list[str], my_name: str):
-    """A pasted log's `ParsedLog`, or None for an empty paste or one that can't be parsed."""
-    text = prompt_multiline("Paste a dominion.games log to auto-fill this decision")
-    if not text.strip():
-        return None
-    try:
-        return parse_dominion_log(text, my_name=my_name, kingdom=kingdom)
-    except ValueError as e:
-        print(f"  couldn't parse that log: {e} -- falling back to manual entry\n")
-        return None
+def try_parse_log(text: str, kingdom: list[str], my_name: str):
+    """A pasted log's `ParsedLog` (None for an empty paste or one that can't be parsed) and
+    its kingdom, asked for again if the log gains a card outside it."""
+    while text.strip():
+        try:
+            return parse_dominion_log(text, my_name=my_name, kingdom=kingdom), kingdom
+        except KingdomError as e:
+            print(f"  {e} -- enter this game's kingdom")
+            kingdom = prompt_kingdom()
+        except ValueError as e:
+            print(f"  couldn't parse that log: {e} -- falling back to manual entry\n")
+            break
+    return None, kingdom
 
 
 def _fully_derived(parsed) -> bool:
@@ -306,10 +310,17 @@ def main() -> None:
     print()
     kingdom = prompt_kingdom()
     print(f"Using account name {args.account_name!r} for log parsing (override with --account-name).\n")
-    supply = None
+    supply = game_id = None
     try:
         while True:
-            parsed = try_parse_log(kingdom, args.account_name)
+            text = prompt_multiline("Paste a dominion.games log to auto-fill this decision")
+            if (m := _GAME_ID.search(text)) and game_id not in (None, m.group(1)):
+                print(f"A new game (#{m.group(1)}):")
+                kingdom, supply = prompt_kingdom(), None
+            game_id = m.group(1) if m else game_id
+            parsed, new_kingdom = try_parse_log(text, kingdom, args.account_name)
+            if new_kingdom != kingdom:
+                kingdom, supply = new_kingdom, None
             if parsed is not None:
                 supply = parsed.supply
             if parsed is not None and parsed.pending_reaction_path is not None:

@@ -5,7 +5,7 @@ import pytest
 
 from domibot import Action
 from domibot.models import END_ACTIONS
-from training.log_parser import parse_dominion_log
+from training.log_parser import KingdomError, parse_dominion_log
 from training.relay import reconstruct_game, resolve_card_name, table_state
 
 FIXTURES = Path(__file__).parent / "fixtures" / "dominion_logs"
@@ -131,6 +131,13 @@ def test_my_hand_derived_when_log_ends_at_a_fresh_turn_for_me():
     assert parsed.my_buys == 1
     assert parsed.my_coins == 0
     assert parsed.my_play_area == []
+
+
+def test_a_gain_outside_the_kingdom_is_a_kingdom_error():
+    # Usually a new game pasted while the relay still holds the last game's kingdom.
+    with pytest.raises(KingdomError, match="Gardens"):
+        parse_dominion_log(FRESH_TURN_LOG.replace("a Market", "a Gardens"), my_name="domibot_v1.4",
+                           kingdom=FRESH_TURN_KINGDOM)
 
 
 def test_my_hand_not_derived_when_the_fresh_turn_is_the_opponents():

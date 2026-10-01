@@ -64,11 +64,15 @@ _STARTING_COPPER = 7
 _STARTING_ESTATE = 3
 
 
+class KingdomError(ValueError):
+    """The log gains a card that isn't in the kingdom given."""
+
+
 @dataclass
 class LogEvent:
     """One log line, pre-parsed for `relay.replay_open_play`."""
     mine: bool
-    kind: str  # play, treasure, draw, look, reveal, trash, discard, gain, buy, topdeck, shuffle, gets, other
+    kind: str  # play, treasure, draw, look, reveal, trash, discard, gain, buy, topdeck, shuffle, gets, react, other
     cards: list[str] = field(default_factory=list)
     again: bool = False
     context: str | None = None  # the card the actor last played, whose effect this line belongs to
@@ -673,6 +677,8 @@ def _event_for_line(line: str, player_of, my_full_name: str, last_played: dict) 
             return LogEvent(mine, kind, _parse_card_list(m.group(2)))
     if _REVEALS_HAND_LINE.match(line):
         return LogEvent(mine, "other")
+    if _REACTS_LINE.match(line):
+        return LogEvent(mine, "react")
     for kind, regex in (("look", _LOOKS_AT_LINE), ("reveal", _REVEALS_LINE), ("trash", _TRASH_LINE),
                         ("discard", _DISCARD_LINE), ("topdeck", _TOPDECK_LINE), ("draw", _DRAW_LINE)):
         if m := regex.match(line):
@@ -774,6 +780,8 @@ def parse_dominion_log(text: str, my_name: str, kingdom: list[str], num_players:
         elif m := _BUY_GAIN_LINE.match(line) or _GAIN_LINE.match(line):
             mine = resolve(m.group(1)) == my_full_name
             for card in _parse_card_list(m.group(2)):
+                if card not in supply:
+                    raise KingdomError(f"the log gains {card}, which isn't in the kingdom ({', '.join(kingdom)})")
                 supply[card] -= 1
                 if mine:
                     my_total[card] += 1
