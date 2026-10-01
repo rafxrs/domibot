@@ -1,6 +1,6 @@
 """What a checkpoint plays against itself: for each kingdom card, how often it ends
 in a deck when available, is bought and is played; what Throne Room is used on;
-and Actions played per turn.
+Actions played per turn; and the split of all its buys.
 
     python -m training.strategy_profile checkpoints/domibot2/domibot2.4.pt --games 600 --workers 6
     python -m training.strategy_profile checkpoints/domibot2/domibot2.4.pt --force "Throne Room" Village
@@ -31,6 +31,7 @@ def _profile_chunk(subject: str, games: list[tuple[list[str], int]]) -> dict[str
             if (game.current_player, game.turn_number) != turn_key:
                 if turn_key is not None:
                     stats["turn_plays"][min(turn_plays, PLAYS_CAP)] += 1
+                    stats["misc"]["action_plays"] += turn_plays
                 turn_key, turn_plays = (game.current_player, game.turn_number), 0
             action, decision = agent.act(game), game.pending_decision
             played = []
@@ -49,6 +50,7 @@ def _profile_chunk(subject: str, games: list[tuple[list[str], int]]) -> dict[str
             game.step(action)
         if turn_key is not None:
             stats["turn_plays"][min(turn_plays, PLAYS_CAP)] += 1
+            stats["misc"]["action_plays"] += turn_plays
         stats["misc"]["games"] += 1
         stats["misc"]["turns"] += sum(p.turns_taken for p in game.players)
         for player in game.players:
@@ -93,8 +95,12 @@ def main() -> None:
     print(f"Throne Room played on: {dict(targets.most_common()) or 'never played'}"
           + (f" (on another Throne Room {targets['Throne Room']} times)" if targets["Throne Room"] else ""))
     turns = sum(s["turn_plays"].values())
-    print(f"Actions played per turn ({turns} turns): " + "  ".join(
+    print(f"Actions played per turn ({turns} turns): {s['misc']['action_plays'] / turns:.2f} on average; " + "  ".join(
         f"{k}{'+' if k == PLAYS_CAP else ''}: {s['turn_plays'][k] / turns:.1%}" for k in range(PLAYS_CAP + 1)))
+    bought = s["bought"]
+    buys = sum(bought.values())
+    print(f"Buys ({buys / turns:.2f} per turn), share of all: "
+          + ", ".join(f"{card} {count / buys:.1%}" for card, count in bought.most_common()))
 
 
 if __name__ == "__main__":

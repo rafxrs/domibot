@@ -127,6 +127,11 @@ saw a deck holding them again. 2.4 got Chapel and Village back. It still
 never buys Throne Room, nor Workshop, Artisan, Remodel, Mine, Moneylender
 or Vassal.
 
+Over 5000 self-play games, 2.4 plays 1.73 Actions per turn (none in 36%
+of turns, five or more in 12%). Its buys are 41% Victory cards (Province
+18%, Duchy 11%, Estate 8%, Gardens 4%), 27% Treasures (Silver 13%, Gold 10%,
+Copper 4%) and 32% Actions, Sentry the most bought at 5%.
+
 ### Finding what it's missing
 
 **The gauntlet** plays a checkpoint against scripted strategies, each on
